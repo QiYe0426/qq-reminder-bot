@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.zip
+*.log
+
+data/*.db
+data/*.db-journal
+data/*.db-wal
+data/*.db-shm
+
+.env
+.env.*
+!.env.example
+
+qq_reminder_bot.egg-info/
