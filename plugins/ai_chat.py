@@ -9,6 +9,9 @@ from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, Message, Message
 from nonebot.log import logger
 from openai import AsyncOpenAI
 
+from plugins.access_control import FEATURE_COLLECTOR, is_group_feature_enabled
+from plugins.message_archive import save_ai_reply
+
 
 load_dotenv(".env.local")
 
@@ -129,5 +132,18 @@ async def handle_ai_chat(bot: Bot, event: MessageEvent) -> None:
     except Exception:
         logger.exception("AI chat request failed")
         answer = "AI调用失败了，稍后再试一下。"
+
+    if isinstance(event, GroupMessageEvent):
+        try:
+            if await is_group_feature_enabled(str(event.group_id), FEATURE_COLLECTOR):
+                await save_ai_reply(
+                    group_id=event.group_id,
+                    bot_user_id=bot.self_id,
+                    answer=answer,
+                    source_message_id=getattr(event, "message_id", None),
+                    source_user_id=event.user_id,
+                )
+        except Exception:
+            logger.exception("Failed to archive AI reply")
 
     await ai_chat.finish(Message(answer))

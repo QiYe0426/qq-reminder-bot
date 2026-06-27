@@ -1,12 +1,93 @@
-# 猎bot v1.0.0
+# 猎bot版本日志
+
+## v1.1.0
+
+发布日期：2026-06-27
+
+### 版本定位
+
+这一版把猎bot从单群提醒 bot 扩展为可按群管理的 QQ 助手，新增消息采集、存储状态、媒体识别和自动图片识别，为后续群日报总结打基础。
+
+### 新增功能
+
+- 新增管理员权限体系：
+  - 通过 `.env.local` 的 `BOT_ADMIN_USER_IDS` 配置管理员 QQ。
+  - 兼容旧配置 `BOT_OWNER_USER_IDS` 和 `OWNER_USER_IDS`。
+  - 管理员提示文案统一使用“管理员”。
+- 新增分群功能开关：
+  - 新群默认保留 AI 对话、`ping`、`help`、`群功能状态`。
+  - 提醒和消息采集默认关闭，需要管理员按群开启。
+  - 支持 `开启群功能 提醒`、`关闭群功能 提醒`。
+  - 支持 `开启群功能 消息采集`、`关闭群功能 消息采集`。
+- 常数报时增强：
+  - `启用/开启🎒常数报时`、`关闭🎒常数报时` 改为管理员命令。
+  - 支持每小时 58 分报时。
+  - 支持每天两次报时：凌晨1:58和下午1:58。
+  - 常数报时文案改为 12 小时制。
+  - `群功能状态` 会显示 🎒常数报时状态。
+- 新增指定群消息采集：
+  - 开启消息采集后，实时保存该群消息。
+  - 保存发送人、时间、消息段类型、可读文本、原始消息结构和事件 JSON。
+  - 保留 `@`、图片、语音、视频、回复、聊天记录、JSON/XML 等消息段信息。
+  - 群内 AI Chat 的用户提问和 bot 回复都会写入采集库。
+  - 管理员命令通常不进入采集库。
+- 新增采集查询和导出：
+  - `采集状态` 查看当前群或全局采集数量。
+  - `查看采集 数字` 导出最近采集消息 txt，数字范围 1-50。
+  - 群内导出只包含当前群，不会窜群。
+  - 导出内容按时间顺序排列。
+  - txt 文件通过 bot 的本地 HTTP 路由辅助上传给 NapCat。
+- 新增存储状态命令：
+  - `存储状态` / `硬盘状态` / `空间状态` 查看服务器磁盘和数据占用。
+  - 显示消息数据库、提醒数据库、功能设置库、导出目录、日报目录和媒体缓存目录占用。
+- 新增媒体识别实验模块：
+  - 通过 `MEDIA_INSIGHTS_ENABLED=1` 开启。
+  - 通过 `MEDIA_INSIGHTS_AUTO_ENABLED=1` 开启新图片自动识别。
+  - 通过 `IMAGE_VISION_ENABLED=1` 控制是否真正调用视觉模型。
+  - 支持 OpenAI 兼容视觉接口，默认示例使用 Qwen `qwen-vl-plus`。
+  - 图片直接使用 QQ 图片 URL 交给视觉模型，不在服务器本地下载图片。
+  - 识别结果写入 `message_insights`，并在 `查看采集` 导出的 txt 中展示。
+  - `媒体识别状态` 查看识别开关、模型、密钥状态和识别记录。
+  - `扫描媒体识别` 用于补扫历史消息或手动重试 pending 图片。
+
+### 配置变更
+
+- `.env.example` 新增：
+  - `BOT_ADMIN_USER_IDS`
+  - `MEDIA_INSIGHTS_ENABLED`
+  - `MEDIA_INSIGHTS_AUTO_ENABLED`
+  - `MEDIA_INSIGHTS_BATCH_SIZE`
+  - `IMAGE_VISION_ENABLED`
+  - `IMAGE_VISION_MODEL`
+  - `IMAGE_VISION_API_KEY`
+  - `IMAGE_VISION_BASE_URL`
+  - `IMAGE_VISION_TIMEOUT_SECONDS`
+  - `SUMMARY_MODEL`
+- 新增 SQLite 数据库：
+  - `data/bot_settings.db`：分群功能开关。
+  - `data/message_archive.db`：群消息采集和媒体识别记录。
+
+### 技术变更
+
+- 新增插件：
+  - `plugins/access_control.py`
+  - `plugins/message_archive.py`
+  - `plugins/message_collector.py`
+  - `plugins/storage_status.py`
+  - `plugins/media_insights.py`
+- `plugins/ai_chat.py` 会在群消息采集开启时同步写入 AI 回复。
+- `plugins/reminder.py` 接入管理员权限和分群功能开关。
+- `pyproject.toml` 注册全部插件并将版本号更新到 `1.1.0`。
+
+## v1.0.0
 
 发布日期：2026-06-20
 
-## 版本定位
+### 版本定位
 
-这是猎bot的第一个可用版本。目标不是做成大型平台，而是稳定跑通 QQ bot 的完整链路：QQ 登录、消息接收、功能处理、消息回复、服务器常驻运行。
+第一个可用版本，跑通 QQ bot 的基础链路：QQ 登录、消息接收、功能处理、消息回复、服务器常驻运行。
 
-## 已完成功能
+### 已完成功能
 
 - `ping` 在线检测。
 - `help` 简洁菜单。
@@ -30,7 +111,7 @@
   - NapCat 使用 Docker 运行。
   - SQLite 保存提醒和报时开关。
 
-## 运行环境
+### 运行环境
 
 - Python 3.10+
 - NoneBot2
@@ -39,7 +120,7 @@
 - SQLite
 - DeepSeek/OpenAI-compatible Chat Completions API
 
-## 安全说明
+### 安全说明
 
 真实 API Key 只放在服务器的 `.env.local`，不要提交到 GitHub。
 
@@ -48,13 +129,6 @@
 - `.env`
 - `.env.local`
 - `.venv/`
-- `data/reminders.db`
+- `data/*.db`
 - `qq_reminder_bot.egg-info/`
 - 打包生成的 `.zip`
-
-## 后续方向
-
-- 给 AI 对话增加上下文记忆。
-- 增加管理员权限控制。
-- 增加更多自然语言时间解析。
-- 用 GitHub Release 管理正式版本包。
