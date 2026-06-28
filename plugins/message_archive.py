@@ -172,10 +172,20 @@ def render_segment(segment: dict[str, object]) -> str:
         return str(data.get("text", ""))
     if segment_type == "at":
         qq = str(data.get("qq", "")).strip()
-        return f"@{qq}" if qq else "[@]"
+        name = str(data.get("name", "")).strip()
+        if qq:
+            return "@全体成员" if qq == "all" else f"@{qq}"
+        if name:
+            return f"@{name}"
+        return "[@]"
     if segment_type == "image":
         url = data.get("url") or data.get("file") or data.get("file_id") or ""
         return f"[图片:{url}]"
+    if segment_type == "mface":
+        summary = data.get("summary") or data.get("name") or data.get("id") or ""
+        url = data.get("url") or data.get("file") or data.get("file_id") or ""
+        value = summary or url
+        return f"[表情包:{value}]"
     if segment_type == "record":
         url = data.get("url") or data.get("file") or data.get("file_id") or ""
         return f"[语音:{url}]"
@@ -187,7 +197,11 @@ def render_segment(segment: dict[str, object]) -> str:
         return f"[文件:{name}]"
     if segment_type == "reply":
         message_id = data.get("id") or data.get("message_id") or ""
-        return f"[回复:{message_id}]"
+        qq = data.get("qq") or data.get("user_id") or ""
+        prefix = f"[回复:{message_id}]"
+        if qq:
+            prefix += f"@{qq}"
+        return prefix
     if segment_type == "forward":
         forward_id = data.get("id") or data.get("file") or ""
         return f"[聊天记录:{forward_id}]"
@@ -197,6 +211,24 @@ def render_segment(segment: dict[str, object]) -> str:
         return f"[XML:{data.get('data', '')}]"
     if segment_type == "face":
         return f"[表情:{data.get('id', '')}]"
+    if segment_type == "location":
+        title = data.get("title") or data.get("name") or ""
+        address = data.get("address") or data.get("desc") or ""
+        return f"[位置:{title}{' ' + str(address) if address else ''}]"
+    if segment_type == "share":
+        title = data.get("title") or data.get("name") or ""
+        return f"[分享:{title}]"
+    if segment_type == "contact":
+        nickname = data.get("nickname") or data.get("name") or ""
+        return f"[名片:{nickname}]"
+    if segment_type == "poke":
+        return f"[戳一戳:{data.get('type', '')}]"
+    if segment_type == "music":
+        title = data.get("title") or data.get("name") or ""
+        return f"[音乐:{title}]"
+    if segment_type == "anonymous":
+        nickname = data.get("nickname") or data.get("name") or ""
+        return f"[匿名:{nickname}]"
 
     return f"[{segment_type}:{dump_json(data)}]"
 

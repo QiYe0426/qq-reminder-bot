@@ -59,6 +59,16 @@ COMPANION_MEMORY_LOOKUP_LIMIT=5
 COMPANION_SUMMARY_MODEL=deepseek-v4-pro
 COMPANION_KNOWLEDGE_LOOKUP_LIMIT=3
 COMPANION_KNOWLEDGE_MIN_SCORE=2
+
+SUMMARY_MODEL=deepseek-v4-pro
+SUMMARY_API_KEY=你的日报总结密钥，留空则复用 DEEPSEEK_API_KEY
+SUMMARY_BASE_URL=https://api.deepseek.com
+SUMMARY_TIMEOUT_SECONDS=90
+SUMMARY_CHUNK_MESSAGES=80
+SUMMARY_MAX_INPUT_CHARS=24000
+DAILY_REPORT_ENABLED=0
+DAILY_REPORT_SEND_TIME=04:00
+DAILY_REPORT_TIMEZONE=Asia/Shanghai
 ```
 
 `BOT_PERSONA_PROMPT` 可以留空。上线后建议在管理页里编辑 bot 人设，保存后会写入 `data/companion_memory.db` 并实时生效。知识库也放在同一个数据库里。
@@ -77,7 +87,8 @@ COMPANION_KNOWLEDGE_MIN_SCORE=2
   plugins/ai_chat.py \
   plugins/message_collector.py \
   plugins/storage_status.py \
-  plugins/media_insights.py
+  plugins/media_insights.py \
+  plugins/daily_report.py
 ```
 
 ## 6. 重启服务
