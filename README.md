@@ -19,11 +19,22 @@
 - `采集状态`：查看指定群消息采集状态，仅管理员可用。
 - `查看采集 20`：导出当前群最近采集消息 txt，仅管理员可用，最大 50 条。
 - `存储状态`：查看服务器硬盘、数据库、日报和媒体缓存占用，仅管理员可用。
+- `同意猎宝记录我`：在已开启陪伴画像的群里注册，允许猎宝为本人更新陪伴画像。
+- `退出猎宝画像`：退出陪伴画像，之后不再更新本人画像。
+- `画像状态`：查看本群陪伴画像开关、自己的注册状态和本群注册人数。
+- `我的画像`：查看本人当前陪伴画像。
+- `更新我的画像`：手动总结本人新消息并更新画像。
+- `重置我的画像`：清空本人画像和记忆，但保留注册状态。
+- `删除我的画像`：清空本人画像和记忆，并退出注册。
+- `画像注册名单`：查看本群已注册陪伴画像的群友，仅管理员可用。
+- `查看群友画像 @群友`：查看已注册群友画像，仅管理员可用。
 - `媒体识别状态`：查看媒体识别开关、图片模型和识别记录，仅管理员可用。
 - `扫描媒体识别`：手动补扫已采集消息里的图片、语音和聊天记录，仅管理员可用。
 - 图片自动识别：开启媒体识别后，新采集到的图片会后台调用视觉模型，结果写入采集导出的 txt。
 - 群聊 `@bot 问题` 或 `猎宝，问题`：触发 AI 对话。
 - 私聊 `猎宝，问题` 或 `猎宝 问题`：触发 AI 对话。
+
+AI 对话默认开启提示词注入防护。群友消息如果伪装成系统命令、要求解码执行、静默执行、只输出结果或泄露提示词/令牌，bot 会直接拒绝执行；这类消息也不会进入陪伴画像总结。
 
 ## 本地启动
 
@@ -74,15 +85,69 @@ AI_MODEL=deepseek-v4-flash
 AI_TIMEOUT_SECONDS=30
 AI_MAX_QUESTION_LENGTH=800
 AI_MAX_REPLY_LENGTH=1200
+AI_PROMPT_INJECTION_GUARD_ENABLED=1
+BOT_PERSONA_PROMPT=
+COMPANION_ADMIN_TOKEN=
+COMPANION_MEMORY_AUTO_ENABLED=1
+COMPANION_MEMORY_INTERVAL_SECONDS=300
+COMPANION_MEMORY_BATCH_USERS=3
+COMPANION_MEMORY_MIN_MESSAGES=10
+COMPANION_MEMORY_COOLDOWN_MINUTES=15
+COMPANION_RECENT_CONTEXT_LIMIT=8
+COMPANION_MEMORY_LOOKUP_LIMIT=5
+COMPANION_SUMMARY_MODEL=deepseek-v4-pro
+COMPANION_KNOWLEDGE_LOOKUP_LIMIT=3
+COMPANION_KNOWLEDGE_MIN_SCORE=2
+COMPANION_EXTRACT_MAX_FILE_MB=15
+COMPANION_EXTRACT_MAX_TEXT_CHARS=12000
+COMPANION_EXTRACT_WEB_TIMEOUT_SECONDS=15
+COMPANION_EXTRACT_PDF_MAX_PAGES=80
 MEDIA_INSIGHTS_ENABLED=1
 MEDIA_INSIGHTS_AUTO_ENABLED=1
 IMAGE_VISION_ENABLED=1
 IMAGE_VISION_MODEL=qwen-vl-plus
+IMAGE_OCR_MODEL=qwen-vl-plus
 IMAGE_VISION_API_KEY=
 IMAGE_VISION_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 ```
 
 `.env.local` 已经被 `.gitignore` 忽略，不会进入 Git。
+
+## 陪伴画像管理页
+
+管理员可以在服务器上配置 `COMPANION_ADMIN_TOKEN` 后，通过浏览器管理 bot 人设和已注册群友画像。
+
+访问地址：
+
+```text
+http://服务器地址:8080/hunterbot/companion-admin?token=你的管理令牌
+```
+
+更推荐用 SSH 隧道本地访问，PowerShell 里运行：
+
+```powershell
+ssh -L 8090:127.0.0.1:8080 tencent-bot
+```
+
+然后打开：
+
+```text
+http://127.0.0.1:8090/hunterbot/companion-admin?token=你的管理令牌
+```
+
+页面左侧会显示 `bot 人设` 和已注册群友列表，右侧可以直接编辑并保存：
+
+- `bot 人设`：保存后写入 `data/companion_memory.db`，后续 AI 回复会实时读取。
+- `新建知识` / `知识：标题`：维护本地知识库，保存后写入 `data/companion_memory.db`。
+- 群友画像：可手动修改近期在做、互动风格、陪伴偏好、常聊主题、画像摘要和置信度。
+
+知识编辑区支持从 PDF、网页、图片和常见文本文件里提取文字。提取结果会先进入预览框，不会自动总结，也不会自动保存；管理员确认后可以追加或替换正文，再点保存写入知识库。
+
+知识库只在当前问题和知识标题、关键词或正文相关时被读取。无关对话不会把知识库内容塞进模型上下文。
+
+PDF 提取依赖 PDF 自带文字层；扫描版 PDF 需要先 OCR。图片文字提取会调用 `IMAGE_OCR_MODEL` / `IMAGE_VISION_MODEL`，并使用 `IMAGE_VISION_API_KEY` 或 `OPENAI_API_KEY`。
+
+如果没有配置 `COMPANION_ADMIN_TOKEN`，管理页和相关 API 会拒绝访问。
 
 ## 服务器部署
 
@@ -97,7 +162,7 @@ IMAGE_VISION_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 cd ~/qq-reminder-bot
 unzip -o ~/qq-reminder-bot-source.zip
 .venv/bin/pip install -e .
-.venv/bin/python -m py_compile bot.py plugins/access_control.py plugins/message_archive.py plugins/reminder.py plugins/ai_chat.py plugins/message_collector.py plugins/storage_status.py plugins/media_insights.py
+.venv/bin/python -m py_compile bot.py plugins/access_control.py plugins/companion_registry.py plugins/companion_memory.py plugins/companion_admin.py plugins/message_archive.py plugins/reminder.py plugins/ai_chat.py plugins/message_collector.py plugins/storage_status.py plugins/media_insights.py
 sudo systemctl restart qq-reminder-bot
 journalctl -u qq-reminder-bot -n 80 --no-pager
 ```
@@ -109,11 +174,17 @@ systemctl is-active qq-reminder-bot
 sudo docker ps --filter name=napcat
 ```
 
+更完整的服务器部署、配置、管理页访问和回滚步骤见 `DEPLOY.md`。
+
 ## 项目结构
 
 ```text
 bot.py                 NoneBot 启动入口
 plugins/access_control.py 分群开关和管理员权限代码
+plugins/companion_registry.py 陪伴画像注册和退出代码
+plugins/companion_memory.py 陪伴画像、记忆、检索和自动总结代码
+plugins/companion_admin.py 陪伴画像可视化管理页和 API
+                         也负责知识库文件、网页和图片文字提取
 plugins/reminder.py    提醒、查看、取消、常数报时代码
 plugins/ai_chat.py     AI 对话代码
 plugins/message_archive.py 消息归档写入代码
@@ -123,6 +194,7 @@ plugins/media_insights.py 媒体识别和图片自动识别代码
 data/reminders.db      SQLite 数据库，运行后自动生成，不提交
 data/message_archive.db 消息采集数据库，运行后自动生成，不提交
 data/bot_settings.db   分群功能开关数据库，运行后自动生成，不提交
+data/companion_memory.db 陪伴画像注册和后续画像数据库，运行后自动生成，不提交
 .env.example           配置模板，不包含真实密钥
 pyproject.toml         项目依赖和插件配置
 VERSION.md             版本说明
@@ -135,6 +207,10 @@ VERSION.md             版本说明
 - `.env`
 - `.env.local`
 - `data/reminders.db`
+- `data/message_archive.db`
+- `data/bot_settings.db`
+- `data/companion_memory.db`
+- `data/*.log`
 - `.venv/`
 - `qq_reminder_bot.egg-info/`
 - 打包生成的 `.zip`

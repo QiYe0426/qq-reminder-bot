@@ -10,6 +10,7 @@ dependencies = [
     "aiosqlite>=0.19.0",
     "python-dotenv>=1.0.1",
     "openai>=1.0.0",
+    "pypdf>=4.0.0",
 ]
 
 [build-system]
@@ -23,6 +24,9 @@ packages = ["plugins"]
 [tool.nonebot]
 plugins = [
     "plugins.access_control",
+    "plugins.companion_registry",
+    "plugins.companion_memory",
+    "plugins.companion_admin",
     "plugins.message_archive",
     "plugins.reminder",
     "plugins.ai_chat",

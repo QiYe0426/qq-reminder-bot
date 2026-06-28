@@ -45,6 +45,13 @@ ping 检测bot是否在线
 help 查看菜单
 @我/猎宝，问题 群聊AI对话
 猎宝，问题 私聊AI对话
+开启群功能 陪伴画像 开启本群陪伴画像（管理员）
+同意猎宝记录我 注册本人陪伴画像
+画像状态 查看本群陪伴画像状态
+我的画像 查看本人陪伴画像
+更新我的画像 手动更新本人画像
+重置我的画像 清空本人画像但保留注册
+删除我的画像 删除本人画像并退出注册
 提醒 09:00 喝水 创建定时提醒
 提醒 10分钟后喝水 创建倒计时提醒
 提醒 2026-06-20 09:00 喝水 创建指定日期提醒
@@ -611,7 +618,8 @@ async def set_current_group_feature(event: MessageEvent, raw_text: str, enabled:
 
     feature = normalize_feature_name(parts[1])
     if feature is None:
-        return "未知功能。可用功能：提醒、消息采集。"
+        available_features = "、".join(FEATURE_LABELS.values())
+        return f"未知功能。可用功能：{available_features}。"
 
     await set_group_feature(str(event.group_id), feature, enabled)
     action = "开启" if enabled else "关闭"
