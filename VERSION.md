@@ -1,5 +1,89 @@
 # 猎bot版本日志
 
+## v1.2.0-dev
+
+开发分支：`feature/daily-report-pipeline`
+
+### 版本定位
+
+这一阶段继续扩展群日报素材识别能力，在已有图片识别基础上新增表情包识别、聊天记录展开、链接内容提取、文件读取和语音转写入口。
+
+### 新增功能
+
+- 日报预览：
+  - 新增 `预览日报 今天`、`预览日报 昨天`、`预览日报 2026-06-27` 管理员命令。
+  - 日报命令仅在私聊中生效，群聊内发送会被静默忽略。
+  - 私聊发送时必须追加群号，例如 `预览日报 昨天 548901561`。
+  - 预览文件使用 `.txt` 后缀，内容保持 Markdown 风格排版，方便手机打开。
+  - 日报预览会合并当天群消息、素材识别结果、链接解析结果、文件内容摘录和聊天记录展开结果。
+  - 输出中保留 `[forward_message#N]` 标记，方便后续 AI 总结区分聊天记录子消息。
+- AI 日报总结：
+  - 新增 `生成日报 今天`、`生成日报 昨天`、`生成日报 2026-06-27` 管理员命令。
+  - 命令仅支持私聊，并需要追加群号，例如 `生成日报 昨天 548901561`。
+  - 按消息数量和字符数切块，先生成分块摘要，再合成最终日报。
+  - 总结时保留普通群消息、图片/表情包识别、链接内容、文件摘录、语音转写和聊天记录子消息的来源差异。
+  - AI 总结使用 `SUMMARY_*` 系列配置，不影响常规 AI Chat。
+- PDF 与定时发送：
+  - 生成日报时保存 Markdown 到 `data/reports/`，并向管理员发送 PDF。
+  - PDF 文件名使用 `2026年1月1日 群名的日报_群号.pdf` 格式。
+  - PDF 输出会清理 `**加粗**` 等 Markdown 标记，并使用更清晰的标题层级。
+  - PDF 内不再重复显示日期等文件名已包含的信息。
+  - 新增 `DAILY_REPORT_ENABLED`、`DAILY_REPORT_SEND_TIME` 定时发送配置。
+  - 自动日报会每天 04:00 为已开启“消息采集”的群生成前一天 04:00 到当天 04:00 的日报，并私聊发送给管理员。
+  - 新增私聊 `测试日报 昨天 群号` 管理员命令，用于手动测试自动发送路径。
+- 表情包识别：
+  - 支持 `mface` 表情包消息段。
+  - 支持普通 QQ `face` 表情记录。
+  - 图片类表情包会走视觉模型识别。
+  - 无图片 URL 的表情会保留表情 ID 或摘要。
+- 聊天记录识别：
+  - 支持识别合并转发 `forward` 消息段。
+  - 通过 OneBot/NapCat 的 `get_forward_msg` 接口尝试展开聊天记录。
+  - 展开后按发送人、时间和消息内容写入 `message_insights`。
+  - 展开结果会在 `raw_result.messages[]` 中保留结构化子消息，并标记 `source=forward` 和 `is_forward_message=true`，方便后续日报区分聊天记录里的消息。
+- 链接识别：
+  - 从普通文本、JSON 分享卡片和 XML 分享卡片中提取 URL。
+  - 尝试抓取网页标题、描述和正文摘录。
+  - 对 B站、小红书、微信公众号等来源先走通用网页解析；页面不可访问时尽量保留 QQ 卡片里的标题/摘要。
+  - 抓取前会校验 URL，跳过本机、内网、非公网地址。
+- 自动处理增强：
+  - 新采集消息触发自动识别时，会处理图片/表情包、链接、文件、语音、回复引用、视频、位置、分享卡片、名片、戳一戳、音乐、匿名消息和聊天记录。
+  - `扫描媒体识别` 会显示图片/表情包、链接、文件、语音和聊天记录的处理结果。
+
+### 配置变更
+
+- `.env.example` 新增：
+  - `LINK_FETCH_TIMEOUT_SECONDS`
+  - `LINK_FETCH_MAX_BYTES`
+  - `SUMMARY_API_KEY`
+  - `SUMMARY_BASE_URL`
+  - `SUMMARY_TIMEOUT_SECONDS`
+  - `SUMMARY_CHUNK_MESSAGES`
+  - `SUMMARY_MAX_INPUT_CHARS`
+  - `DAILY_REPORT_ENABLED`
+  - `DAILY_REPORT_SEND_TIME`
+  - `DAILY_REPORT_TIMEZONE`
+  - `VOICE_TRANSCRIBE_ENABLED`
+  - `VOICE_TRANSCRIBE_MODEL`
+  - `VOICE_TRANSCRIBE_API_KEY`
+  - `VOICE_TRANSCRIBE_BASE_URL`
+  - `VOICE_TRANSCRIBE_TIMEOUT_SECONDS`
+
+### 技术变更
+
+- 新增 `plugins/daily_report.py`：
+  - 从 `collected_messages` 和 `message_insights` 按群、按日期取数。
+  - 日报统计窗口从自然日改为每日 04:00 到次日 04:00。
+  - 生成 txt 文件格式日报预览，正文保持 Markdown 风格排版。
+  - 调用 OpenAI 兼容接口进行分块总结和最终总结。
+  - 使用 ReportLab 生成 PDF；发送侧只发送 PDF，不再发送 Markdown 文件。
+  - 使用 APScheduler 按已开启消息采集的群定时发送日报。
+  - 复用现有 txt 文件导出和 NapCat 文件上传能力。
+- 新增 `plugins/media_insights.py`：
+  - 文件消息会按类型做风险提示，文本/文档类会尽量读取正文摘录。
+  - 语音消息预留转写入口，开启后可把语音转成日报可用文本。
+  - 回复、视频、位置、分享卡片、名片、戳一戳、音乐和匿名消息都会进入总结输入。
+
 ## v1.1.0
 
 发布日期：2026-06-27

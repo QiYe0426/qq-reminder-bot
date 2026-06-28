@@ -1,6 +1,6 @@
 [project]
 name = "qq-reminder-bot"
-version = "1.1.0"
+version = "1.2.0"
 description = "A small QQ reminder bot built with NoneBot2 and OneBot v11."
 requires-python = ">=3.10"
 dependencies = [
@@ -10,6 +10,8 @@ dependencies = [
     "aiosqlite>=0.19.0",
     "python-dotenv>=1.0.1",
     "openai>=1.0.0",
+    "pypdf>=5.0.0",
+    "reportlab>=4.2.0",
 ]
 
 [build-system]
@@ -29,4 +31,5 @@ plugins = [
     "plugins.message_collector",
     "plugins.storage_status",
     "plugins.media_insights",
+    "plugins.daily_report",
 ]
