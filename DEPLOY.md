@@ -71,7 +71,7 @@ DAILY_REPORT_SEND_TIME=04:00
 DAILY_REPORT_TIMEZONE=Asia/Shanghai
 ```
 
-`BOT_PERSONA_PROMPT` 可以留空。上线后建议在管理页里编辑 bot 人设，保存后会写入 `data/companion_memory.db` 并实时生效。知识库也放在同一个数据库里。
+`BOT_PERSONA_PROMPT` 可以留空。未在管理页保存过人设时，bot 会读取 `config/bot_persona_prompt.txt` 里的默认人设；上线后也可以在管理页里编辑 bot 人设，保存后会写入 `data/companion_memory.db` 并实时生效。知识库也放在同一个数据库里。
 
 ## 5. 编译检查
 

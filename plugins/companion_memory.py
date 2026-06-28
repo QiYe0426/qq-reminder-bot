@@ -5,6 +5,7 @@ import json
 import os
 import re
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import aiosqlite
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -37,6 +38,8 @@ DEFAULT_MEMORY_LOOKUP_LIMIT = 5
 DEFAULT_KNOWLEDGE_LOOKUP_LIMIT = 3
 DEFAULT_KNOWLEDGE_MIN_SCORE = 2
 DEFAULT_PROMPT_GUARD_ENABLED = "1"
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_BOT_PERSONA_PATH = PROJECT_ROOT / "config" / "bot_persona_prompt.txt"
 MAX_MESSAGES_PER_SUMMARY = 80
 MAX_MESSAGE_CHARS = 180
 MAX_CONTEXT_CHARS = 2400
@@ -373,11 +376,24 @@ async def set_companion_setting(setting_key: str, setting_value: str) -> None:
         await db.commit()
 
 
+def default_bot_persona_prompt() -> str:
+    if not DEFAULT_BOT_PERSONA_PATH.exists():
+        return ""
+    try:
+        return DEFAULT_BOT_PERSONA_PATH.read_text(encoding="utf-8-sig").strip()
+    except OSError:
+        logger.exception("Failed to read default bot persona prompt")
+        return ""
+
+
 async def bot_persona_prompt() -> str:
     saved_prompt = await get_companion_setting("bot_persona_prompt", "")
     if saved_prompt.strip():
         return saved_prompt.strip()
-    return os.getenv("BOT_PERSONA_PROMPT", "").strip()
+    env_prompt = os.getenv("BOT_PERSONA_PROMPT", "").strip()
+    if env_prompt:
+        return env_prompt
+    return default_bot_persona_prompt()
 
 
 def tokenize_for_lookup(text: str) -> list[str]:

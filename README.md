@@ -186,7 +186,7 @@ http://127.0.0.1:8090/hunterbot/companion-admin?token=你的管理令牌
 
 页面左侧会显示 `bot 人设` 和已注册群友列表，右侧可以直接编辑并保存：
 
-- `bot 人设`：保存后写入 `data/companion_memory.db`，后续 AI 回复会实时读取。
+- `bot 人设`：保存后写入 `data/companion_memory.db`，后续 AI 回复会实时读取；未保存过时会读取 `config/bot_persona_prompt.txt` 里的默认人设。
 - `新建知识` / `知识：标题`：维护本地知识库，保存后写入 `data/companion_memory.db`。
 - 群友画像：可手动修改近期在做、互动风格、陪伴偏好、常聊主题、画像摘要和置信度。
 
