@@ -40,6 +40,9 @@ DEFAULT_KNOWLEDGE_MIN_SCORE = 2
 DEFAULT_PROMPT_GUARD_ENABLED = "1"
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_BOT_PERSONA_PATH = PROJECT_ROOT / "config" / "bot_persona_prompt.txt"
+BOT_PERSONA_PATH = Path(os.getenv("BOT_PERSONA_PATH", "data/bot_persona_prompt.txt"))
+if not BOT_PERSONA_PATH.is_absolute():
+    BOT_PERSONA_PATH = PROJECT_ROOT / BOT_PERSONA_PATH
 MAX_MESSAGES_PER_SUMMARY = 80
 MAX_MESSAGE_CHARS = 180
 MAX_CONTEXT_CHARS = 2400
@@ -386,14 +389,41 @@ def default_bot_persona_prompt() -> str:
         return ""
 
 
-async def bot_persona_prompt() -> str:
+async def migrate_legacy_bot_persona_prompt() -> str:
     saved_prompt = await get_companion_setting("bot_persona_prompt", "")
-    if saved_prompt.strip():
-        return saved_prompt.strip()
+    if not saved_prompt.strip():
+        return ""
+    await save_bot_persona_prompt(saved_prompt)
+    return saved_prompt.strip()
+
+
+async def save_bot_persona_prompt(persona_prompt: str) -> None:
+    BOT_PERSONA_PATH.parent.mkdir(parents=True, exist_ok=True)
+    await asyncio.to_thread(BOT_PERSONA_PATH.write_text, persona_prompt.strip(), encoding="utf-8")
+
+
+async def bot_persona_prompt() -> str:
+    if BOT_PERSONA_PATH.exists():
+        try:
+            return (await asyncio.to_thread(BOT_PERSONA_PATH.read_text, encoding="utf-8-sig")).strip()
+        except OSError:
+            logger.exception("Failed to read bot persona prompt file")
+
+    migrated_prompt = await migrate_legacy_bot_persona_prompt()
+    if migrated_prompt:
+        return migrated_prompt
+
     env_prompt = os.getenv("BOT_PERSONA_PROMPT", "").strip()
     if env_prompt:
+        await save_bot_persona_prompt(env_prompt)
         return env_prompt
-    return default_bot_persona_prompt()
+
+    default_prompt = default_bot_persona_prompt()
+    if default_prompt:
+        await save_bot_persona_prompt(default_prompt)
+        return default_prompt
+
+    return ""
 
 
 def tokenize_for_lookup(text: str) -> list[str]:

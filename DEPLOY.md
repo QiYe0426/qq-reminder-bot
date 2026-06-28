@@ -71,7 +71,7 @@ DAILY_REPORT_SEND_TIME=04:00
 DAILY_REPORT_TIMEZONE=Asia/Shanghai
 ```
 
-`BOT_PERSONA_PROMPT` 可以留空。未在管理页保存过人设时，bot 会读取 `config/bot_persona_prompt.txt` 里的默认人设；上线后也可以在管理页里编辑 bot 人设，保存后会写入 `data/companion_memory.db` 并实时生效。知识库也放在同一个数据库里。
+`BOT_PERSONA_PATH` 是管理页和 AI 共同读取的人设文件，默认是 `data/bot_persona_prompt.txt`。未在管理页保存过人设时，bot 会先尝试从旧版数据库设置或 `BOT_PERSONA_PROMPT` 迁移；都没有时，再用 `config/bot_persona_prompt.txt` 初始化这个文件。知识库和群友画像仍保存在 `data/companion_memory.db`。
 
 ## 5. 编译检查
 

@@ -31,8 +31,8 @@ from plugins.companion_memory import (
     init_companion_memory_db,
     list_knowledge_items,
     now_text,
+    save_bot_persona_prompt,
     save_knowledge_item,
-    set_companion_setting,
 )
 
 
@@ -965,7 +965,7 @@ def admin_html() -> str:
       setStatus('');
       if (state.selected.kind === 'persona') {{
         title.textContent = 'bot 人设';
-        editor.appendChild(field('persona', '人设提示词', (state.data && state.data.persona) || '', 12, '保存后立即影响后续 AI 回复。'));
+        editor.appendChild(field('persona', '人设提示词', (state.data && state.data.persona) || '', 12, '保存到 data/bot_persona_prompt.txt，后续 AI 回复会读取同一个文件。'));
         return;
       }}
       if (state.selected.kind === 'knowledge' || state.selected.kind === 'knowledge-new') {{
@@ -1235,7 +1235,7 @@ if (
         check_token(token=token, authorization=authorization)
         payload = await request.json()
         persona = str(payload.get("persona") or "")
-        await set_companion_setting("bot_persona_prompt", persona)
+        await save_bot_persona_prompt(persona)
         return JSONResponse({"persona": await bot_persona_prompt()})
 
     @server_app.get(f"{ADMIN_ROUTE_PREFIX}/api/users/{{group_id}}/{{user_id}}")

@@ -119,7 +119,7 @@ AI_TIMEOUT_SECONDS=30
 AI_MAX_QUESTION_LENGTH=800
 AI_MAX_REPLY_LENGTH=1200
 AI_PROMPT_INJECTION_GUARD_ENABLED=1
-BOT_PERSONA_PROMPT=
+BOT_PERSONA_PATH=data/bot_persona_prompt.txt
 COMPANION_ADMIN_TOKEN=
 COMPANION_MEMORY_AUTO_ENABLED=1
 COMPANION_MEMORY_INTERVAL_SECONDS=300
@@ -186,7 +186,7 @@ http://127.0.0.1:8090/hunterbot/companion-admin?token=你的管理令牌
 
 页面左侧会显示 `bot 人设` 和已注册群友列表，右侧可以直接编辑并保存：
 
-- `bot 人设`：保存后写入 `data/companion_memory.db`，后续 AI 回复会实时读取；未保存过时会读取 `config/bot_persona_prompt.txt` 里的默认人设。
+- `bot 人设`：保存后写入 `data/bot_persona_prompt.txt`，后续 AI 回复也会从这个文件实时读取；首次部署时会用 `config/bot_persona_prompt.txt` 初始化。
 - `新建知识` / `知识：标题`：维护本地知识库，保存后写入 `data/companion_memory.db`。
 - 群友画像：可手动修改近期在做、互动风格、陪伴偏好、常聊主题、画像摘要和置信度。
 
