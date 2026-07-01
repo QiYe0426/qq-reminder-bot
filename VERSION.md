@@ -1,6 +1,52 @@
 # 猎bot版本日志
 
-## v1.2.0-dev
+## v2.0.0 - 猎bot-初具人形
+
+发布日期：2026-07-02
+
+### 版本定位
+
+这一版把猎bot从“功能插件集合”整理成“用户消息 -> AI agent -> 受控工具 -> 回复/执行”的雏形。猎宝开始具备人设、长期记忆、群画像、知识库、提醒和常数报时工具、日报生成、控制台运维和分群权限管理，因此命名为“猎bot-初具人形”。
+
+### 新增和整理
+
+- AI agent：
+  - `plugins/ai_chat.py` 默认启用工具调用 agent。
+  - agent 可调用 `web_search`、`fetch_url`、`create_reminder`、`list_reminders`、`cancel_reminder`、`get_chime`、`set_chime` 和 `respond`。
+  - 提醒和常数报时核心逻辑分别下沉到 `plugins/reminder_service.py` 和 `plugins/chime_service.py`，命令入口与 AI 工具复用同一套业务代码。
+- 猎宝控制台：
+  - 新控制台固定为 `/hunterbot/admin-console`，旧 `/hunterbot/companion-admin` 已移除。
+  - 控制台包含 Bot 人设、STS2 知识库、群管理、智能陪伴、群画像、群友画像管理和消息采集记录。
+  - `日报` 标签下新增 `自动发送日报` 开关；开启日报后才可操作。
+  - `智能陪伴附加功能` 下的 `调戏其他bot` 和 `🎒常数回怼` 可配置每分钟、每小时、每天触发上限，并显示本分钟、每小时、每天已使用次数。
+- 智能陪伴和群管理：
+  - 陪伴画像记录对象完全改为控制台选择，旧群内自助注册/退出/更新/重置/删除流程只保留提示，不再写入记录对象。
+  - 支持群画像，AI 回复可读取当前群的群性质和回复参考。
+  - 可把群友标记为其他 bot，并配置关键词，配合 `调戏其他bot` 做限流短回复。
+- 常数相关功能：
+  - 常数报时支持每小时 58 分和每天两次两种模式。
+  - `🎒常数回怼` 支持文本和图片中的阿拉伯数字 `158` 检测，图片检测复用视觉模型配置。
+  - 回怼图片以 base64 消息发送，避免服务器本地路径被 NapCat 拒读。
+- 日报：
+  - 自动日报可跟随控制台每群 `自动发送日报` 开关；`DAILY_REPORT_GROUP_IDS` 只在显式配置时作为强制白名单。
+  - 自动生成日报时会私聊提醒管理员开始、跳过、失败和完成状态。
+  - 启动补跑逻辑通过 `DAILY_REPORT_STARTUP_GRACE_MINUTES` 控制，并记录已发送日期避免重复发送。
+- STS2 知识库：
+  - 控制台只保留 STS2 入口，旧 STS1 种子和入口已清理。
+  - `sts_knowledge_seed.py` 可重建事实库和自建攻略库。
+  - 自建攻略源纳入 `knowledge_sources/sts2_guides/main_1.tex`。
+- 部署：
+  - 服务器后续改为干净 Git clone + `git pull --ff-only` 更新。
+  - `.env.local`、`data/`、`.venv/` 仍只保存在服务器，不提交 GitHub。
+  - 新增 `deploy/nginx/hunterbot-admin-console.conf` 作为控制台反向代理配置参考。
+
+### 破坏性变更
+
+- 删除 `plugins/companion_admin.py` 旧控制台插件。
+- 删除旧控制台的文字提取入口；知识条目现在通过控制台编辑或 `sts_knowledge_seed.py` 重建。
+- 服务器如果曾用手工上传 zip 更新，需要整理成干净 Git clone，并先备份 `.env.local`、`data/` 和运行数据库。
+
+## v1.2.0-dev（历史开发阶段）
 
 开发分支：`feature/knowledge-base`
 

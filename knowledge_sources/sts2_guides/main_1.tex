@@ -1,0 +1,1346 @@
+﻿\documentclass[12pt, a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[UTF8]{ctex}
+\usepackage[margin=1in]{geometry}
+\usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{titlesec}
+\usepackage{parskip}
+\usepackage{graphicx}
+\usepackage{wrapfig}
+\usepackage{tcolorbox}
+\tcbuselibrary{skins}
+\usepackage{ifthen}
+\usepackage{tikz}
+\usetikzlibrary{calc}
+\usepackage{fontspec}
+\usepackage{xeCJK}
+
+% 自定义一个“深蓝/接近黑色”的底色（RGB数值可自行微调）
+\definecolor{stsbg}{RGB}{15, 20, 35}
+
+% 自定义高亮命令，替代对中文支持极差的 soul 宏包
+\newcommand{\hl}[1]{\colorbox{yellow}{#1}}
+
+% 定义一个方便的命令，用于在文字中间插入小图标，并让图片和文字垂直居中对齐
+\newcommand{\icon}[1]{\raisebox{-0.2\height}{\includegraphics[height=1.2em]{#1}}}
+
+% 封装卡牌稀有度图标切换命令
+% 参数 #1: 0代表普通，1代表罕见，2代表稀有
+\newcommand{\rarity}[1]{%
+  \ifcase#1\relax
+    \icon{icons/reward_icon_card.png}% 参数为 0 时执行
+  \or
+    \icon{icons/reward_icon_uncommon.png}% 参数为 1 时执行
+  \or
+    \icon{icons/reward_icon_rare.png}% 参数为 2 时执行
+  \else
+    % 如果传入了 0,1,2 之外的数字（防错处理），渲染特殊卡图标
+    \icon{icons/reward_icon_special_card.png}%
+  \fi
+}
+
+% 定义一个优雅的居中分割线，用于区隔正文与总结段落
+\newcommand{\stsdivider}{%
+  \vspace{1.5em}%
+  \centerline{\textcolor{stsbg!70}{\rule{0.5\textwidth}{1pt}}}%
+  \vspace{1.5em}%
+}
+
+% 封装全功能卡牌/图鉴命令
+% #1: 左侧图片盒子的宽度 (例如 2.5cm)
+% #2: 图片文件名/路径
+% #3: 右侧的说明文字
+% #4: 是否添加深色底色外框 (1 表示加，0 表示不加)
+% #5: 是否保留圆角效果 (1 表示圆角，0 表示直角)
+\newcommand{\carddesc}[5]{%
+  \noindent% 自动取消首行缩进
+  \begin{minipage}[t]{#1}% 左侧图片盒子
+    \vspace{0pt}% 确保顶部对齐
+    \ifthenelse{\equal{#4}{1}}{%
+        % 【情况 1 & 2：需要深色底色框】
+        \ifthenelse{\equal{#5}{1}}{%
+            % 情况 1：有底色框 + 有圆角
+            \tcbox[
+                enhanced, colback=stsbg, colframe=stsbg, boxrule=0pt, arc=6pt, auto outer arc,
+                boxsep=0pt, left=2pt, right=2pt, top=2pt, bottom=2pt, nobeforeafter
+            ]{\includegraphics[width=\dimexpr\linewidth-4pt\relax]{#2}}%
+        }{%
+            % 情况 2：有底色框 + 纯直角
+            \tcbox[
+                enhanced, colback=stsbg, colframe=stsbg, boxrule=0pt, arc=0pt, sharp corners,
+                boxsep=0pt, left=2pt, right=2pt, top=2pt, bottom=2pt, nobeforeafter
+            ]{\includegraphics[width=\dimexpr\linewidth-4pt\relax]{#2}}%
+        }%
+    }{%
+        % 【情况 3 & 4：不需要深色底色框】
+        \ifthenelse{\equal{#5}{1}}{%
+            % 情况 3：无底色框 + 强行圆角（修复核心点：用 enhanced 替代 blankest 并隐藏内外框）
+            \tcbox[
+                enhanced, frame hidden, interior hidden, boxrule=0pt,
+                arc=8pt, auto outer arc, clip upper, nobeforeafter, % arc=8pt 加大圆角幅度
+                boxsep=0pt, left=0pt, right=0pt, top=0pt, bottom=0pt
+            ]{\includegraphics[width=\linewidth]{#2}}%
+        }{%
+            % 情况 4：无底色框 + 纯直角原图直出
+            \includegraphics[width=\linewidth]{#2}%
+        }%
+    }%
+  \end{minipage}%
+  \hfill% 撑开中段空白
+  \begin{minipage}[t]{\dimexpr\linewidth-#1-0.3cm\relax}% 右侧文本盒子
+    \vspace{0pt}% 确保顶部对齐
+    #3% 插入说明文字
+  \end{minipage}%
+  \par\vspace{1ex}% 自动换行并留出下方垂直间距
+}
+
+% 目录与超链接设置
+\hypersetup{
+    colorlinks=true,
+    linkcolor=black, % 将目录链接设为黑色，显得更正式美观
+    filecolor=magenta,
+    urlcolor=blue,
+    pdftitle={USTC红绿蓝紫黄俱乐部塔2攻略},
+    pdfpagemode=FullScreen,
+}
+
+% 标题设置
+\title{\huge \textbf{硫指导——力求面面俱到的 \\ Slay the Spire II 攻略} \\ \large （v0.10.0 based on public-beta v0.107.1）}
+\author{
+  \begin{tabular}{c}
+    \Large \textbf{二硫键}
+    \small 著 \\
+    \begin{tikzpicture}
+      \clip (0,0) circle (1cm);
+      \node at (0,0) {\includegraphics[width=2cm]{s-s.jpg}};
+      \draw[color=stsbg, line width=1pt] (0,0) circle (1cm);
+    \end{tikzpicture}
+  \end{tabular}
+  \qquad\qquad
+  \begin{tabular}{c}
+    \Large \textbf{Rosaya}
+    \small 编 \\
+    \Large \textbf{zzz}
+    \small 审 \\
+  \end{tabular}
+}
+\date{}
+
+\begin{document}
+
+\newgeometry{top=1.5cm, bottom=1in, left=1in, right=1in}
+
+\maketitle
+\thispagestyle{empty} % 封面不显示页码
+
+% 添加前言与注意事项
+\section*{写在前面}
+塔2抢先体验发售之后塔圈涌入了许多新生血液。很多新入坑的新手或初玩塔2的老玩家苦于找不到相对系统的攻略，虽然大伙不时会在群聊贴吧等社交媒体进行讨论，但内容都比较碎片化或是只适用于特定的种子。作为塔1战士80连胜以及塔2先行杯竞速比赛四强+轮换职业230连胜玩家，鄙人把自己对本游戏的基本理解，以及从各路大佬处偷来的经验进行了一个较为具体的汇总。之后会尽量随着游戏理解和版本更新对本攻略进行同步更新。
+
+\section*{注意事项}
+\begin{enumerate}
+    \item 本攻略主要讨论环境为进阶10+SL（S/L大法），低进阶玩家可作参考。
+    \item 目前本攻略适用0.107版本，攻略的所有内容都是按照最新的beta版本来编写的。
+    \item 攻略的主要内容是本人自己的独特理解，塔2未出4层的情况下很多打法可能都能较稳定打连胜，不保证本攻略所有内容是绝对正确的，本人理解有限，如出现分歧，皆是我的问题。
+    \item 攻略仅供参考，很多情况见仁见智。很多单卡和遗物的抓率会受个人风格的影响，因此学习本攻略也好或是学习其他高手也好，要先了解对方的主要思路，如果只是囫囵吞枣，看某某某抓这张牌很厉害自己未完全理解对方打法就去盲从，可能会适得其反。
+\end{enumerate}
+\newpage
+
+\restoregeometry
+
+% 目录页
+\pagenumbering{Roman} % 目录页使用罗马数字
+\renewcommand{\contentsname}{\centerline{\huge 目录}} % 目录居中放大
+\tableofcontents
+\newpage
+
+% 正文开始
+\pagenumbering{arabic} % 正文使用阿拉伯数字
+
+\section{绪论}
+\subsection{全局基本思路}
+目前的塔2相较于塔1，最大的区别是没有四层。这意味着在发育的过程中，不是特别需要时刻为寻找卡组上限而感到压力，通关的解法也会变得多样很多。其次，一个很大的区别是塔2引入了附魔机制以及先古遗物，使得局内发育方向变得十分多元化。
+
+塔2的获胜目标为击败三层双Boss，基本发育思路是：一层多打精英，二层按需发育，三层避开精英找牌。现在的版本一层精英得到了很大的削弱，而一层强怪（如劫掠者小队、咔咔+海洋混混、红果果绿泡泡等）又过于阴间，所以一层能不打强怪就尽量不打，打强怪的战损可能比精英还要大许多。一层精英固定给一个遗物，同时金卡出率也更高，给的钱也多；强怪只有7-15金币以及一组选牌。塔2的遗物有很多是提供即时战力的（如小圆盾、锁镰、风箱等），可能打一两个精英掉落的遗物就能很好地针对第三只精英，从而实现滚雪球。一层大致收益期望：精英 $\approx$ 火堆 \textgreater{} 问号 \textgreater{} 强怪。关于一层路线的具体选择将在后续章节详细说明。
+
+二层按需发育同样遵循“少打强怪”的思路，火堆和精英的期望依然是最高的。但二层精英强度明显提高，且每个精英对某些特定卡组都有很强的针对性。因此，二层要评估自己的卡组在道中能不能控住战损，打精英会不会导致状态和药水被打崩从而被滚雪球。二层的卡组或多或少都会有一些长线战斗的上限卡可以用来针对Boss，所以对于短线战斗力不足的卡组，可以考虑在二层避开精英，想办法让自己安全见到Boss。
+
+相比之下，三层能不打精英就尽量不打。三层的三个精英机制都很阴间，且给予的奖励不够看。三层本身获取遗物的途径就已经不少了，单个遗物的作用会被稀释；而类似于礼帽、招财鱼、吃不完的糖等发育类遗物，在三层获得也几乎没有作用。更重要的是，三层需要直接面对双Boss，在二层如果打精英被打崩了，只要能活到三层就能回复 80\% 的血量；但在三层如果Boss前被精英打爆了，就完全没有操作空间了。
+
+以上思路只适用于常规对局，要结合实际情况决策，如一层被堵路精英打残状态就要考虑放弃后续精英，跑路去火堆睡觉，或是一层boss门前血量不多，再打一个精英然后去睡觉可能都不够打boss，这种情况也可以不打。如进入了三层卡组启动速度极快，道中几乎没有战损，但是卡组里没有能打boss的上限，这时候就可考虑多打强怪精英去找关键牌，或是进三层之后发现火堆很多，有餐券羽毛等回血遗物，没什么牌要敲了，也可去打精英以免造成资源浪费，总之三层如果打精英还能确保能满状态进boss，还是比较鼓励打的。
+
+\subsection{基本卡组评估能力}
+卡组评估能力是sl玩家的必修课，局内操作可以靠大量sl试错来减小战损，但大局决策一旦出现重大失误则会万劫不复。这里简短说明一下对萌新来说，怎样拥有基本的卡组评估能力。
+
+首先得先明确自己的卡组是什么类型，也许你会发现你总是小怪精英乱杀但是遇到boss明明状态挺好的，但就是打不过的情况，最后可能觉得是运气不好导致农种暴毙；也许你不是上面那种情况，而是恰恰相反，打boss死的次数可能没那么多，但总是被二三层超雄小怪精英开幕雷击磨状态最后被某个阴间强怪拿下。
+
+如果你是第一种情况，那么你是偏攻杀偏运转的玩家，喜欢精简卡组或是抓一堆高数值暴力牌，这类卡组（后文简称力量型卡组）的优势是不怕道中强怪精英，令某些玩家闻风丧胆的残杀千足虫和四书五经可能你两回合就秒了，但缺点也很明显，爆发式的小卡组很可能会缺乏上限，一波爆发的伤害打不死boss就凉凉，或者是那些点烧烧光打关键牌的小卡组，遇到女王门扉沙漏无计可施。如果你判断你是偏力量型卡组的玩家，在道中决策时就要多留意一些有数值的能力牌或是短期不好用的上限，如果你很自信你的卡组成型了且只怕具体某一个boss，可以直接针对那个boss进行抓牌，切记不能因为自己道中战损低就觉得是农种，而将农种玩成人造毒种。
+
+如果你是第二种情况，那么你是偏大卡组用能力启动的玩家，喜欢抓很有数值的能力牌或回合收益牌，这类卡组（后文简称能力型卡组）的优点是不怕实验体之外的boss，只需靠药水遗物和红色格挡条启动开完能力后就直接无敌，再也不会掉一滴血，什么门扉沙漏都是玩具，缺点同样显然易见，你不能打boss前每场战斗都有药水和血量保启动，启动之前被强怪和精英连战不断耗状态使得你可能还没进到火堆就已经死了。如果你判断你是偏能力型卡组的玩家，你要思考自己的能力数量是不是已经够打boss了，如果已经够了再抓更多的能力只会更加卡启动，同时不要厌恶抓物理输出和物理防，这样能迅速杀掉一些血少的小怪，不会掉太多血，也不至于直接死实验体前两个阶段，切记不能为了针对boss忘记道中有各式各样的超雄小怪精英。
+
+\section{开局选项与一层路线选择}
+开局选项的选择和一层路线的选择是会互相影响的。一般情况下，一层优先走精英、火堆数量最多的路线。密林的精英压力会大一些（战士在暗港要专门防珊瑚），路线最好有回旋的余地，能在情况不对时及时跑路。最好不要选择“无商店先精英再火堆”的路线，也应尽量避免精英连战。三弱怪 + 火堆 + 精英是最舒服的开局。最好在宝箱层之前少打强怪，多走走问号也是可以的，一层的问号收益普遍偏高（如密林有蛇行，暗港有打击、防御、重放等事件）。
+
+一层Boss同样会对一层发育产生很大的影响。比如瀑布巨兽和同族小队对血线有硬性要求，在残血的情况下可能需要考虑少打一个精英或是多睡一觉以回复状态。乐加、仪式兽和瀑布巨兽如果使用纯物理输出打起来可能会很困难，需要找一些长线战斗牌（如战士的力量牌、猎人的毒牌、储君的大剑牌或无色牌等）。
+
+\subsection[涅奥]{\icon{icons/neow.png}涅奥}
+
+\carddesc{2.5cm}{ancient/ancient_node_neow.png}{
+目前单人最新版本一共有27个涅奥遗物（19个无负面 + 8个含负面的第三选项）。部分选项的强度会受职业影响。现先大致给所有遗物进行评级（同级之间排名不分先后，\textbf{带有\hl{黄色高亮}的选项表示可以利用SL大法偷看具体内容}）：
+}{1}{1}
+
+\begin{itemize}
+    \item \textbf{夯（S+）：} \icon{relics/cursed_pearl.png}诅咒珍珠（333金）、\icon{relics/silver_crucible.png}白银熔炉、\icon{relics/golden_pearl.png}金色珍珠（150金）、\icon{relics/phial_holster.png}药瓶皮套。
+    \item \textbf{顶级（S）：} \icon{relics/booming_conch.png}轰鸣海螺、\icon{relics/silken_tress.png}华美发束、\icon{relics/precarious_shears.png}松动羊毛剪（删2）、\icon{relics/winged_boots.png}羽翼之靴、\icon{relics/lead_paperweight.png}\hl{铅制镇纸}。
+    \item \textbf{人上人（A）：} \icon{relics/large_capsule.png}巨大扭蛋、\icon{relics/fishing_rod.png}钓鱼竿、\icon{relics/neows_talisman.png}涅奥的护符、\icon{relics/neows_torment.png}涅奥的苦痛（涅奥之怒）、\icon{relics/lava_rock.png}熔岩石、\icon{relics/lost_coffer.png}\hl{失物盒}、\icon{relics/leafy_poultice.png}树叶药膏（变2）、\icon{relics/kaleidoscope.png}\hl{万花筒}、\icon{relics/neows_bones.png}\hl{涅奥骨骰}、\icon{relics/scroll_boxes.png}\hl{卷轴箱}。
+    \item \textbf{NPC（B）：} \icon{relics/pomander.png}橙型香盒（敲1）、\icon{relics/precise_scissors.png}精准剪刀（删1）、\icon{relics/small_capsule.png}\hl{小型扭蛋}、\icon{relics/nutritious_oyster.png}营养牡蛎、\icon{relics/hefty_tablet.png}\hl{沉重石板}。
+    \item \textbf{拉完了（C）：} \icon{relics/arcane_scroll.png}奥术卷轴（随机金卡）、\icon{relics/new_leaf.png}新叶（变1）、\icon{relics/stone_humidifier.png}石炉加湿器。
+\end{itemize}
+
+\subsubsection[诅咒珍珠与金色珍珠]{\icon{relics/cursed_pearl.png}诅咒珍珠与\icon{relics/golden_pearl.png}金色珍珠}
+当之无愧的“夯”级遗物，给予了商店充足的选择空间。带着大量的钱进商店就能有很好的把握打赢一层精英并滚雪球。150金开局几乎足以买得起任何遗物，也可以购买强势无色卡、打折蓝卡金卡、药水等。一般来说，333金开局最好能有前置商店，如果没有前置商店宁愿不选这个选项，因为卡组里塞一张诅咒的影响还是相当大的。相比之下，150金开局不是必须要进前置商店，没必要为了150金强行走路线不好的前置商店路线。
+
+\subsubsection[白银熔炉]{\icon{relics/silver_crucible.png}白银熔炉}
+曾经公认的最强开局。后来因为国外理解的引入，使得部分国内玩家对白银熔炉的强度产生了质疑。在此本人认为，尽管牺牲了宝箱（大约少35左右金币以及一个遗物），白银熔炉仍然处于“夯”的水平。三次升级过渡牌提供的战力就足以薄纱大部分随机遗物，且具有稳定收割精英的能力。白银熔炉赚到的精英和火堆数量是远大于1个宝箱收益的，而且三次卡牌奖励是自己选的，相对来说很少会遇到三选一都没过渡牌拿的情况。加号（升级）本身就会让很多一般过渡牌摇身一变成为强力过渡。拿了白银熔炉依旧可以多走火堆，敲初始牌的提升也很大；后面如果没牌可敲，就在选牌的时候假设它们都是升级过的，拿了就去火堆敲，火堆敲垃圾也比打强怪收益高。
+
+\subsubsection[华美发束]{\icon{relics/silken_tress.png}华美发束}
+新晋的神，因为抓取率和胜率双第一，在 0.106 版本惨遭削弱，现在开局会少100块钱，但仍能排在顶级。其实一层选三张牌都不吃重放的概率是很低的，可以放心拿。华美发束的重放效果会让相当多原本很弱的过渡牌变成强力过渡，原来很强的过渡直接保送。选择了华美发束，开局第一选就尽量选有输出能力的牌或者高数值能力牌。举几个例子展示其强度：闪电霹雳+ 1c，AOE打17并附加2层易伤；余烬+ 2c打48；与我一战+ 2c打32，获得8点力量；猎人的灵动、毒雾；储君的战火铸就、淬炼刀刃、星尘；亡灵的来生、收割、死亡使者；机器人的折射、漆黑、暴风雨等。这么兼具强度和爽感的开局真能忍住不拿吗？
+
+\subsubsection[轰鸣海螺]{\icon{relics/booming_conch.png}轰鸣海螺}
+海螺出现在这个位置可能会比较出乎预料。但很多时候，海螺隔壁的俩遗物都没什么短期战力，而你又想走3精英甚至4精英路线，那海螺就是绝对不会亏的选择。打精英开局多抽2张牌 + 1点能量，可以显著减少战损，让一层发育更加舒适。如果一层本身就不打算打多少精英，或是选了其他不怕精英的选项，就可以不考虑海螺了。
+
+\subsubsection[药瓶皮套]{\icon{relics/phial_holster.png}药瓶皮套}
+很强的开局，提供稳定的前期战斗力。两瓶药加上小怪可能掉落的药，带三瓶药打一层精英基本能让你少睡一觉。而且皮套在二层和三层依旧有统治力，3个药水栏位的想象空间会大很多，身上如果带个发光水、小精灵之类的药水也不会感觉卡手，留三瓶好药进三层打Boss也是非常舒服的。
+
+\subsubsection[松动羊毛剪]{\icon{relics/precarious_shears.png}松动羊毛剪}
+洁癖诱捕器。开局删2对战力的提升是立竿见影的，对所有职业来说都是如此。删2开局后，前三选的思路就会发生比较大的变化，譬如储君删二开就会直接一选辐射。减16血是很严重的负面效果，但回报足够大，因此是可以考虑为了删二开专门寻找避战路线去滚雪球的。多抓有联动的牌能将删2收益最大化。需要注意的是，删2后不要抓垃圾牌（如暴走和爪击等），这些牌吃不到删2的红利，相当于白删了。其次，删2也要看Boss和职业，比如打瀑布巨兽这种对血量有高要求的Boss，就不太适合删2了。
+
+\subsubsection[羽翼之靴]{\icon{relics/winged_boots.png}羽翼之靴}
+人称飞鞋，免费3次换路线的机会。可以让你在一层多走火堆、精英路线滚雪球，也可以在二层规划避开强怪的路线，或者三层多飞商店。飞鞋足够灵活，同时与切肉刀、999金币、克隆等先古遗物存在联动，是很舒服的遗物。不过飞鞋不提供即时战力，且本人从日常体感来看，塔2的路线火堆和精英仿佛总是排在同一层，导致飞鞋经常留到三层还是没有可以用得上的地方，不知道是不是个体差异，所以未能将其排入“夯”级。
+
+\subsubsection[铅制镇纸]{\icon{relics/lead_paperweight.png}\hl{铅制镇纸}}
+可以偷看的选项。会出飞溅、非凡技艺、勒紧、拳斗、震荡波、均衡、闪亮登场、亮剑、妙计、发现、黑暗镣铐、究极打击、究极防御等强力无色牌。（注：战士的拳斗、亮剑和应急按钮；猎人的闪亮登场、非凡技艺和生产制造；亡灵的震荡波，都是很值得拿的）。
+
+\subsubsection[巨大扭蛋]{\icon{relics/large_capsule.png}巨大扭蛋}
+按强度其实能给到顶级，但牌组里强塞打击和防御本身就不是很舒服的事情，加上给的2个遗物方差较大，所以只能排在人上人。关于巨大扭蛋，它并不是战士的专属，任何职业都可以考虑抓取（不过机器人基本不拿）。拿巨大扭蛋就是直接拿两个遗物的数值去强行滚雪球。路上多抓能力牌把优势扩大，等数值足够大的时候，多一对打防的负面影响就不太明显了。开局之后的抓牌也可以根据开出的遗物进行针对性抓取。
+
+\subsubsection[钓鱼竿]{\icon{relics/fishing_rod.png}钓鱼竿}
+绝对是被低估的一件开局遗物。看起来“打3个小怪随机敲1”很好笑，实则一点也绷不住。钓鱼竿也是会影响路线选择的，拿了钓鱼竿会更倾向于走小怪数量为3倍数的路线（如3小怪进精英，后面再打2强怪，问号基本还会出一个怪）。一局下来一般是一层敲2，二层敲2，三层敲1，敲5张牌的收益还是不小的。全都敲到打击和防御上不太可能，就算敲了打防也不亏。拿了钓鱼竿就能大大方方地打强怪，毕竟相当于打6只怪发一个磨刀石。体感上拿了钓鱼竿在第三层时，卡组基本都是小神化状态了。很多像耸肩、收集、光辉、守墓人这种过渡防御牌，自己抓了可能不会主动去敲，但是钓鱼竿自动敲一下就会很舒服。钓鱼竿也是一种洁癖遗物，卡组越小，升级过的牌比例就越大。
+
+\subsubsection[涅奥的护符]{\icon{relics/neows_talisman.png}涅奥的护符}
+敲1对打防。朴实无华的效果，能很好地降低前3只弱怪的战损。效果立竿见影，打击+到一层Boss都还有发挥空间，防御+可能一直用到二层还在用。暗港还有重放打击防御的事件，属于稳赚不赔的保底开局。
+
+\subsubsection[涅奥的苦痛]{\icon{relics/neows_torment.png}涅奥的苦痛}
+相当看职业的选项。战士能给到夯，储君和机器人能给到顶级，亡灵和猎人可能只有NPC级别。战士因为有放血和跃跃欲试等加费卡，加上愤怒、欺凌等0c牌，使得涅奥之怒收益很高，且战士还有杂耍可以复制涅奥之怒。储君吃卡组联动，涅奥之怒在辉星溢出的情况下捞辉星牌，或是当做征召上前捞大剑都很实用。机器人有内核、特斯拉、超频等0c牌，而且小卡组机器人有通过涅奥之怒增加手牌数实现无限循环的可能。亡灵本身有坟冢和清淤，涅奥之怒存在感略低。猎人没有回合内好用的加费手段，也不是很吃卡组联动，相对来说不太适合拿涅奥之怒。
+
+\subsubsection[熔岩石]{\icon{relics/lava_rock.png}熔岩石}
+国内曾经最被低估的开局。之前大伙认为“Boss多给遗物很搞笑，我都能打过Boss了我还要这滞后的战力提升吗？”。现在看来并非如此。首先，熔岩石开局没有负面影响。无负面开局去走非精英堵路的路线是没什么压力的。举例来说，如果没把握走3精英3火堆的路线，就可以考虑拿熔岩石走1精英4火堆的路线。只要能打过Boss就是不亏发育的，熔岩石相当于把一层的发育压力放缓了。
+
+\subsubsection[失物盒]{\icon{relics/lost_coffer.png}\hl{失物盒}}
+能偷看。有即时战力，如果偷看到的药水和卡牌不赖的话，拿去打精英还是非常舒服的。
+
+\subsubsection[树叶药膏]{\icon{relics/leafy_poultice.png}树叶药膏}
+减血上限对一层来说几乎算是无负面。变化出的两张牌基本也都会比原本的打击和防御厉害，且可以根据变出来的牌进行针对性的后续抓牌，从而实现滚雪球。但变2方差较大，从连胜和个人感情的角度来说不想给到太高，有成为顶级的潜力，属于见仁见智的选项。
+
+\subsubsection[万花筒]{\icon{relics/kaleidoscope.png}\hl{万花筒}}
+同样能偷看。虽然大多数时候给其他职业的牌都没什么好东西，但如果给的是强力过渡牌或是能和本职业形成联动的牌，就可以考虑拿（如战士拿虚弱，猎人拿烧牌，储君拿愤怒、不死等印卡牌）。
+
+\subsubsection[涅奥骨骰]{\icon{relics/neows_bones.png}\hl{涅奥骨骰}}
+因为SL大法能偷看，所以很多时候都是看到有两个不错的遗物才会选择。但由于随机附加诅咒的机制太恶心了，加上可能会出悔恨、债务等强Debuff诅咒，所以只能给到人上人。（注：涅奥骨骰不仅可以偷看两个遗物是什么，还能偷看所有盲盒类遗物发什么。比如正常情况下不能SL偷看的大扭蛋、变1等选项，在涅奥骨骰里都能偷看。只要不把两个遗物都选完就能SL重来。注意涅奥骨骰的诅咒是拿完遗物再给的，因此不能提前偷看诅咒种类。此外有意思的一点是，涅奥骨骰给卡牌相关的遗物之间随机数会相互干扰。例如涅奥骨骰发万花筒和铅制镇纸，先拿万花筒还是先拿铅制镇纸，会导致发牌结果完全不同）。
+
+\subsubsection[橙型香盒、新叶、精准剪刀]{\icon{relics/pomander.png}橙型香盒、\icon{relics/new_leaf.png}新叶、\icon{relics/precise_scissors.png}精准剪刀}
+敲一、变一、删一这三兄弟放在一起说。这三个选项的强度都差不多，其实都没什么强度，算是略大于无增益开局。相对来说敲1开局是最强的：战士敲痛击，猎人敲中和，储君敲崇拜，亡灵敲护卫，机器人敲电击或双放，收益都很高。
+
+\subsubsection[小型扭蛋]{\icon{relics/small_capsule.png}\hl{小型扭蛋}}
+能偷看。如果给的遗物质量好于旁边两个选项，就拿。
+
+\subsubsection[营养牡蛎]{\icon{relics/nutritious_oyster.png}营养牡蛎}
+加11点血上限其实挺多的。一层多11点血很可能可以让你少睡一觉，或者睡一觉又能直接连战精英加Boss。奈何它不提供任何实际战力，难以竞争过其他涅奥选项。在暗港的抓位比密林略高一些；各职业中战士的抓位略高，亡灵略低，但总体来说都不太会选。
+
+\subsubsection[沉重石板]{\icon{relics/hefty_tablet.png}\hl{沉重石板}}
+这可能是大众玩家胜率最低的开局了。或许是因为很多国外玩家玩 No SL，或者很多玩家看到没出好的金卡直接放弃了。拿沉重石板一定要选能提供即时战力的金卡，不要抓极其“未来”的牌，不然就等于是俩诅咒开局。推荐拿的开局卡比如：战士的祭品、原始力量、狂宴、痛殴；猎人的肾上腺素、刺杀、墨之刃、狩猎、暗影步；储君的大爆炸、轰击、彗星、护驾；亡灵的死者苏生、精神过载、巨镰、榨取；机器人的打碎、适应打击等。
+
+\subsubsection[奥术卷轴]{\icon{relics/arcane_scroll.png}奥术卷轴}
+基本算是白板开局，大多职业的金卡没有即时战力。但可以根据给的金卡针对性地调整抓牌思路。无功无过的开局选项。相比之下，战士选奥术卷轴最强，因为战士较多提供即时战力的金卡。
+
+\subsubsection[石炉加湿器]{\icon{relics/stone_humidifier.png}石炉加湿器}
+挺没有存在感的开局。其实睡觉给果汁是很强的效果，但满血硬睡很抽象，不睡又觉得亏。基本上拿加湿器一局下来全局能加20-30点血上限，还是很可观的，适合偏大卡组的玩家用来打精英滚雪球。在 SL 环境下可以无脑不拿。
+
+\subsubsection[卷轴箱]{\icon{relics/scroll_boxes.png}\hl{卷轴箱}}
+能偷看。可以提供稳定的前期战力。但是卷轴箱固定给1蓝2白，稀有度不是很高，加上随机给牌，三张牌都有用的可能性不大。此外游戏一层前三只怪是弱怪，卷轴箱提供的战力会溢出。然后弱怪掉的牌还抓不抓呢？这对敲位是比较大的考验。综合以上因素给到人上人级别。
+
+\subsection{一层环境与Boss分析}
+一层目前有两个环境：密林以及暗港。密林的设计思路偏攻杀，暗港的设计思路偏防杀。但这不代表就一定只能走攻杀或者防杀流派，还是要按各个职业的节奏来。核心依旧是想办法针对三种精英以及关底Boss。无论是密林开还是暗港开，开局思路都是先找过渡输出牌。可能密林对过渡输出的需求会更急迫一些，第一选及格的过渡牌就会要；暗港可能第一选先抓一张防牌也不算急。
+
+密林的三个精英都鼓励攻杀：异蛙寄生虫最好能快速分裂；旧日雕像最好能三回合速杀；大鸟最好能在 7×3 回合之前击败。所有攻击性的药水都可以很好地针对密林三精英。暗港三只精英差异稍微大一些：花园鳗要能快速造成减员；骇鳗需要爆发输出；珊瑚则需要持续的防御和输出能力。相比之下，在暗港留纯攻击性的药水可能会被珊瑚折磨，铁之心、格挡药等可以稳定降低暗港精英的战损。
+
+密林的Boss有\icon{icons/vantom_boss.png}墨影幻灵、\icon{icons/ceremonial_beast_boss.png}仪式兽、\icon{icons/the_kin_boss.png}同族小队。通常是墨影幻灵最强，仪式兽最弱。
+\begin{itemize}
+    \item \icon{icons/vantom_boss.png}墨影幻灵需要针对性抓多段伤害、狱火无限刀和毒牌这种能挂上状态后持续破除滑溜的能力卡，或留荆棘药等。同时墨灵会向牌库塞牌，对卡组联动破坏较大。打墨灵最好能多抓一些纯数值牌，加费牌和杂耍等吃联动的卡可能打墨灵会0作用甚至是副作用。其次是进入墨灵前是否需要睡觉的问题，要考虑第三回合的重击有没有可能鬼抽需要用脸接的情况，以及有没有可能吃到第七回合的重击。
+    \item \icon{icons/the_kin_boss.png}同族小队机制比较简单，如果有AOE或者能快速减员就很好打。如果是爆发类型的卡组，也可以尝试在非虚弱回合直接给同族神官打残。同族小队最大的特点就是不管什么卡组进去都要吃点战损走，对血线有硬性要求，血少的时候基本都要睡觉才能进。
+    \item \icon{icons/ceremonial_beast_boss.png}仪式兽第一阶段强于第二阶段。第一阶段如果一直打不晕就会一直吃高伤，尤其是养手流亡灵可能会被滚雪球。如果打晕就能连续白嫖两个回合，而且第二阶段压力小。对于战士、储君、亡灵、黑球机来说，只要打晕后面都好办了。猎人和机器人进仪式兽前要考虑卡组有没有长线战斗牌，如果打晕之后还全是单纯的直伤牌，第二阶段就很难打；有张毒牌就会舒服很多。
+\end{itemize}
+
+暗港的Boss有\icon{icons/waterfall_giant_boss.png}瀑布巨兽、\icon{icons/lagavulin_matriarch_boss.png}乐加维林族母、\icon{icons/soul_fysh_boss.png}灵魂异鱼。一般瀑布巨兽最难打，乐加好处理一些。
+\begin{itemize}
+    \item \icon{icons/waterfall_giant_boss.png}瀑布巨兽难打首先是因为高额的血线，并且会给予玩家虚弱和自我回血。其次就是会爆炸伤害，一般杀得很快也会有30左右的爆炸，拖长线甚至会有50往上的爆炸伤害。而且打死瀑布巨兽后所有的Debuff（比如虚弱）都会刷新，需要重新上。瀑布巨兽是 No SL 玩家的噩梦，对 SL 玩家来说可能也很痛苦，牌序差一点被重击踢一脚就扛不住后续爆炸了。打瀑布巨兽一定要注意自身血线，道中不要在状态不佳的时候继续冲精英，同时要拿一些长线输出牌。
+    \item \icon{icons/lagavulin_matriarch_boss.png}乐加维林族母的血也很厚，同时会给自己上格挡。不过乐加会给玩家三个回合发育时间，在 SL 环境下操作空间很大。每四个回合吸取一次力敏也是相当慢的。打乐加只要有一些数值能力牌就很好打，注意不要全是纯物理输出就行。
+    \item \icon{icons/soul_fysh_boss.png}灵魂异鱼本身无成长，但是会不停塞“呼唤”卡。呼唤会穿甲，如果没有烧牌去拖长线就会被打崩，或者扛不住25点的重击。灵魂异鱼本身血量很低，输出及格的话可以卖血速杀，或者只要能活过第一次的25重击，都不会太难打。
+\end{itemize}
+
+\section{先古遗物选择}
+
+\subsection[佩尔]{\icon{icons/pael.png}佩尔}
+
+\carddesc{2.5cm}{ancient/ancient_node_pael.png}{
+佩尔的风格是缓慢而稳定的收益。给的遗物大多是短期或者前面回合作用很小，然后随着回合持续生效的遗物。倾向于中大卡组以及长线战斗。
+}{1}{1}
+
+\textbf{佩尔遗物一览：}
+\begin{itemize}
+    \item 第一行：\icon{relics/paels_flesh.png}佩尔之肉（第三回合开始加费）、\icon{relics/paels_tears.png}佩尔之泪（留费下回合加2c）、\icon{relics/paels_horn.png}佩尔之角（放松）。
+    \item 第二行：\icon{relics/paels_tooth.png}佩尔之牙（删5敲5）、\icon{relics/paels_claw.png}佩尔之爪（黏糊）、\icon{relics/paels_wing.png}佩尔之翼（献祭）、\icon{relics/paels_growth.png}佩尔的增生组织（克隆）。
+    \item 第三行：\icon{relics/paels_legion.png}佩尔的士兵（格挡翻倍）、\icon{relics/paels_blood.png}佩尔之血（抽1）、\icon{relics/paels_eye.png}佩尔之眼（额外回合）。
+\end{itemize}
+
+\textbf{评级结论：}
+\begin{itemize}
+    \item \textbf{夯：} \icon{relics/paels_legion.png}佩尔的士兵、\icon{relics/paels_eye.png}佩尔之眼。
+    \item \textbf{顶级：} \icon{relics/paels_flesh.png}佩尔之肉、\icon{relics/paels_tears.png}佩尔之泪、\icon{relics/paels_blood.png}佩尔之血、\icon{relics/paels_tooth.png}佩尔之牙。
+    \item \textbf{人上人：} \icon{relics/paels_wing.png}佩尔之翼、\icon{relics/paels_claw.png}佩尔之爪。
+    \item \textbf{NPC：} \icon{relics/paels_growth.png}佩尔的增生组织。
+    \item \textbf{拉完了：} \icon{relics/paels_horn.png}佩尔之角。
+\end{itemize}
+可以看到佩尔的遗物质量普遍稳定且偏高，尤其是第三选项，几乎能稳定提供一个强大的遗物。
+
+\subsubsection[佩尔的士兵]{\icon{relics/paels_legion.png}佩尔的士兵}
+开局自带臂甲。在塔2精英强怪普遍第一回合高压的情况下，开局双倍格挡可以极大地缓解启动压力。且如果第一回合不出防牌，还可以把士兵效果留到需要的回合。塔2的Boss一般不会连着打高伤，可以高伤回合触发士兵，然后低伤回合正常防御。士兵本身也有风味加费的作用，有肚皮的战士、养手流亡灵等抓到士兵会有更明显的战力提升。士兵同样对感染棱柱和蜂群术士有着比较好的针对作用，能缓解二层压力。
+
+\subsubsection[佩尔之眼]{\icon{relics/paels_eye.png}佩尔之眼}
+普通玩家手里最没有存在感的遗物（？）。我们假设拿了眼能一直记住它的存在，然后再来讨论眼的强度和适用范围。佩尔之眼的作用有很多，最明显的是在敌人打人但是需要0防回合时再抽一次牌，或是手上一堆垃圾牌的时候看看能不能过出核心能力卡。到后期，佩尔眼还可以烧一波垃圾牌实现快速洗牌或是处理被塞的牌。对于战士来说，烧牌本身就有收益，可以配合契约终结和灰烬打击等。佩尔眼还与吊灯、小花等回合遗物存在联动。此外佩尔眼和钻石头冠有神秘 combo，直接结束回合会使额外回合直接获得减伤Buff，额外回合无论出多少牌都会减伤 50\%。不要因为怕烧掉核心牌而不抓佩尔眼。刚进二层能有多少核心牌？再核心的牌也不至于被烧直接打不过怪，卡组不应该是如此单核的。再说了，核心牌没上手的时候也能烧一波让核心快速上手。
+
+\subsubsection[佩尔之肉]{\icon{relics/paels_flesh.png}佩尔之肉}
+朴实无华的数值。第三回合开始加费，只要是能拖且缺费的卡组都可以拿。很多拖长线的卡组多一费都会有特别明显的战力提升，而且第三回合也不算是特别长线。塔2有很多启动遗物，前两回合靠启动遗物和药水撑住，后面就交给稳稳的加费。
+
+\subsubsection[佩尔之泪]{\icon{relics/paels_tears.png}佩尔之泪}
+理论为第一回合2c，后面每回合4c，最后一回合花完，即 2-4-4-4-4-5 的节奏，几乎就是每回合+1c，属于相当强的加费，拥有大面包的水平。而且它不是强行锁第一回合费用，可以根据实际情况调整。绝大多数卡组都可以驾驭，除非第一回合很需要吃费用启动的卡组，或是三选项有强力竞争对手，不然都可以考虑。
+
+\subsubsection[佩尔之血]{\icon{relics/paels_blood.png}佩尔之血}
+塔1的长蛇戒指人人都说幽默，但佩尔之血不会损失任何Boss遗物。每回合抽1自带机器学习，加快过牌、加快洗牌，促进卡组联动。配合其他抽牌遗物可以极大增加手牌数。真要说问题就是不能解决费用问题，费用要自己去找。如果是纯物理无联动无加费卡组，可能抽5张是打3费，抽6张也是打3费，这种情况下佩尔血短期战斗力就不佳，因此给到顶级。
+
+\subsubsection[佩尔之牙]{\icon{relics/paels_tooth.png}佩尔之牙}
+或许是最难理解的先古遗物，但是很强。这里慢慢解释佩尔牙该在什么情况下考虑选取、选什么牌、以及到底强在哪。佩尔之牙的定位是润滑卡组，将卡组里短期无战斗力或是不敲没法用的牌先移除，这样不仅卡组短期战斗力不会下降，还可以白嫖敲位。同时也可以考虑将几张互相有联动的牌都塞进牙里，只要都塞进去就不会怕只塞其中一张导致联动被破坏了。牙也不必都塞非基础牌，可以塞3张核心，然后再塞一对打击防御。这样近似于短期战斗打防变少了，战斗力不会太低，而且最后还回来的敲过打防也拥有一定的战力。拿了牙之后注意路线，要评估牙把牌还完之前的自身实力够不够打精英，如果不够就避战打强怪。
+
+\subsubsection[佩尔之翼]{\icon{relics/paels_wing.png}佩尔之翼}
+设计效果看起来很强，但选牌的时候不会全部都献祭掉，每层的选牌数量也不会有想象中的那么多。这个遗物最大的问题是没有即时战力。对大多数刚进二层的卡组来说，打二层强怪和精英是很吃力的，这时候拿个佩尔之翼，献祭两组选牌发了个作用不大的遗物，然后再去打精英强怪就很危险。如果路线安全，卡组完全不怕强怪，同时其他选项不想要，可以考虑选佩尔之翼然后大量去打强怪献祭，积少成多为三层积累优势。如果有狩猎或转经轮收益会很明显，同时很多事件也会提供选牌同样可以献祭。佩尔之翼本身不弱，没短期战斗力还是太伤了。
+
+\subsubsection[佩尔之爪]{\icon{relics/paels_claw.png}佩尔之爪}
+朴实无华的设计。卡组只要有2张及以上的防御就会出。不是开局变2的话大多卡组到二层都是4张防。偏攻杀的小卡组拿了佩尔之爪不仅可以解决短线战斗的防御问题，还能烧完防御之后爆输出。越大的卡组佩尔之爪作用会越不明显。防御消耗基本不会是负面的，但也强不到哪里去，给到人上人。
+
+\subsubsection[佩尔的增生组织]{\icon{relics/paels_growth.png}佩尔的增生组织}
+作为最网红的佩尔遗物，克隆贡献了极少数的爽局和大量的大粪局。有相当多的牌是不适合克隆的，不过这不是克隆弱的原因。克隆最弱的地方就是二层要放弃所有的火堆睡觉和敲牌，相当吃路线与火堆数量。如果火堆拿去做别的事会导致克隆效率大幅降低。拿佩尔的增生组织最难打的是二层Boss，这时候可能卡组只复制了3次，8张牌是不足以按死Boss的。加上一路克隆没睡觉，会十分危险。只要过了二层Boss就柳暗花明了，三层随便克隆几次就能抬走双Boss。此外这里要说一下克隆的额外用法：附魔克隆并不代表要一直克隆到底。如果卡组有祭品和抉择这类牌，是可以考虑抓克隆然后复制到4张就停手的。这样既有短期战力也有长期战力，也不会被克隆死死套牢。下面列举一下适合克隆的牌：战士的完美打击、祭品；猎人的肾上腺素；储君的新月长矛、抉择、大爆炸；亡灵的吊杀、榨取（克隆精神过载会被电球头拿下）；机器人的骚动；无色牌的亮剑等。克隆横祸、克隆取回、克隆心灵震慑、克隆逃脱计划、克隆倾泻、旗子克隆白噪声、散射炮克隆超频、克隆重启等都是娱乐打法，选择克隆之前需慎重考虑。
+
+\subsubsection[佩尔之角]{\icon{relics/paels_horn.png}佩尔之角}
+放松盛碗虫笑话还在追我。放松的问题有很多，主要是因为3c且吃牌序，不会总是在需要的时候上手。防15也很难防住很多开幕雷击伤害。加费和多抽效果还是不错的，相当于双重存在 plus 版。但放松敲完也只能防17，而且想敲还得手动去敲。起码不算是一个负面的开局，但很难竞争过佩尔其他任何选项，只能给到拉完了。如果卡组急需加费可以考虑一下，放松防一手然后 5c 抽7打一波，或是 5c 回合再出一张放松，相当吃牌序。尽量不拿放松是对的。
+
+\subsection[欧洛巴斯]{\icon{icons/orobas.png}欧洛巴斯}
+
+\carddesc{2.5cm}{ancient/ancient_node_orobas.png}{
+欧洛巴斯的风格是多彩多样，会提供选牌、加费、药水或是升级等。
+}{1}{1}
+
+\textbf{欧洛巴斯遗物一览：}
+\begin{itemize}
+    \item 第一行：\icon{relics/sea_glass.png}\hl{海玻璃}（其他职业15牌任选）、\icon{relics/glass_eye.png}\hl{玻璃眼珠}（5组选牌）、\icon{relics/electric_shrymp.png}放电异虾（注能）、\icon{relics/sand_castle.png}沙堡（随机敲6）、\icon{relics/prismatic_gem.png}棱彩宝石（加费）。
+    \item 第二行：\icon{relics/alchemical_coffer.png}炼金箱（4栏位+4药）、\icon{relics/driftwood.png}浮木（选牌重roll）、\icon{relics/radiant_pearl.png}发光珍珠（冷光）。
+    \item 第三行：\icon{relics/touch_of_orobas.png}欧洛巴斯之触（升级初始遗物）、\icon{relics/archaic_tooth.png}古老牙齿（升级初始牌）。
+\end{itemize}
+
+由于欧洛巴斯选项受职业影响较大，下面排强度时会标明职业：
+\begin{itemize}
+    \item \textbf{夯：} \icon{relics/prismatic_gem.png}棱彩宝石、\icon{relics/archaic_tooth.png}战士破击、\icon{relics/archaic_tooth.png}机器人四重释放。
+    \item \textbf{顶级：} \icon{relics/radiant_pearl.png}发光珍珠、\icon{relics/electric_shrymp.png}放电异虾、\icon{relics/glass_eye.png}\hl{玻璃眼珠}、\icon{relics/sea_glass.png}\hl{海玻璃}（猎人）、\icon{relics/archaic_tooth.png}亡灵守护者、\icon{relics/archaic_tooth.png}储君流星雨。
+    \item \textbf{人上人：} \icon{relics/driftwood.png}浮木、\icon{relics/sand_castle.png}沙堡、\icon{relics/alchemical_coffer.png}炼金箱、\icon{relics/sea_glass.png}\hl{海玻璃}（除猎人）、\icon{relics/touch_of_orobas.png}猎人长蛇、\icon{relics/touch_of_orobas.png}储君天命所归。
+    \item \textbf{NPC：} \icon{relics/archaic_tooth.png}猎人压制、\icon{relics/touch_of_orobas.png}机器人注能核心、\icon{relics/touch_of_orobas.png}亡灵无界命匣。
+    \item \textbf{拉完了：} \icon{relics/touch_of_orobas.png}战士黑血。
+\end{itemize}
+
+\subsubsection[棱彩宝石]{\icon{relics/prismatic_gem.png}棱彩宝石}
+棱彩能出现在这个位置不是看所谓的凑跨职业羁绊，棱彩对选牌来说肯定是负面的，但是负面比一代的金冠要小。棱彩的比较大的问题是给五职业的牌而不是塔1的四职业，且五职业里面没有观者这种有超模卡的角色，且二代的棱彩不会给无色牌。棱彩强单纯是因为4费。塔2的局内无条件4费是很强的正面收益。卡组物理输出和物理防御越多，棱彩越强。相对来说不用担心棱彩破坏之后的抓牌联动，拿到棱彩保住下限之后去抓全职业卡池的打击+防御+以及提供数值的能力牌即可。宝石不会影响商人，因此在商店还是可以看五张本职业牌的。拿了宝石如果缺少某类上限或者核心牌是可以多走商店看牌的。宝石解决了费用和下限问题，后面通过宝石建立的优势去滚雪球即可。加上宝石在第一行的出现概率只有 1/12，并不常见，这里给到夯。
+
+\subsubsection[发光珍珠]{\icon{relics/radiant_pearl.png}发光珍珠}
+类似于一代观者的圣水，可以自己选择在哪个回合打出的 2c 加费，可以在任意需要费用的回合打出来开能力、防御、爆输出等。被风箱敲后变为 +3c。大多数卡组带一张冷光都是比较舒服的，哪怕短期不缺费也可以拿。可能会与战士的重振、猎人的暗影步等互卡，需要注意。
+
+\subsubsection[放电异虾]{\icon{relics/electric_shrymp.png}放电异虾}
+选择一张技能牌，开局自动打出。理论上能给到后空翻、耸肩这种就已经不亏了。如果能给到高费技能就很赚，如倾泻、挽歌、末日降临、死者苏生、抉择等。需要注意：如果给非消耗牌注能，会导致第一轮洗牌之前都不会再抓到被注能的牌。
+
+\subsubsection[玻璃眼珠]{\icon{relics/glass_eye.png}\hl{玻璃眼珠}}
+固定2组白卡、2组蓝卡、1组金卡选牌，能 SL 偷看。可以一次性凑齐某些 combo 或是单纯抓强力牌。可能会导致敲位爆炸，因此不要过多地选择用处不大的牌。
+
+\subsubsection[浮木]{\icon{relics/driftwood.png}浮木}
+同佩尔之翼一样，没有任何的即时战力，但浮木每轮选牌多 roll 一次还是略强于佩尔之翼的。在色彩哲学家、占卜等事件可以多看一倍的卡（尤其是金卡），只要能活下去就有很大可能找到强力卡牌。
+
+\subsubsection[沙堡]{\icon{relics/sand_castle.png}沙堡}
+随机敲牌是很让人难以接受的，经常会敲大量的打击防御。敲防御还好，敲打击对于无易伤的角色来说在二层几乎毫无作用。不过敲6张卡其实很多，如果卡组本身敲位爆炸或者不是明显吃卡组联动，就可以考虑拿，让卡组整体的数值提高，不容易被强怪滚雪球。如果有其他收益稳定的选项尽量不要考虑沙堡，抓沙堡就要做好可能敲了4张打防以上的心理准备。
+
+\subsubsection[炼金箱]{\icon{relics/alchemical_coffer.png}炼金箱}
+主要强度在四瓶药水，提供极大的下限，无论是打小怪还是灌死堵路精英都有说法。炼金箱没有续航能力，药水全都用完就凉凉了。要早点靠炼金箱提供的药水提升战力，多 SL 省药。只要能活到三层就能想办法避战然后进商店买药，用大量药水来打三层 Boss。
+
+\subsubsection[海玻璃]{\icon{relics/sea_glass.png}\hl{海玻璃}}
+看指定职业 5白 5蓝 5金 并任选。一般是选强大的数值能力牌或者独特的功能牌实现跨职业联动。猎人的海玻璃略强，是因为猎人需要烧牌，且猎人牌吃拐能力很强，拿到其他职业的增伤可以摇身一变成观者。看战士牌一般是最好的，白卡有放血肚皮，蓝卡有烧牌和灰烬打等，金卡小金人、痛殴、壁垒都十分强势。海玻璃能 SL 偷看。注意选择拿海玻璃就重点拿几张核心牌即可，作用不大的白卡少抓，防止敲位爆炸。
+
+\subsubsection[古老牙齿]{\icon{relics/archaic_tooth.png}古老牙齿}
+这里每个职业分开来说：
+\begin{itemize}
+    \item \textbf{机器人（四重释放）：} 夯中之夯。机器人一层基本都是敲过双重释放的，拿到四重就是完全体。四放电球 0c 32伤，冰球 0c 防20，四放黑球更是最强搭配，如果身上有集中就更强了。塔2的机器人偏小卡组环境下，四重释放能持续提供高额收益。
+    \item \textbf{战士（破击）：} 给到夯。塔2战士一层敲痛击的概率不低。破击+ 的数值非常变态：1c 30伤七层易伤，基本实现单体怪易伤永续。配合主宰、巨像、欺凌等收益爆炸。单卡解决下限问题、促进卡组联动、同时充当一部分上限。腐化事件还可以将 破击+ 变成 1c 45伤，直接把怪吓哭。
+    \item \textbf{亡灵（守护者）：} 给到顶级。守护者未能给到夯很大的原因是亡灵一层通常不会去敲出击。1c 10伤和 0c 15伤的守护者完全不是一张牌。哪怕不养手，守护者+的数值也是很可观的。养手局拿到守护者也不用担心小手的血量问题，打精英打Boss小手只要赖着不死就能打满伤害，单卡提供上下限。
+    \item \textbf{储君（流星雨）：} 有类似问题，要想办法敲起来。流星雨+ 能打 AOE 21伤 + 2层虚弱易伤，而且还很便宜。纯粹的强大，只要卡组不是太大，流星雨都有用武之地。二层本身群怪就偏多，流星雨基本删除了盛碗虫的威胁，同时也能针对残杀千足虫。
+    \item \textbf{猎人（压制）：} 只能给到 NPC。虽然 0c 17伤固有永续虚弱数值给的很慷慨，但猎人已经不是 0.99 版本的转转猎了。一个先古遗物的位置换石化蟾蜍还是很亏的。而且不同于战士，猎人溢出的虚弱层数是不能转化为战力的，17伤也很不够看。它和刀牌、毒牌、连续反弹等牌都不存在联动。压制真的不强，抓之前好好想想。
+\end{itemize}
+
+\subsubsection[欧洛巴斯之触]{\icon{relics/touch_of_orobas.png}欧洛巴斯之触}
+给的升级遗物普遍不太行。猎人和储君还可以，长蛇三回合抽2保启动；天命所归六颗星能解决产星牌沉底的问题，还可以直接打出彗星和胜券在王等。亡灵的无界命匣和机器人的注能核心数值偏低。亡灵养手流可以考虑，不养手基本不要；机器人有特斯拉线圈在手可以考虑注能核心，否则单纯电球加1集中还是不够看。战士的黑血就不多说了，直接给到拉完了。
+
+\subsection[特兹卡塔拉]{\icon{icons/tezcatara.png}特兹卡塔拉}
+
+\carddesc{2.5cm}{ancient/ancient_node_tezcatara.png}{
+特兹卡塔拉的风格是强大但很快消散的正面效果。通常会给强大的即时战力，但随着时间推移效果会逐渐变弱甚至产生负面。
+}{1}{1}
+
+\textbf{特兹卡塔拉遗物一览：}
+\begin{itemize}
+    \item 第一行：\icon{relics/nutritious_soup.png}营养汤（0c打9打击）、\icon{relics/very_hot_cocoa.png}烫嘴可可（第一回合4c）、\icon{relics/yummy_cookie_ironclad.png}\icon{relics/yummy_cookie_silent.png}\icon{relics/yummy_cookie_regent.png}\icon{relics/yummy_cookie_necro.png}\icon{relics/yummy_cookie_defect.png}美味饼干（敲4）。
+    \item 第二行：\icon{relics/biiig_hug.png}大\textasciitilde 抱抱（删4洗牌塞煤灰）、\icon{relics/storybook.png}故事书（至亮之焰）、\icon{relics/toasty_mittens.png}烘焙手套（每回合烧1+1力）。
+    \item 第三行：\icon{relics/toy_box.png}\hl{玩具盒}（4蜡质遗物）、\icon{relics/golden_compass.png}黄金罗盘（单条路线）、\icon{relics/seal_of_gold.png}黄金印（5金币换1c）、\icon{relics/pumpkin_candle.png}南瓜蜡烛（会熄灭的加费）。
+\end{itemize}
+
+\textbf{评级结论：}
+\begin{itemize}
+    \item \textbf{夯：} \icon{relics/nutritious_soup.png}营养汤（战士）、\icon{relics/storybook.png}故事书、\icon{relics/pumpkin_candle.png}南瓜蜡烛、\icon{relics/biiig_hug.png}大\textasciitilde 抱抱。
+    \item \textbf{顶级：} \icon{relics/nutritious_soup.png}营养汤（猎人）、\icon{relics/yummy_cookie_ironclad.png}\icon{relics/yummy_cookie_silent.png}\icon{relics/yummy_cookie_regent.png}\icon{relics/yummy_cookie_necro.png}\icon{relics/yummy_cookie_defect.png}美味饼干、\icon{relics/seal_of_gold.png}黄金印、\icon{relics/toasty_mittens.png}烘焙手套（战士）。
+    \item \textbf{人上人：} \icon{relics/nutritious_soup.png}营养汤（除战士猎人外的职业）、\icon{relics/very_hot_cocoa.png}烫嘴可可（猎人）、\icon{relics/toy_box.png}\hl{玩具盒}、\icon{relics/toasty_mittens.png}烘焙手套（猎人）。
+    \item \textbf{NPC：} \icon{relics/very_hot_cocoa.png}烫嘴可可（除猎人）、\icon{relics/toasty_mittens.png}烘焙手套（除战士猎人）、\icon{relics/golden_compass.png}黄金罗盘。
+\end{itemize}
+
+\subsubsection[营养汤]{\icon{relics/nutritious_soup.png}营养汤}
+beta版的营养汤加强3点伤害后直接成为新神，不用担心处理不掉打击的问题。营养汤本身就是将打击全部变化为 0c 打击+。在战士本身有劫掠、跃跃欲试等攻击牌环境下的营养汤，已经不是保下限的水平了，可以直接杀穿除 Boss 以外的任何怪。这种情况下战士的打击比愤怒、完美打甚至灰烬打还要强。如果有打击木偶等遗物伤害还会更上一层楼。营养汤战士可以考虑后续少抓其他攻击牌，直接火堆敲打击都是可行的。有易伤+残酷或者力量，一张打击可以打20-30伤。非攻杀战和猎人的营养汤可以给到顶级，可以让一轮洗牌多出几十点伤害，让费用可以更多花在能力、防御和施加 Buff 上，也算是一种风味加费。其他三职业的直伤地位稍微低一些，储君和无灵魂亡灵的洗牌速度较慢，营养汤效果不太明显；机器人如果超频等过牌溢出或者有万物卡会舒服很多。这三个职业如果没有好的其他选项，同时前面删了一张打击的情况下，拿营养汤还可以，起码不会难受。同时游戏中还存在 营养汤+打火机 这种变态 combo。
+
+\subsubsection[故事书]{\icon{relics/storybook.png}故事书}
+网红遗物，且真的有实力。至亮之焰在四层未出的情况下约等于无负面包白嫖抽牌同时加费。只要至亮之焰上手一切都会好起来的。只要拿到至亮之焰，所有职业都可以转变思路抓过牌和烧牌去玩小循环。抓全息、宇宙、冷漠等牌想办法复用至亮之焰。至亮之焰在成为网红后存在一些质疑的声音：比如中大卡组抓至亮之焰如果频繁沉底约等于没拿遗物；以及路线不好导致至亮之焰不能及时敲起来被堵路精英打爆。首先本攻略不提倡任何职业一层抓过多的牌，塔2限制无限和小循环，但不等于玩小卡组就会死；且一层抓太多本来就很难打二层。至于敲位的问题，至亮之焰不敲也很厉害，至少不能为了急着进第一个火堆去走危险的路线，晚点敲也是完全可以的。
+
+\subsubsection[南瓜蜡烛]{\icon{relics/pumpkin_candle.png}南瓜蜡烛}
+改动前的南瓜蜡烛只能算 NPC 级，适用于二层很弱急需加费的卡组，且其他选项不好时拿。新改动的南瓜蜡烛 = 2个火堆换永久加费。相对于棱彩宝石、佩尔肉、绿帽等遗物，显得几乎没有负面，是塔2最强加费先古。一般来说拿了南瓜蜡烛会在二层第一个火堆续火，第二次续火一般在二层 Boss 前或者三层第一个火堆。规划路线时注意数5的倍数，做好问号出怪的准备。打小怪熄灭不要紧，不要等到 Boss 门前状态不好再去续火即可。
+
+\subsubsection[大\textasciitilde 抱抱]{\icon{relics/biiig_hug.png}大\textasciitilde 抱抱}
+很多萌新觉得大抱抱负面太强或者很吃职业，这算是一种误区。大抱抱在任何情况下都是保底顶级，很容易达到夯的程度。在第一轮洗牌前，大抱抱等于无损删4张卡。在洗4次牌后才会比空鸟笼亏。况且前两轮洗牌的重要性明显大于后面。抓了大抱抱被塞爆那是卡组的问题，而不是大抱抱的问题。能频繁洗牌的卡组却不能击杀怪物，这本身就有很大问题。大抱抱可以与战士的烧牌、储君的印牌、机器人的状态形成联动。如果达成 combo 就有可能将大抱抱变成纯正面的遗物。猎人无烧牌也无需担心抓大抱抱被塞爆，猎人早已不是转转猎的模样，且拿了大抱抱之后就可以放心抓高数值能力牌和联动牌，直接用数值碾压。
+
+\subsubsection[美味饼干]{\icon{relics/yummy_cookie_ironclad.png}\icon{relics/yummy_cookie_silent.png}\icon{relics/yummy_cookie_regent.png}\icon{relics/yummy_cookie_necro.png}\icon{relics/yummy_cookie_defect.png}美味饼干}
+定向敲4，纯粹的强大。如果一层冲了很多精英，剩一堆功能牌和能力牌没敲，那是很适合拿饼干的。敲完之后继续在二层冲精英。美味饼干还可以直接敲刚刚 Boss 掉的金卡，以及机器人的电击和双放、储君的崇拜、亡灵的护卫等基础牌，提高卡组质量。不适合抓美味饼干的卡组一般也很明显：一层抓了白银熔炉或者走了很多火堆，核心牌基本全都敲完了，二层火堆前置完全不缺敲位，这种情况大大方方抓其他选项就行。
+
+\subsubsection[黄金印]{\icon{relics/seal_of_gold.png}黄金印}
+风味绿帽，强度略强于绿帽。通常一层如果没去过商店，拿了一层 Boss 的 75 金币进二层大概是 150-250 块左右。黄金印基本上等于拿 350 左右金币换加费。这意味着之后所有商店大概加起来只能“删一 + 买一张牌”了。拿了黄金印之后要尽量多打精英赚钱，强怪只掉 7-15 金币是非常亏的，能不打强怪宁愿多走问号。至于为什么黄金印略强于绿帽，是因为游戏中存在招财异鱼、大礼帽等提供额外金币的遗物，如果有这些遗物后面的操作空间就会比绿帽更大些，短期可能不如绿帽（拿了绿帽可以直接找第一个商店把钱花完）。不过绿帽和黄金印不会同时出现，比较的意义不大。
+
+\subsubsection[玩具盒]{\icon{relics/toy_box.png}\hl{玩具盒}}
+可以偷看的选项。玩具盒有一个基本技巧：先拿取的遗物会先融化。因此如果要拿玩具盒，就先拿磨刀石、芒果、药水腰带这种一次性生效的遗物；然后拿作用很小的遗物或是有过渡能力但后期贬值的遗物（如石化蟾蜍、节日拉炮、佛珠手链等）；最后拿万金油遗物或者提供一定上限的遗物（如准备背包、苦无、数据磁盘、君王矿石等）。蜡质壶铃拿了之后不要举重，融化之后会失效。此外玩具盒给的遗物和本局种子给的遗物是共用一个序列的，如果不拿里面的遗物，后面大概率还会发这些遗物。拿了玩具盒之后尽量避战少打怪，有大概一半的局是可以保住一个遗物打三层双 Boss 的。总体来看玩具盒短期战斗力还行，后期乏力，强度不会太高。但因为能偷看和手动选择融化顺序，操作空间还是不错的。
+
+\subsubsection[烘焙手套]{\icon{relics/toasty_mittens.png}烘焙手套}
+从效果描述来看就是一个很难让人接受的遗物，但是战士和猎人还是可以多考虑考虑的。该遗物和蛇眼等遗物一样，是会改变后续抓牌思路的遗物。战士和猎人如果输出很低，且没有特别核心怕被烧的牌，可以大大方方拿。后面抓牌就当做硫磺局来抓，多抓攻击牌尤其是多段攻击牌。烧了不要紧，烧了一张还有无数张。同时注意攻防比例，不要全是攻击牌。手套是需要回合数成长的，前几回合不像硫磺局一样高压，该防照样防。拿了手套后抓牌思路倾向大卡组，敲位问题不用太担心。有力量在手，攻击牌都是自带 + 号的。火堆多睡觉保持血线，能和 Boss 拖几个回合输出就爆炸了。储君、亡灵和机器人同样匮乏直伤牌，不是很好拿。纯物理机可以考虑抓手套。
+
+\subsubsection[烫嘴可可]{\icon{relics/very_hot_cocoa.png}烫嘴可可}
+4c给的十分慷慨，但第一回合抽牌全看发牌员。非猎人职业在没有准备背包的情况下基本都会剩下很多费，除了速行者塔2没有其他的2c及以上固有牌，有X牌且其他选项不理想可以考虑。第一回合能摸到防就没有压力，或者有摆动球可以卡的情况下也会略微考虑，后续如果能拿到花粉核心会舒服很多。
+
+\subsubsection[黄金罗盘]{\icon{relics/golden_compass.png}黄金罗盘}
+发育类先古，会生成一条2小怪、4问号、4火堆、2宝箱、1商店、2精英的路线，且问号一定不会出怪。由于必定不会碰到强怪，所以可以很舒服地发育。精英前能留够药水，且出现凡庸事件可以直接删2再去商店删除凡庸。但黄金罗盘给的强度不是很高：首先罗盘本身不提供任何战力，且在路线不危险的情况下，拿罗盘大约只能赚1敲+2遗物；其次是强行双精英连战，在目前千足虫高压以及蜂群术师、感染棱柱都有独特机制的情况下，打完双精英再打Boss压力会很大。在前两选给可可+烘焙手套这种情况下可以考虑。
+
+\subsection[瓦库]{\icon{icons/vakuu.png}瓦库}
+
+\carddesc{2.5cm}{ancient/ancient_node_vakuu.png}{
+瓦库的风格是强大的效果以及等价的代价，十分符合契约恶魔的气质。
+
+（所以效果到底强大在哪）。
+}{1}{1}
+
+\textbf{瓦库遗物一览：}
+\begin{itemize}
+    \item 第一行：\icon{relics/blood_soaked_rose.png}血染玫瑰（执迷）、\icon{relics/whispering_earring.png}低语耳环（代打）、\icon{relics/fiddle.png}小提琴（抽7）。
+    \item 第二行：\icon{relics/preserved_fog.png}腌制活雾（删3）、\icon{relics/sere_talon.png}原初之爪（许愿）、\icon{relics/distinguished_cape.png}卓越斗篷（灵体）。
+    \item 第三行：\icon{relics/choices_paradox.png}选择悖论（5选1）、\icon{relics/music_box.png}音乐盒（复制攻击）、\icon{relics/lords_parasol.png}领主阳伞（0元购）、\icon{relics/jeweled_mask.png}宝石面具（0c能力）。
+\end{itemize}
+
+\textbf{结论如下：}
+\begin{itemize}
+    \item \textbf{夯：} \icon{relics/music_box.png}音乐盒（战士）。
+    \item \textbf{顶级：} \icon{relics/music_box.png}音乐盒（除战士猎人）、\icon{relics/fiddle.png}小提琴、\icon{relics/distinguished_cape.png}卓越斗篷、\icon{relics/blood_soaked_rose.png}血染玫瑰（储君）。
+    \item \textbf{人上人：} \icon{relics/music_box.png}音乐盒（猎人）、\icon{relics/choices_paradox.png}选择悖论、\icon{relics/jeweled_mask.png}宝石面具、\icon{relics/blood_soaked_rose.png}血染玫瑰（亡灵）。
+    \item \textbf{NPC：} \icon{relics/preserved_fog.png}腌制活雾、\icon{relics/sere_talon.png}原初之爪、\icon{relics/lords_parasol.png}领主阳伞、\icon{relics/blood_soaked_rose.png}血染玫瑰（猎人）、\icon{relics/whispering_earring.png}低语耳环。
+    \item \textbf{拉完了：} \icon{relics/blood_soaked_rose.png}血染玫瑰（战士机器人）。
+\end{itemize}
+
+\subsubsection[音乐盒]{\icon{relics/music_box.png}音乐盒}
+音乐盒像是坦克斯的遗物，出现在瓦库这里像个圣人。不考虑职业的情况下，音乐盒本身就是很强的设计，可以复制0c和临时0c的攻击牌，可以重复出关键攻击牌，可以多次上Debuff，配合双节棍、苦无等遗物。战士的音乐盒无疑是最强的，战士有大量适合复制的攻击牌，需要过牌就复制剑柄、劫掠或者有凶恶情况下的闪电霹雳；需要爆伤害就复制痛殴和灰烬打，或者复制肚皮等；虚无的攻击牌烧掉也能吃到无惧、黑拥和灰烬打的福利。储君的音乐盒可以复制仆从打击，可以复制陨星实现debuff覆盖，有轰击也可以当做超级滚石用，或者单纯复制印出来的无色攻击。亡灵的音乐盒可以和虚无体系形成联动，同时亡灵费多，可反复打出高伤攻击造成伤害，如有吊杀也可以实现音乐盒吊杀上限。猎人相对缺费，音乐盒最常见的情况是复制小刀，有精准或刀刃陷阱的情况下还不错，也可以复制中和破人工，猎人音乐盒稍微比其他职业弱一点，但因为是瓦库遗物，已经很不错了。
+
+\subsubsection[小提琴]{\icon{relics/fiddle.png}小提琴}
+0.99版本最招笑的先古之一，现在随着尖塔环境的变化已经成功翻身。现在各职业除了机器人都不是以抓过牌为导向，到了三层很可能仍是抽五打五等着开能力的情况。小提琴在这种情况下等于无损抽牌，促进洗牌和卡组联动。防战、数值猎、几乎任何情况的储君、非灵魂亡灵、数值机都可以很舒服地拿小提琴。判断卡组适不适合小提琴，可以看卡组的过牌卡数量有没有达到五分之一，或是过牌卡总过牌量全部加起来乘以7除以卡组大小是否大于2（即看平均每次小提琴抽7会不会总是有大于2的过牌量）。哪怕卡组有核心过牌（如凶恶、捕捉灵魂等），可以评估如果把这些牌当成伤口或者粘液，再拿小提琴是不是赚的。不要因为怕自己的过牌白抓而不敢拿小提琴，因为小提琴隔壁俩遗物可能真的不是人。
+
+\subsubsection[卓越斗篷]{\icon{relics/distinguished_cape.png}卓越斗篷}
+9血上限换3灵体，塔1拿仨灵体还得付出一半血上限的代价呢。仨灵体朴实无华的好用，开了灵体其他费用就能干别的事了，同时存在灵体壁垒、灵体养奥斯提、灵体冰激凌等combo。真要说负面的话，灵体会卡第一轮抽牌，打类似大机器人这种中间有两回合空窗期的怪，灵体牌序烂一点可能会导致总是在不打人回合上手，导致白白卡启动。这种情况略少，大多时候还是可以放心拿灵体。此外注意实验体（尤其是实验体二阶段），虽然灵体暂时能防住，但实验体是一直成长的，要想办法速杀，不能因为道中拿灵体打小怪没掉血就没有防备心理进Boss。此外三层去消耗事件出率不低，能拿到去消耗灵体基本等于赢。
+
+\subsubsection[选择悖论]{\icon{relics/choices_paradox.png}选择悖论}
+看起来挺没存在感的遗物，但因为是瓦库遗物里少有的基本无负面的遗物，给个人上人也不是不行。选择悖论5选1保留牌差不多等于一个工具箱+，道中控战损能力比想象中要高一些。可以拿能力在低压回合开，亦可以拿防牌抗高压，只要费够就是第一回合无损多抽1还送保留。打Boss可能会没有什么存在感，因此选择悖论不会太强，在前两选都不想要的时候选取。
+
+\subsubsection[宝石面具]{\icon{relics/jeweled_mask.png}宝石面具}
+和选择悖论差不多，同样是稳赚不赔的遗物。开局多抽1，相比之下宝石面具的0c比选择悖论还要舒服一些。能捞到机器学习等过牌能力，或是无惧、创世之柱等防御能力都很舒服，给到形态牌等高费能力就更舒服了。宝石面具最强的时候就是卡组里只有一两个关键能力，然后之后再去定向抓取高费能力，就很舒服。同样是前俩选项不想要的时候选取，如果卡组里的能力都不关键可以考虑不抓取。
+
+\subsubsection[腌制活雾]{\icon{relics/preserved_fog.png}腌制活雾}
+0.103 版本之后陨落的轮椅遗物。删3塞1固有，大多时候比空鸟笼还弱。而且到了三层卡组可能不剩下3张没敲过的基础牌可以删了，这种情况就很难受。如果其他两个选项烂完或是已经确定要玩小循环的卡组就抓取。
+
+\subsubsection[血染玫瑰]{\icon{relics/blood_soaked_rose.png}血染玫瑰}
+受职业影响较大的遗物。储君通常匮乏回合内抽牌且缺费，假设四个回合洗一次牌，+4c亏2c还是净赚2c，不排除会有关键回合上手导致少2c开能力和防牌吃战损的情况，但怎么说也是正统加费，加上储君有控顶和冲锋烧执迷的可能，是最适合血染玫瑰的职业。亡灵有洁净和降灵可以烧执迷，相比储君会更可能鬼牌序抽到执迷，不过多一费使得亡灵养手或是出高费会舒服许多，只要不是卡组有大量灵魂都可以抓取血染玫瑰作为加费。猎人无烧牌能力，不过有较大可能可以花时间SL去频繁弃掉执迷，且猎人现在真的非常需要真加费，也可以考虑玫瑰。相比之下战士、机器人的玫瑰就烂完了，战士除了破灭没有手段烧掉执迷；机器人洗牌较多且不是很缺真加费，缺费的情况下防战和数值机可以考虑，不过依旧给到拉完了。
+
+\subsubsection[低语耳环]{\icon{relics/whispering_earring.png}低语耳环}
+瓦库遗物三出生之一。从左到右代打会让筹码等遗物直接烂掉。耳环的问题不是第一回合控不住战损，而是乱出牌会破坏卡组联动、打出有用的消耗牌或是烧掉关键牌。卡组里存在烧牌就不太好拿耳环，如果有迫降、虚空形态、超能光束、孤注一掷这种有强大Debuff的牌也很不好抓取耳环。真的很缺费同时卡组偏纯数值不怕乱出就可以拿耳环。敲固有能力、买面包、吃大蘑菇等行为都可以降低耳环的负面。
+
+\subsubsection[原初之爪]{\icon{relics/sere_talon.png}原初之爪}
+瓦库遗物三出生之一。2随机诅咒哪怕大卡组也不是很能接受，给疑虑、羞耻、凡庸、悔恨等负面都很强大。且许愿不赚牌位，意味着基本上拿原初之爪是会降低洗牌速度的，对相当多的卡组来说是负面大于正面。如果卡组有强力能力要开，或者祭品、抉择、至亮之焰这种强力牌拿许愿还可以（许愿本身可能也会沉底），给到拉完了和NPC之间。
+
+\subsubsection[领主阳伞]{\icon{relics/lords_parasol.png}领主阳伞}
+瓦库遗物三出生之一。领主阳伞的效果其实是很强的，三层最多平均能走1.5个商店，抢一个商店就是4张角色牌、两张无色、3遗物以及药水塞满，牌给的稍微好一些就能得到明显的战力提升。但是阳伞的问题非常多：不提供即时战力、商店给东西方差巨大、卡组本身就有强联动会导致塞6之后洗不动牌直接烂完。综上只能给到NPC，如果卡组只有短期战力看不到未来，可以考虑拿阳伞去抢一两个商店逆天改命。
+
+\subsection[坦克斯]{\icon{icons/tanx.png}坦克斯}
+
+\carddesc{2.5cm}{ancient/ancient_node_tanx.png}{
+坦克斯的风格是暴力杀伐，会提供强大的杀伤道具。
+}{1}{1}
+
+\textbf{坦克斯遗物一览}（坦克斯的遗物没有固定位置，三个选项全都等概率随机抽取）：
+\begin{itemize}
+    \item \icon{relics/claws.png}利爪（撕咬）、\icon{relics/crossbow.png}十字弓（免费攻击）、\icon{relics/iron_club.png}铁棒（出4抽1）、\icon{relics/meat_cleaver.png}切肉刀（烹饪）、\icon{relics/sai.png}钗（每回合防7）。
+    \item \icon{relics/spiked_gauntlets.png}带刺手甲（4c，能力+1c）、\icon{relics/tanxs_whistle.png}坦克斯的哨子（吹哨）、\icon{relics/throwing_axe.png}投斧（重放第一张）。
+    \item \icon{relics/tri_boomerang.png}三刃回旋镖（附魔本能）、\icon{relics/war_hammer.png}战锤（打精英敲4）。
+\end{itemize}
+
+\textbf{下面是结论：}
+\begin{itemize}
+    \item \textbf{夯：} \icon{relics/tri_boomerang.png}三刃回旋镖（战士）、\icon{relics/crossbow.png}十字弓（战士储君）、\icon{relics/claws.png}利爪（除储君）。
+    \item \textbf{顶级：} \icon{relics/tri_boomerang.png}三刃回旋镖（除战士）、\icon{relics/crossbow.png}十字弓（除战士储君）、\icon{relics/iron_club.png}铁棒、\icon{relics/meat_cleaver.png}切肉刀。
+    \item \textbf{人上人：} \icon{relics/sai.png}钗、\icon{relics/throwing_axe.png}投斧、\icon{relics/claws.png}利爪（储君）。
+    \item \textbf{NPC：} \icon{relics/spiked_gauntlets.png}带刺手甲、\icon{relics/tanxs_whistle.png}坦克斯的哨子。
+    \item \textbf{拉完了：}\icon{relics/war_hammer.png}战锤。
+\end{itemize}
+
+\subsubsection[三刃回旋镖]{\icon{relics/tri_boomerang.png}三刃回旋镖}
+最数值脚填的先古。只要手上有三个能附魔的非基础攻击牌都很强，战士有痛殴、肚皮、破击等牌更不用说，双倍伤害足以虐杀三层Boss。只要卡组有三张牌可以附魔都能考虑，如果是大剑储君、刀猎、毒猎或者纯球机可能不是很好拿。
+
+\subsubsection[十字弓]{\icon{relics/crossbow.png}十字弓}
+也是伪加费。虽然随机给牌，但每回合都给所以收益相对稳定。战士有痛殴、杂耍、添柴等，塞攻击牌能处理，不怕被塞反而越来越强；储君有印牌体系配合，十字弓会印大量的免费辉星牌，尤其是可能印出彗星、轰击这些超模数值卡；其他职业不用担心被十字弓塞爆，只要不是明确的“洗牌才有收益”的卡组。
+
+\subsubsection[利爪]{\icon{relics/claws.png}利爪}
+非常容易被低估的强大遗物，适用于任何有防御能力和加费能力但是输出匮乏的卡组。利爪打四书五经这种小怪两张就能秒一只，长线打精英和Boss有多余的费用不停出利爪就能越来越强。利爪不要无脑变基础牌，优先变打击和诅咒，然后变其他有输出能力的过渡，因为变了利爪之后就不需要过渡输出的低数值了，变防御会导致防御浓度降低。如果觉得卡组有余费且输出暂时不好打Boss就可以放心抓取。
+
+\subsubsection[铁棒]{\icon{relics/iron_club.png}铁棒}
+0.99版本的夯，现在因为环境改变地位有所下降，许多职业不再是过牌=赢。铁棒不提供加费能力，如果卡组有费且过牌差口气，比如有放血和0c攻击+杂耍的战士，靠铁棒过牌过出剑柄、劫掠等续一口气，或是刀猎这种出牌量大的情况，亦或是多环绕轨道储君纯粹费多的情况就可以抓取铁棒。切记铁棒不提供加费能力，硬抓不如佩尔之血。
+
+\subsubsection[切肉刀]{\icon{relics/meat_cleaver.png}切肉刀}
+0.99版本的网红遗物，因为不提供即时战力以及绑定火堆使得一直被人诟病。但考虑到三层普遍倾向于避战的情况，且目前版本删牌昂贵，到三层基本都会剩不少打防，路线合适的话切三次能删六张牌再送27血，对于洗牌困难的卡组提升是很大的，尤其是卡组本身过牌较多的情况。切肉刀的收益是稳定的，因为火堆的数量是明确的，能保证道中不被强怪打烂且有能避开精英走火堆的路线就可以考虑切肉刀。
+
+\subsubsection[钗]{\icon{relics/sai.png}钗}
+很简单的描述，每回合防7，最适用于第一轮洗牌前要花大量费用开能力，开完能力就无敌的卡组。道中可以减少很多战损，以一个比较好的状态去打Boss。如果卡组暂时看不到打过三层Boss的希望就尽量选其他选项，钗只能兜血量，不能逆转局势。
+
+\subsubsection[投斧]{\icon{relics/throwing_axe.png}投斧}
+单次重放，适合开固有能力比如余像。卡组高费牌或者关键能力多就厉害，第一回合给牌不可控，如果总是只能复制到普通的攻击牌或防牌投斧就很弱了，不能解决打精英Boss的问题。
+
+\subsubsection[带刺手甲]{\icon{relics/spiked_gauntlets.png}带刺手甲}
+加费，但是减费，只要体感每两回合之内就要开一次能力就不好拿了，而且拿了手甲也会限制后面抓能力。在现在沙漏高压的三层环境下，少能力或是无能力过三层已不常见，建议在对自己卡组有明确不再继续抓能力也能打过Boss的信心再考虑。（注：手甲在蛇眼后面触发）
+
+\subsubsection[坦克斯的哨子]{\icon{relics/tanxs_whistle.png}坦克斯的哨子}
+给一张3c单体灵体，挺鸡肋的设计，单卡强度高但是当做先古塞到卡组里就很弱了。战士储君有可能用杂耍、传承之锤复制吹哨，其他职业碰不到去消耗事件就都是一次性的了，其他选项实在没得选再考虑。
+
+\subsubsection[战锤]{\icon{relics/war_hammer.png}战锤}
+隔壁诺奴佩普给的是神化你给的是什么玩意。其他选项实在不想要并且卡组缺敲，同时不怕打三层精英而且路线上面火堆多才好考虑，打精英敲牌拿遗物然后火堆睡觉。
+
+\subsection[诺奴佩普]{\icon{icons/nonupeipe.png}诺奴佩普}
+
+\carddesc{2.5cm}{ancient/ancient_node_nonupeipe.png}{
+诺奴佩普的风格是雍容华贵，说白了就是慷慨且富有，会给各类珠宝首饰类的先古。
+}{1}{1}
+
+\textbf{诺奴佩普遗物一览}（诺奴佩普的遗物没有固定位置，三个选项全都等概率随机抽取）：
+\begin{itemize}
+    \item \icon{relics/beautiful_bracelet.png}华美手镯（迅捷3）、\icon{relics/blessed_antler.png}赐福鹿角（加费塞晕眩）、\icon{relics/brilliant_scarf.png}艳丽围巾（第五牌免费）。
+    \item \icon{relics/delicate_frond.png}娇嫩蕨草（填满药水）、\icon{relics/diamond_diadem.png}钻石头冠（50\%减伤）、\icon{relics/fur_coat.png}皮草大衣（7怪1滴血）。
+    \item \icon{relics/glitter.png}亮片（选牌重放）、\icon{relics/jewelry_box.png}珠宝盒（神化）、\icon{relics/signet_ring.png}图章戒指（999金币）、\icon{relics/looming_fruit.png}布质果实（31血上限）。
+\end{itemize}
+
+\textbf{依旧是结论：}
+\begin{itemize}
+    \item \textbf{夯：} \icon{relics/diamond_diadem.png}钻石头冠、\icon{relics/glitter.png}亮片。
+    \item \textbf{顶级：} \icon{relics/jewelry_box.png}珠宝盒、\icon{relics/brilliant_scarf.png}艳丽围巾、\icon{relics/beautiful_bracelet.png}华美手镯。
+    \item \textbf{人上人：} \icon{relics/blessed_antler.png}赐福鹿角、\icon{relics/signet_ring.png}图章戒指、\icon{relics/looming_fruit.png}布质果实。
+    \item \textbf{NPC：} \icon{relics/delicate_frond.png}娇嫩蕨草、\icon{relics/fur_coat.png}皮草大衣。
+\end{itemize}
+
+\subsubsection[钻石头冠]{\icon{relics/diamond_diadem.png}钻石头冠}
+当前版本夯中之夯，50\%减伤数值逆天，且可以与虚弱叠加，由于尖塔伤害向下取整，所以实际收益还要更高。道中打四书五经、高塔炮手、大机器人、史莱姆狂战士等怪可以在高压回合只出两张防牌或是一防一能力扛过去等低压回合再出牌秒怪。钻石头冠同时克制三个三层Boss，只能出2张看起来很少但是减伤真的很高，一般在防不住的情况下触发头冠顺便开能力，等能力就位或者卡组联动凑齐再进行反打。钻石头冠最适用于抽5打5要开能力的卡组，如果卡组都是小费、加费和过牌则不适合抓头冠。
+
+\subsubsection[亮片]{\icon{relics/glitter.png}亮片}
+头冠是50\%减伤，亮片是200\%出牌，如果走到三层发现数值匮乏就很可以考虑亮片。亮片给的牌就当一次性的看待就行，不需要怕卡组太大，两倍出牌数值太高了，可以抓灵动、无惧、友谊、熔炉+等高数值能力、也可以抓何人僭越、来生这种2倍质变的牌和消耗牌。亮片解决了打三层Boss数值不够的问题，如果能玩到打火机亮片能爽一整天。
+
+\subsubsection[华美手镯]{\icon{relics/beautiful_bracelet.png}华美手镯}
+第一轮洗牌前过9，很高的数值，可以帮助卡组快速启动，一般是给到容易出手的0c牌或者加费牌，很适合急需开能力/凑齐关键牌上手就能爆一波/有加费有过牌的卡组。相比0.99版本地位有所下降，因为现在很多卡组偏大，迅捷3的作用会被稀释，可能也没有费去出掉抽上来的牌，且手镯无法提高卡组真实强度，如果卡组本身底力不足，第一轮洗牌加快也无济于事。
+
+\subsubsection[珠宝盒]{\icon{relics/jewelry_box.png}珠宝盒}
+神化，无需多言。走完第一个火堆后面都可以睡觉，很少有卡组第一回合开不起神化，如果其他两个选项不佳且卡组不是手动神化的话随便拿神化，一直能睡觉就能保证健康的血线进Boss。此外储君拿神化有敲大剑的可能，如有大爆炸+则可以稳定敲到大剑。
+
+\subsubsection[艳丽围巾]{\icon{relics/brilliant_scarf.png}艳丽围巾}
+每回合第五张牌免费。奇巧重放这种都不算计数，一定是手出了四张牌才会生效。围巾适用于有高费且每回合能稳定出至少四张牌的卡组，如果是3费抽五打五卡组抓围巾可能都亮不了几下。不是回合内能转起来的卡组都能拿围巾，猎人可以靠围巾出涂毒群蛇等，储君仆从牌辉星牌都不花费用，不难触发围巾，围巾可以给高辉星牌或者印出来的高费无色或者出大剑都行，骨妹费多自然好让围巾亮起来。
+
+\subsubsection[赐福鹿角]{\icon{relics/blessed_antler.png}赐福鹿角}
+加费，但是让过牌本就捉襟见肘的卡组雪上加霜。塞的晕眩是有可能第一回合摸到的，第一轮洗牌3晕眩是很难受的。有大量过牌或其他办法规避debuff且极度缺费的卡组才会考虑，只是单纯缺费则慎重考虑，不然极有可能出现有费花不出去的情况。
+
+\subsubsection[图章戒指]{\icon{relics/signet_ring.png}图章戒指}
+一般有俩商店能走就能考虑，人造领主阳伞，约等于删2+看14张牌+2-3遗物+稳定药水供应。走不到两个商店或者旁边选项有爹就不拿。
+
+\subsubsection[布质果实]{\icon{relics/looming_fruit.png}布质果实}
+31血上限，草莓+梨+芒果这一块。有点鸡肋，适用于要用脸开能力启动的卡组，这类卡组的特点是打小怪像精英一样艰难，打精英像Boss一样艰难，打Boss像打小怪一样（），这种情况果实保你开出能力，路上被怪打残睡一觉也能回的更多。不提供任何战斗力，不适用与不靠脸吃饭的卡组，比如养手骨妹。
+
+\subsubsection[娇嫩蕨草]{\icon{relics/delicate_frond.png}娇嫩蕨草}
+有药水腰带或者炼金箱的情况蕨草肯定是顶级甚至夯，这里单纯假设只有2药水栏位的情况。这种时候蕨草发挥很有限，可能会出现给好药舍不得开导致亏药的情况，也可能会出现每只怪都把药交完结果打Boss印垃圾药的情况，综合下来蕨草只适合保过小怪，精英和Boss只能降低一些战损。建议有战斗力打小怪的情况就把好药留给Boss，尽量不在只有2药水栏位的情况下选蕨草。
+
+\subsubsection[皮草大衣]{\icon{relics/fur_coat.png}皮草大衣}
+如果说布质果实和娇嫩蕨草是保道中的，那么大衣就是包好笑的（）。大衣虽然也能保道中但是对于打Boss完全没有帮助，且大衣给的怪完全随机可能和原来想走的路完全不一样，好处是有可能白送精英，大多时候能保证满血进Boss。如果其他选项过于不想要，卡组能保证见到双Boss就能赢，或者单纯想爽一爽，才推荐抓取大衣。（注：联机模式大衣可以叠加）
+
+\subsection[达弗]{\icon{icons/darv.png}达弗}
+
+\carddesc{2.5cm}{ancient/ancient_node_darv.png}{
+（二层、三层均可能出现，不会都出现）。
+
+达弗的特点是收集各种宝物，给玩家塔1相关的遗物，人称老资历。
+}{1}{1}
+
+\textbf{达弗遗物一览}（达弗的遗物除了三选项 50\% 概率出尘封魔典外，其他遗物没有固定位置，全都等概率随机抽取）：
+\begin{itemize}
+    \item \icon{relics/black_star.png}黑星、\icon{relics/astrolabe.png}星盘、\icon{relics/calling_bell.png}\hl{召唤铃铛}、\icon{relics/dusty_tome.png}尘封魔典、\icon{relics/empty_cage.png}空鸟笼、\icon{relics/pandoras_box.png}潘多拉魔盒、\icon{relics/runic_pyramid.png}符文金字塔、\icon{relics/snecko_eye.png}异蛇之眼。
+    \item \icon{relics/ectoplasm.png}灵体外质（仅1进2）、\icon{relics/sozu.png}添水（仅1进2）、\icon{relics/philosophers_stone.png}贤者之石（仅2进3）、\icon{relics/velvet_choker.png}天鹅绒颈圈（仅2进3）。
+\end{itemize}
+
+\textbf{结论在这里：}
+\begin{itemize}
+    \item \textbf{夯：} \icon{relics/runic_pyramid.png}符文金字塔、\icon{relics/philosophers_stone.png}贤者之石。
+    \item \textbf{顶级：} \icon{relics/velvet_choker.png}天鹅绒颈圈（储君亡灵）、\icon{relics/astrolabe.png}星盘、\icon{relics/calling_bell.png}\hl{召唤铃铛}、\icon{relics/dusty_tome.png}封印王座、\icon{relics/dusty_tome.png}禁忌魔典。
+    \item \textbf{人上人：} \icon{relics/pandoras_box.png}潘多拉魔盒、\icon{relics/snecko_eye.png}异蛇之眼、\icon{relics/ectoplasm.png}灵体外质、\icon{relics/sozu.png}添水、\icon{relics/dusty_tome.png}偏差认知。
+    \item \textbf{NPC：} \icon{relics/velvet_choker.png}天鹅绒颈圈（战士猎人）、\icon{relics/empty_cage.png}空鸟笼、\icon{relics/dusty_tome.png}幽魂形态、\icon{relics/dusty_tome.png}腐化、\icon{relics/black_star.png}黑星。
+    \item \textbf{拉完了：} \icon{relics/velvet_choker.png}天鹅绒颈圈（机器人）。
+\end{itemize}
+
+\subsubsection[符文金字塔]{\icon{relics/runic_pyramid.png}符文金字塔}
+跌！你没死啊！质疑金字塔的只有没抓过金字塔的，如果看到金字塔不确定抓不抓，那么直接抓，等什么时候能自己判断什么时候不能抓金字塔了就已经是高手了。金字塔可以几乎毫无成本的实现卡组联动以及百分百吃到跨回合增益，只要不是怕被打击防御塞满手牌且无法处理的卡组都可以大胆拿，塔叠不会让你失望的。
+
+\subsubsection[贤者之石]{\icon{relics/philosophers_stone.png}贤者之石}
+只会出现在2进3，如果出现在1进2或许会考虑一下但是2进3的红石太强了。虽然有四书五经、猫头鹰六连击以及实验体三连击等多段，但无条件加费还要什么自行车，只要缺费就直接拿，负面当做不存在。
+
+\subsubsection[星盘]{\icon{relics/astrolabe.png}星盘}
+变3打基本不会亏，变出来升级的牌保底也是打击++和防御++，变牌是所有卡池卡牌随机，因此有相当大的可能变出金卡。其他选项垃圾时星盘是不错的保底选项。
+
+\subsubsection[召唤铃铛]{\icon{relics/calling_bell.png}\hl{召唤铃铛}}
+可以偷看。收益稳定，遗物给的不错且其他选项不想要就拿，诅咒debuff可以不用看的太重。
+
+\subsubsection[潘多拉魔盒]{\icon{relics/pandoras_box.png}潘多拉魔盒}
+由于不能偷看，可能会出现不给攻击甚至完全不给防牌的极端情况，这种情况就拉完了，可能连盛碗虫都打不过。大多时候变的还是可以的，至少不会太极端，可以根据潘多拉变化情况考虑后面抓牌。出现在1进2能给到顶级，2进3能变的牌就不多了，而且基本变的都是防御，很有可能会亏。
+
+\subsubsection[异蛇之眼]{\icon{relics/snecko_eye.png}异蛇之眼}
+在塔1就是个比较难用的遗物，不过塔2改变后面思路的先古并不罕见。卡组2费3费牌偏多且无过牌就可以拿蛇眼，后续一直拿高费即可。塔2由于几乎没有加费先古，所以蛇眼基本只有3c环境，没有塔1厉害。拿了蛇眼之后就不需要敲“敲完减费”的牌了，避免拿低费，可以多拿过牌，过牌本身抽到的牌变成0费也是一种加费。蛇眼每回合抽7意味着卡组可以多些垃圾，费用给的不好可以出其他牌，比较灵活。蛇眼之后可以多抓坟冢、清淤、全息、万物等检索弃牌堆的然后放到手牌的牌，让0c牌回到手中，只要不是以抽牌的形式进入手牌，就不会改变费用。
+
+\subsubsection[灵体外质]{\icon{relics/ectoplasm.png}灵体外质}
+人称绿帽，只会出现在1进2，还是挺恶心的。但是塔2对加费遗物的需求很高，而且现在商店删牌变贵本来就不冲着删完为目标，绿帽比塔1接受度高出了不少。4c本身就是强大的战力，拿了绿帽之后在把钱花完都是无损加费。塔2有许多抢钱事件，拿到绿帽之后可以找最近的商店把钱花完，这样之后事件也不会出抢钱了。加费即正义，因此灵体外质给到人上人。
+
+\subsubsection[添水]{\icon{relics/sozu.png}添水}
+和绿帽差不多，也是1进2遗物。相比之下添水的副作用比绿帽要大一些，如果手上没好药就更难受了。如果卡组缺费可以考虑顶着debuff拿；如果手上有两瓶还不错的药水就更适合拿了，将药水保护到Boss甚至3层Boss再用，前面就靠4c一路杀过去。
+
+\subsubsection[空鸟笼]{\icon{relics/empty_cage.png}空鸟笼}
+堪比塔1的小屋子，其他选项啥也不想要的时候就选空鸟笼，删2打再怎么说也不是坏事，不过作用很小，越小的卡组拿到空鸟笼收益越大。
+
+\subsubsection[天鹅绒颈圈]{\icon{relics/velvet_choker.png}天鹅绒颈圈}
+只会出现在2进3，这使得相当多的卡组是完全考虑不了该遗物的。储君和无灵魂养手骨妹相对来说不怕6牌debuff，储君开能力出产星再出个招架大剑，骨妹出血肉违逆来生拖延，这种情况就是无损加费，数值是够打三层Boss的。其他职业尤其是3层再碰到颈圈基本都没办法拿，极少数情况比如坚定不移壁垒肚皮战士、纯苟毒猎人可能会考虑。
+
+\subsubsection[尘封魔典]{\icon{relics/dusty_tome.png}尘封魔典}
+给予一个职业特色能力牌（注：根据不同职业，尘封魔典会转化为以下五种书籍之一）：
+
+\paragraph{储君的封印王座}
+106版本痛失固有，使得中大卡组的王座没法玩了。王座的定位就是大量的产蓝星能力，抓了王座卡组肯定会有很多花星牌比如星位序列、粒子墙，但王座不固有意味着王座上手前得一直留着3颗星不能随便花。如果是小卡组可能该改动反而是提升，第一回合不再卡1c1牌位降低道中战损，Boss战稍微晚开也不影响。综合一下王座给到顶级，建议卡组有下去、星界脉冲等0c牌或者只花辉星牌的时候考虑王座，纯抽5打5卡组开了王座产星也很慢；其次拿了王座最好往小卡组去发展，打粒子墙、星位序列、星尘。
+
+\paragraph{骨妹的禁忌魔典}
+每场战斗删1，相当强的效果，骨妹卡组小下去有相当多的玩法，比如预借时间根除、吊杀、无处可逃、猛晃等。禁忌魔典最大的问题是不但不提供即时战力反而会降低，所以确定二层不是特别危险的情况下再考虑。
+
+\paragraph{机器人的偏差认知}
+偏差认知放在先古其实是德不配位的，不过数值给的慷慨，配合玻璃球或者漆黑等能打出爆炸伤害，基本有偏差能包过二层和三层强怪。不过偏差不提供任何后期上限，在偏差五回合内打爆三层Boss也不太可能，需借着偏差的发育优势尽快转型。
+
+\paragraph{战士的腐化}
+塔1战士的腐化爹已经陨落。目前战士卡组攻击牌比例较高，黑拥升金卡使得黑化非常少见，很多战士进2层卡组发腐化烧完后就防不住，或者烧完输出还是不够杀怪。建议技能较多且没费开的卡组抓取腐化，腐化不提供上限，如果没有黑拥和壁垒等，要另找搭配和上限打三层Boss，打Boss可能就不开腐化了。
+
+\paragraph{猎人的幽魂形态}
+猎人大爹的坠机。塔2猎人倾向于物理防而不是魔法防，3费幽魂开了之后只有两回合杀怪，之后一直掉敏捷，还是很难受的。塔2猎人很难做到2-3回合就能爆伤杀怪或是启动完，建议输出在线但是极度缺防的卡组抓幽魂当过渡防，其他情况不推荐。
+
+\subsubsection[黑星]{\icon{relics/black_star.png}黑星}
+我说换成白星更强了，塔1下水道在塔2依旧污染遗物池。在现在二层精英高难和三层精英惩罚启动慢的情况下，不提供即时战力的黑星几乎烂完了。由于1进2可能会出黑星，这里就不给到拉完了。隔壁俩幽默选项同时卡组有与精英一战的能力，抓黑星打2层精英赚遗物还是能洗一下的。切记不要为了黑星强行打精英，尤其是没有药水且状态不好的时候。2层拿了黑星进3层依旧少打精英，3层多给遗物的作用会被大大稀释。
+
+\section{各职业核心思路}
+
+下面是最重要的每个职业的基本思路。整体职业的思路从 0.103-0.107 版本是通用的，0.105 版本是最平衡的版本，后续核心思路将以此为基础。如果是 0.103 玩家则需要自己游玩时针对一下门扉，0.107 玩家则需小心感染棱柱和沙漏。只需要较熟练掌握各个职业的基本玩法，不需要特别关照这些粪怪在大多数对局也不会被腐乳。
+
+每个职业的内容大致分为以下板块：
+\begin{enumerate}
+    \item 职业必胜公式
+    \item 卡池介绍
+    \item 过渡牌梯度表、功能牌梯度表
+    \item 运营思路和抓牌倾向
+    \item 不想公式打连胜，除必胜公式外其他好玩且不容易输的本职业玩法
+\end{enumerate}
+
+其中战士的思路主要是笔者自己研究的成果，其他职业或多或少学习了一些百连高手以及知名塔1玩家的思路。
+
+\subsection[铁甲战士]{\icon{icons/character_icon_ironclad.png}铁甲战士}
+
+\subsubsection{必胜公式}
+
+\carddesc{1.6cm}{characters/char_select_ironclad.png}{
+战士是纯暴力的职业，卡组里充斥着大量的优质输出牌、易伤牌、力量牌、加费牌以及过牌。战士的核心口诀是：\textbf{“一层暴力攻杀，多抓加费过牌，最后轮椅上限牌带飞”}。
+}{0}{1}
+
+\subsubsection{卡池介绍}
+
+首先分析战士的卡池，我将战士牌分为：输出牌、防牌、数值功能牌、运转功能牌、上限牌。其中少量牌可能身兼多职，尽管我想尽量让所有牌都只有一条属性，但显然是不可能的。
+
+\begin{itemize}
+    \item \textbf{输出牌：} \rarity{0}打击、\rarity{0}痛击、\rarity{0}愤怒、\rarity{0}飞剑回旋镖、\rarity{0}全身撞击、\rarity{0}双重打击、\rarity{0}铁斩波、\rarity{0}头槌、\rarity{0}突破、\rarity{0}预备打击、\rarity{0}完美打击、\rarity{0}余烬、\rarity{1}欺凌、\rarity{1}旋风斩、\rarity{1}怨恨、\rarity{1}暴走、\rarity{1}拆卸、\rarity{1}灰烬打击、\rarity{1}御血术、\rarity{1}上勾拳、\rarity{1}无情猛攻、\rarity{1}与我一战！、\rarity{1}彼岸咆哮、\rarity{1}踩踏、\rarity{1}重锤、\rarity{2}契约终结、\rarity{2}焚烧、\rarity{2}痛殴、\rarity{2}扯碎、\rarity{2}恶魔之焰、\rarity{2}凌虐、\rarity{1}地狱之刃、\rarity{2}连环拳、\rarity{1}燃烧、\rarity{1}狱火、\rarity{2}势不可当。
+    \item \textbf{防牌：} \rarity{0}防御、\rarity{0}坚毅、\rarity{0}耸肩无视、\rarity{0}武装、\rarity{0}血墙、\rarity{1}狂怒、\rarity{1}巨像、\rarity{1}挑衅、\rarity{1}邪眼、\rarity{1}重振精神、\rarity{1}火焰屏障、\rarity{2}岿然不动、\rarity{2}时候未到、\rarity{1}无惧疼痛、\rarity{1}岩石铠甲、\rarity{2}绯红披风、\rarity{2}坚定不移。
+    \item \textbf{数值功能牌：} \rarity{0}熔融之拳、\rarity{0}闪电霹雳、\rarity{0}余烬、\rarity{1}与我一战！、\rarity{1}上勾拳、\rarity{2}狂宴、\rarity{2}痛殴、\rarity{2}恶魔之焰、\rarity{0}武装、\rarity{0}破灭、\rarity{0}战栗、\rarity{0}坚毅、\rarity{1}挑衅、\rarity{1}被遗忘的仪式、\rarity{1}主宰、\rarity{1}巨像、\rarity{1}狂怒、\rarity{2}烙印、\rarity{2}倾泻、\rarity{2}原始力量、\rarity{2}时候未到、\rarity{1}杂耍、\rarity{1}惊逃、\rarity{2}残酷、\rarity{2}好勇斗狠、\rarity{2}地狱狂徒、\rarity{2}薪火之源、\rarity{2}恶魔形态。
+    \item \textbf{运转功能牌：} \rarity{0}剑柄打击、\rarity{1}劫掠、\rarity{2}恶魔之焰、\rarity{0}放血、\rarity{0}破灭、\rarity{0}耸肩无视、\rarity{1}跃跃欲试、\rarity{1}燃烧契约、\rarity{1}重振精神、\rarity{1}战斗专注、\rarity{2}祭品、\rarity{2}添柴、\rarity{1}战鼓、\rarity{1}凶恶、\rarity{1}杂耍、\rarity{2}地狱狂徒、\rarity{2}黑暗之拥、\rarity{2}壁垒。
+    \item \textbf{上限牌：} \rarity{0}全身撞击、\rarity{1}欺凌、\rarity{1}灰烬打击、\rarity{2}痛殴、\rarity{2}原始力量、\rarity{2}添柴、\rarity{1}撕裂、\rarity{1}杂耍、\rarity{2}残酷、\rarity{2}坚定不移、\rarity{2}壁垒。
+\end{itemize}
+
+可以发现，战士的输出牌大多是攻击牌，还有少量的能力；防御端由技能和能力构成；而数值功能牌和运转功能牌则无明显分布规律。通俗点来说，可以为其他牌提供数值的牌就是数值功能牌，和抽牌或加费有关就是运转功能牌。关于上限牌部分，这些牌的特点是吃资源后会提供高额的数值，基本只要是战士的通关卡组基本一定会至少有一张这里面的牌。如果没有，一般是走运转端伪无限（比如劫掠地狱狂徒），也可能是遗物和无色牌提供上限（如未掘宝石）。
+
+\subsubsection{卡池梯度表}
+
+\textbf{【过渡牌梯度表】}
+
+直接放图，下面是战士过渡期（二层中段前）可能碰到的提供过渡数值的牌。其中部分牌可以充当后期的运转牌或上限牌，在过渡期抓牌一般不会过于提前为后期布局，但有后期价值的牌抓位都会略有提高。此外，由于金卡在一层并不常见，经常遇到的时候已经是 Boss 金了，所以部分金卡会因为该原因降低抓位。
+
+\includegraphics[width=\textwidth]{tier/tier-list-ironclad-1S+.png}
+\includegraphics[width=\textwidth]{tier/tier-list-ironclad-1S.png}
+\includegraphics[width=\textwidth]{tier/tier-list-ironclad-1A.png}
+\includegraphics[width=\textwidth]{tier/tier-list-ironclad-1B.png}
+\includegraphics[width=\textwidth]{tier/tier-list-ironclad-1C.png}
+\includegraphics[width=\textwidth]{tier/tier-list-ironclad-1F.png}
+
+\begin{itemize}
+    \item \textbf{S+：} \rarity{2}绯红披风、\rarity{2}痛殴、\rarity{2}原始力量、\rarity{2}岿然不动。
+    \item \textbf{S：} \rarity{1}与我一战！、\rarity{1}无情猛攻、\rarity{1}主宰、\rarity{0}愤怒、\rarity{0}耸肩无视、\rarity{0}剑柄打击、\rarity{2}狂宴、\rarity{1}狱火。
+    \item \textbf{A：} \rarity{2}恶魔之焰、\rarity{1}重锤、\rarity{1}重振精神、\rarity{0}头槌、\rarity{1}踩踏、\rarity{1}灰烬打击、\rarity{0}全身撞击、\rarity{0}闪电霹雳、\rarity{1}邪眼、\rarity{1}御血术、\rarity{0}突破。
+    \item \textbf{B：} \rarity{1}巨像、\rarity{1}彼岸咆哮、\rarity{1}欺凌、\rarity{0}坚毅、\rarity{1}拆卸、\rarity{1}燃烧、\rarity{1}火焰屏障、\rarity{0}血墙、\rarity{0}战栗、\rarity{0}武装、\rarity{0}双重打击、\rarity{2}凌虐、\rarity{0}完美打击、\rarity{1}上勾拳。
+    \item \textbf{C：} \rarity{2}契约终结、\rarity{0}熔融之拳、\rarity{1}旋风斩、\rarity{0}飞剑回旋镖、\rarity{1}暴走、\rarity{2}焚烧、\rarity{1}挑衅、\rarity{0}余烬、\rarity{1}地狱之刃。
+    \item \textbf{F：} \rarity{1}岩石铠甲、\rarity{2}势不可当、\rarity{2}恶魔形态、\rarity{1}怨恨、\rarity{2}扯碎、\rarity{0}预备打击、\rarity{0}铁斩波。
+\end{itemize}
+
+实战中不是说一定要选排名高的，具体情况具体分析，后面章节会有职业单卡介绍，到时候再逐牌慢慢讲解。不过萌新如果只是想快速提升实力，D 级别的卡过渡期无脑不抓，C 级别尽量不抓是不会有问题的。
+
+S+ 是四张超模金卡，白蓝卡最高只有 S。与我一战、无情猛攻、愤怒都是数值爆炸的牌，剑柄、耸肩、主宰、狱火在本身强度达标的时候为其他卡牌提供资源，S 级的卡前三抓看到基本可以无脑入手。A 级的卡是过渡期强势或是过渡达标且有一定的后期价值，其中全身撞击和突破最好在有敲位时考虑，敲后加成很大。B 级的卡处于及格线，本身数值达标或是前期亏模但配合其他牌很快可以实现正收益。C 级别的卡数值较低或是收益不稳定，而 D 级基本数值不够看或是过于昂贵。
+
+\textbf{【功能牌梯度表】}
+
+功能牌大多在一层略成型之后开始考虑抓取，较少数很强的功能牌会裸抓，考虑到部分功能牌实际也具有过渡的功能，会综合进行排名，同等级排名之间不分先后。
+
+\includegraphics[width=\textwidth]{tier/tier-list-ironclad-2S+.png}
+\includegraphics[width=\textwidth]{tier/tier-list-ironclad-2S.png}
+\includegraphics[width=\textwidth]{tier/tier-list-ironclad-2A.png}
+\includegraphics[width=\textwidth]{tier/tier-list-ironclad-2B.png}
+\includegraphics[width=\textwidth]{tier/tier-list-ironclad-2C.png}
+\includegraphics[width=\textwidth]{tier/tier-list-ironclad-2F.png}
+
+\begin{itemize}
+    \item \textbf{S+：} \rarity{2}痛殴、\rarity{0}放血、\rarity{1}燃烧契约、\rarity{2}祭品、\rarity{2}黑暗之拥、\rarity{2}坚定不移。
+    \item \textbf{S：} \rarity{2}恶魔之焰、\rarity{1}主宰、\rarity{2}原始力量、\rarity{1}杂耍、\rarity{0}剑柄打击、\rarity{1}劫掠、\rarity{1}重振精神、\rarity{2}添柴、\rarity{0}耸肩无视、\rarity{1}狂怒、\rarity{1}战斗专注。
+    \item \textbf{A：} \rarity{2}狂宴、\rarity{0}破灭、\rarity{1}被遗忘的仪式、\rarity{2}烙印、\rarity{2}时候未到、\rarity{2}残酷、\rarity{1}跃跃欲试、\rarity{1}凶恶、\rarity{1}巨像、\rarity{1}无惧疼痛。
+    \item \textbf{B：} \rarity{1}与我一战！、\rarity{0}闪电霹雳、\rarity{1}上勾拳、\rarity{2}倾泻、\rarity{1}惊逃、\rarity{2}好勇斗狠、\rarity{2}壁垒、\rarity{0}武装、\rarity{1}挑衅。
+    \item \textbf{C：} \rarity{0}熔融之拳、\rarity{0}战栗、\rarity{2}地狱狂徒、\rarity{2}薪火之源、\rarity{1}战鼓、\rarity{0}坚毅、\rarity{2}连环拳。
+    \item \textbf{F：} \rarity{2}恶魔形态、\rarity{0}余烬。
+\end{itemize}
+
+功能牌由于种类繁杂，这里不再一一赘述，后面战士思路介绍基本都会提到这些牌。
+
+\subsubsection{运营思路}
+
+\textbf{【一层思路与过渡】}
+
+战士由于燃烧血的存在，打三只弱怪的战损几乎是最少的，基础牌有痛击就使得战士打小怪在牌序很极端的情况下也不会掉太多的血。在暗港珊瑚群被削弱后，战士同其他职业一样，暗港压力小一点，但是需要专门提防珊瑚。
+
+关于出门遗物的选择，战士的涅奥之怒是明显优于其他职业的，可以无脑抓取；战士由于高牌效的输出牌很多，华美发束的综合期望是最高的，也可以无脑选择。关于无色开，战士最强无色开局是拳斗，碰到了可以试一试，此外战士的亮剑也非常非常强。关于诅咒金开，这里只建议原始力量、祭品或者痛殴开，其他金卡都不能说稳定优于一张诅咒。
+
+战士的一层过渡输出一般抓 2-3 张即可，过渡输出抓太多会导致防御端被稀释。二代环境利好叠易伤，且战士没有 0 费易伤牌，因此一层如果以物理输出为主，尽量在一层就将痛击敲起来，出一次 +3 层易伤基本可以保证整场战斗覆盖。如果有其他易伤联动牌如欺凌、拆卸、巨像等，可以再补一张易伤牌比如战栗。
+
+暗港一抓一般抓防，或是抓了过渡输出后再去补一张防，密林在进第一只精英前都不强制需要抓劣质过渡防。在抓取 2 张及以上及格过渡输出的时候就不推荐战士商店买药打精英了，除非状态很不好。战士开局如果没有抓取武装、战专、重振等牌，可以一删防御，删防御可以提高短线输出伤害、潜在配合劫掠跃跃欲试等牌，同时听打击木偶、营养汤等遗物，后续二删根据卡组情况考虑，输出爆炸或是有耸肩血墙等过渡防的时候可以考虑二删继续删防。当然，如果你不习惯删防的战士可以从一删开始一直删打，不会太大影响战士三层的决策。
+
+一层的战士是可以靠换血打过任何精英的，注意控制血线。打瀑布巨兽、同族小队、墨影幻灵这三个 Boss 是绝对需要尊重的，如果快到 Boss 只剩 30 多血且卡组不胡就不要再打精英了，如果被打到 20 血不到很可能睡觉也打不过这几个 Boss。打墨灵大多情况只要评估吃完第一次重击之后能不死就行，没有防牌打乐加和仪式兽也应注意 20 血以下时最好能睡一觉。战士的过渡卡组如果高费多就可以抓敲惊逃，有不错的 0c 输出且有过牌时可以抓杂耍。一层战士不要抓过多的牌，抓过多过渡输出就会稀释防御端，抓过多功能牌就会卡启动，战未来的牌也不宜抓太多，以免互卡。
+
+\textbf{【二层思路与对策】}
+
+进入二层的战士一般怕小怪不怕精英，如果没好的防牌打强怪的战损不比精英低。如果此时已经拿到佩尔士兵或是坚定不移可以直接转防战，抓耸肩、邪眼等 1c 防 16 开龟，后期数值靠壁垒、肚皮等牌解决。如果拿到大抱抱、营养汤、至亮之焰等就继续强力攻杀。如果拿到恶魔火、痛殴等牌就精简卡组最后靠放血、剑柄、劫掠等转核心牌。有黑拥、添柴等牌就尽孝烧牌和加费。
+
+战士是最不怕 0.107 感染棱柱的职业，0.107 之前的感染棱柱战士容易无防吃两刀。二层战士能打过精英就打，低战损过二层精英是很难的，因此路线选择上尽量选择战斗之间有火堆的路线，精英强怪连战的话战士吃不消。二层的战士卡组大多时候是看不到未来的，也不需要过多战未来，只要手上携带着后期轮椅牌，活到三层自会柳暗花明。
+
+战士打 2 层 3Boss 通常最怕螃蟹。螃蟹在火箭重击前会连打三回合，如果卡组启动较慢会难以防住火箭后再抗碾碎爪连击。螃蟹是最好速杀的二层 Boss，非防战卡组尽量保证火箭发射之前可以击杀火箭，否则就留够血量和药水强行换血。知识恶魔会严厉惩罚抽五打五战士，战士一般一选选择少抽，吃不起 -6，无过牌卡组减抽之后一直打不死知识恶魔等到 -8 的时候就死翘翘了，如果选择 -6，就要在 -7 时候的知识恶魔连击之前击杀，不然是完全防不住的。没加费没过牌的战士打知识恶魔一定要尊重，睡满血都不一定打的过。战士一般不怕沙虫，沙虫出伤很慢，残血不想睡觉进沙虫前思考一下能不能抗住沙虫第三回合 30+ 的重击，能抗住就没问题，沙虫第四回合发呆第五回合打 12*2，基本毫无压力，随便攻杀。
+
+\textbf{【三层思路与终端】}
+
+进了三层的战士就该跑路了，就算能抗住灵魂枢纽和三骑士的开幕雷击，也不见得能打过大机器人，尤其是输出以易伤为主的战士会很难破人工。战士是最不怕大咔咔、四书五经等怪的，三层的战士只需一边跑路一边评估能不能打过三层 Boss。若评估没有上限能攻杀boss且发现卡组里没什么防御，赶紧打架走商店找牌。
+
+有加费和黑拥的添柴、能持续烧牌的灰烬打、痛殴、杂耍放血剑柄劫掠开转、凶恶闪电霹雳放血开转、主宰破击欺凌、放血血墙狱火撕裂扯碎、坚定不移壁垒肚皮、或是单纯有残酷原始力量等牌且遗物数值高等情况的数值都是完全够杀三层 Boss 的。0.103 的门扉可以用常规上限数值灌死，也可以用灰烬打、黑拥愤怒、杂耍复制亮剑等腐乳。0.107 的沙漏战士基本是不怕的，状态可以烧，破掉人工之后该怎么打就怎么打。
+
+关于战士的防御终端，如果没有坚定不移一般靠绯红披风、无惧疼痛、邪眼、坚毅+、耸肩+等牌混一混，在易伤充足的情况下可以抓巨像特解，能实现小循环的卡组有一张狂怒就行了，只要能保证狂怒每回合上手就能稳定防住。部分卡组道中有时候未到或是道中战损低，卡组出伤能力强，可以满血进 Boss 用脸接和 Boss 换血，神秘红色格挡条解决防御上限问题。
+
+\textbf{【总结】}
+
+那么战士的基本思路就这么多，不是很长，因为不涉及理论知识，如果还是有些感觉云里雾里的，是因为上面只是泛泛而谈并没有实战演示，后面章节会有战士单卡详解，希望能解决你内心这部分的困扰。
+
+\subsubsection{其他玩法}
+（此部分适合娱乐或特定环境，打连胜请谨慎选用）：
+
+\paragraph{防御删完不抓技能牌劫掠攻杀战}
+塔2战士开局最大的特色之一就是可以一层先删防御。塔2战士拥有大量优质攻击牌，且由于劫掠、跃跃欲试、好勇斗狠、痛殴、杂耍等利好攻击牌体系的存在，加上完美打局内烧打击不降伤害、打击木偶是普通遗物、存在营养汤、三刃回旋镖、音乐盒、十字弓等攻击体系轮椅先古，删光防御让卡组内攻击牌数量大于 70\% 的暴力杀伐是塔2战士绝对可以尝试的一个流派。
+
+基本思路是：开局选项有删选删，商店有钱就删，变牌事件把防御变成攻击或能力，蛇行事件把防御变啄击，一套操作下来胡一点的局出一层就已经只剩一张防或者没有防了。这样佩尔就不会出黏糊，一层有鸟蛋事件也可以大大方方拿鸟蛋防止出佩尔士兵。该体系抓过渡输出可以按正常连胜的优先级来抓，完美打在该体系的强度明显提升，战栗、重振、耸肩这些不错的技能牌在攻杀打法能不抓就不抓，一般用血墙、火焰屏障、绯红披风、小金人、巨像、狂怒进行防御。这些技能牌路上见到第一张可以拿一下，最多抓两张防牌，太多会卡劫掠。
+
+劫掠、杂耍、燃烧契约等牌可以考虑早点抓，跃跃欲试有敲位就拿，放血和能敲起来的剑柄无脑拿，惊逃和地狱狂徒按需抓取。一二层靠换血基本可以稳过，一定要多留血量进 Boss，尤其是瀑布巨兽和知识恶魔，这两个 Boss 较为克制攻杀战。
+
+到了三层，胡局一般已经凑齐劫掠、剑柄、放血等轮椅，可以实现伪无限单回合爆出大量伤害。其他局有遗物带飞或者原始力量、灰烬打击等强力牌，哪怕不转起来数值也是够的。
+
+攻杀战不能成为主流的主要原因是一层控不住血线容易暴毙，且三层双 Boss，跟第一只 Boss 换血换完之后可能没血再打一只。加上 0.103 门扉和 0.107 沙漏都较为克制攻杀战，需要寻找特解，因此本方法适合让 70\% 以上的局变成无脑爽局，但不适合打连胜。
+
+\paragraph{塔1传统战}
+如果你对删防御感到极度不适，那么不妨试试回归塔1打法：删打，抓取武装、战专、肚皮、重振、无惧等传统强卡，过渡靠塔2战士高数值过渡牌解决。三层最后打传统放血、剑柄、耸肩、狂怒、肚皮，用无惧重振或恶魔之焰烧一波启动，未凑齐关键组件的时候可以用坚定不移、壁垒、痛殴等牌兜底。
+
+该方法依旧强势，打 30 连甚至更高都不一定有问题。但是毕竟相当于舍弃了塔2很多攻杀体系联动的强卡，有点像塔1观者玩无红蓝的美。塔2战士的状态牌都被机器人吃了，因此在塔2玩传统战会使得无惧、重振等牌收益变低，容易死二层。
+
+\paragraph{杂耍熔融之拳主宰易伤翻倍战}
+0.103 正式版开始，战士的易伤体系得到了极大的加强，易伤牌之间互有联动且逻辑自洽，因此也诞生了狂抓甚至只抓易伤体系牌的玩法。该玩法看到主宰、熔融之拳、战栗、凶恶就抓，部分时候抓拆卸过渡，最后靠欺凌或高额力量作为输出终端。必要时会抓杂耍复制熔融之拳。
+
+该玩法十分基米，胡起来会很爽，不过一层主宰战栗熔融拳是相当吃牌序的配合，且启动慢，容易被精英强怪打爆。二层存在双啃咬机、三层存在大机器人这种很恶心的人工怪，纯易伤流会被限制的很惨。加上三层 Boss 存在实验体这种死了清易伤层数的怪，熔融之拳是有限的，牌序不好就得不得不先斩杀，导致不能主宰到很多力量，被后面阶段腐乳。综合来看纯易伤翻倍不是很强的玩法，但谁不喜欢联机在那狂叠易伤，一个主宰欺凌下去全都杀光呢？而且，什么叫不消耗的熔融之拳 + 主宰合成突破极限。
+
+\paragraph{未掘宝石/大奖战}
+没有抓到任何好的上限牌的战士买宝石是比较常见的情况，该玩法可以在连胜局合适的时候使用。在有放血、剑柄等牌的情况下宝石不会特别卡启动，打精英小怪可以第一轮洗牌之前就出重放牌直接秒掉，打 Boss 就想办法活到宝石重放防牌，防住之后反复出宝石提供数值上限。
+
+战士的大奖基本是全职业最强，奈何战士数值太高大多数局不需要大奖。大奖会出放血、祭品这两张真加费以及狂怒、愤怒、契约终结等不加费但高数值的牌，适当的情况大奖印出原始力量也可以提供高额数值。基本上有加费有过牌但是缺数值的战士可以买大奖，收益还是很稳定的。
+
+\paragraph{联机模式的战士}
+联机的战士是综合最强。初始牌自带 2 层易伤，和猎人 1 层虚弱相比显得靠谱很多。
+\begin{itemize}
+    \item 联机的战士可以玩纯易伤流，遇到人工怪就靠队友破人工。战士越多易伤流越强，到最后全是主宰欺凌数值爆炸。
+    \item 联机战士 1 层除了加费和过牌外应少战未来，少抓防牌，多贡献输出保障队友发育。
+    \item 由于怪物将近五倍的血量，原始力量、完美打等低数值上限在多人已经不适用，可以去玩伪无限或者其他数值达标的上限。
+    \item 除上面三点以外，联机战士和正常单人战士无异，想整活可以抓肉盾燃烧自己造福队友。
+\end{itemize}
+
+\subsection[静默猎手]{\icon{icons/character_icon_silent.png}静默猎手}
+
+\subsubsection{必胜公式}
+
+\carddesc{1.6cm}{characters/char_select_silent.png}{
+当前版本由于杂技升蓝以及难以删牌，猎人基本抛弃了运转体系为主导的打法，取而代之的是玩中大卡组纯数值的玩法。猎人的卡组联动不太需要将特定的牌抽在一起，且卡池里存在相当多开出来或者吃到配合就强无敌的高数值牌。因此塔2目前猎人的必胜口诀是：\textbf{“即时战力拉满、不战未来、猛冲精英、水到渠成”}。
+}{0}{1}
+
+\subsubsection{卡池介绍}
+
+相较于战士，猎人的卡池少了很多难以理解的牌，基本都是纯粹的输出牌、防御牌、好理解的功能牌以及提供数值的能力牌，只有极少数输出牌和防御牌同时具有特殊功能性。依照猎人的卡池，可以将猎人牌分为以下几类：
+
+\begin{itemize}
+    \item \textbf{物理输出（包括刀牌）：} \rarity{0}切割、\rarity{0}匕首雨、\rarity{0}带毒刺击、\rarity{0}翻越撑击、\rarity{0}投掷匕首、\rarity{0}突然一拳、\rarity{0}先制打击、\rarity{0}连续反弹、\rarity{0}猎杀者、\rarity{0}刀刃之舞、\rarity{0}斗篷与匕首、\rarity{1}背刺、\rarity{1}串刺、\rarity{1}精确切击、\rarity{1}飞镖、\rarity{1}紧勒、\rarity{1}铭记死亡、\rarity{1}终结技、\rarity{1}冲刺、\rarity{1}猛扑、\rarity{1}精密瞄准、\rarity{1}暴露、\rarity{1}隐秘匕首、\rarity{1}袖里乾坤、\rarity{1}毒性爆发、\rarity{1}无尽刀刃、\rarity{1}速行者、\rarity{2}刺杀、\rarity{2}回响斩击、\rarity{2}狩猎、\rarity{2}暗影步、\rarity{2}钢铁风暴、\rarity{2}墨之刃、\rarity{2}刀扇、\rarity{2}磨蚀。
+    \item \textbf{魔法输出（包括毒牌）：} \rarity{0}致命毒药、\rarity{0}蛇咬、\rarity{1}咕嘟冒泡、\rarity{1}弹跳药瓶、\rarity{1}迷雾、\rarity{1}毒雾、\rarity{2}华丽收场、\rarity{2}谋杀、\rarity{2}腐蚀波、\rarity{2}刀刃陷阱。
+    \item \textbf{防牌：} \rarity{0}偏折、\rarity{0}预判、\rarity{0}斗篷与匕首、\rarity{0}后空翻、\rarity{0}尖啸、\rarity{0}闪躲翻滚、\rarity{0}触不可及、\rarity{1}冲刺、\rarity{1}恫吓、\rarity{1}逃脱计划、\rarity{1}残影、\rarity{1}蜃景、\rarity{1}手上技法、\rarity{1}扫腿、\rarity{2}萎靡、\rarity{2}融入暗影。
+    \item \textbf{数值能力牌：} \rarity{1}幻影之刃、\rarity{1}精准、\rarity{1}灵动步法、\rarity{2}触媒、\rarity{2}余像、\rarity{2}跟踪、\rarity{2}涂毒、\rarity{2}磨蚀、\rarity{2}群蛇形态。
+    \item \textbf{功能牌：} \rarity{0}早有准备、\rarity{0}后空翻、\rarity{1}猛扑、\rarity{1}计算下注、\rarity{1}隐秘匕首、\rarity{1}残影、\rarity{1}独门技术、\rarity{1}手上技法、\rarity{1}杂技、\rarity{1}战术大师、\rarity{1}本能反应、\rarity{1}计划妥当、\rarity{2}狩猎、\rarity{2}肾上腺素、\rarity{2}爆发、\rarity{2}夜魇、\rarity{2}子弹时间、\rarity{2}必备工具、\rarity{2}谋划专家。
+\end{itemize}
+
+能看到，猎人有相当多的物理输出牌可以选择，但体感并不会觉得猎人很攻杀，因为猎人初始无易伤，在没有联动的情况下直伤输出大多都是“打击+”的模板，毒牌费伤比高但属于延迟回报或是需要重复上毒。猎人卡组几乎没有战士那种可以围绕着尽孝一张牌就能赢的上限牌，所以猎人不必太战未来。0.103 版本以来以运转为核心的猎人打法已经不再适用，现版本猎人的思路就是保障目前的即时战力：刀牌听牌面广，毒牌延迟收益高，能活到3层卡组里多少会有些高数值能力牌，靠卡组里的高数值牌和路上运营的遗物达成数值解，是目前猎人的主流思路。这有点类似塔1的 No SL 打法，本质就是注重数值；不是不抓过牌，是不奔着运转伪无限去运营，最后卡组通常不会太小。考虑到猎人开局多抽2，且初始牌有中和，猎人是一层最好冲精英的角色（因职业特色可能会出现不发过渡的情况，出现这种情况不用强行打精英）。加上猎人出攻击牌和防牌的频率也较高，遗物对猎人的增益是很大的。
+
+\subsubsection{卡池梯度表}
+
+因为猎人的牌大多定位清晰，这里将所有卡牌置于一张表中（B级及以下按卡牌稀有度排序）。
+
+\includegraphics[width=\textwidth]{tier/tier-list-silent-1S+.png}
+\includegraphics[width=\textwidth]{tier/tier-list-silent-1S.png}
+\includegraphics[width=\textwidth]{tier/tier-list-silent-1A.png}
+\includegraphics[width=\textwidth]{tier/tier-list-silent-1B.png}
+\includegraphics[width=\textwidth]{tier/tier-list-silent-1C.png}
+\includegraphics[width=\textwidth]{tier/tier-list-silent-1D.png}
+\includegraphics[width=\textwidth]{tier/tier-list-silent-1F.png}
+
+\begin{itemize}
+    \item \textbf{S+：} \rarity{1}计划妥当、\rarity{1}灵动步法、\rarity{2}余像。
+    \item \textbf{S：} \rarity{2}肾上腺素、\rarity{2}墨之刃、\rarity{1}杂技、\rarity{1}计算下注、\rarity{1}本能反应、\rarity{1}精准、\rarity{1}幻影之刃、\rarity{2}跟踪、\rarity{2}融入暗影、\rarity{0}后空翻。
+    \item \textbf{A：} \rarity{2}必备工具、\rarity{2}群蛇形态、\rarity{2}磨蚀、\rarity{2}爆发、\rarity{2}子弹时间、\rarity{2}触媒、\rarity{2}刺杀、\rarity{1}暴露、\rarity{1}隐秘匕首、\rarity{2}暗影步、\rarity{0}先制打击、\rarity{1}残影、\rarity{2}刀刃陷阱、\rarity{1}毒雾、\rarity{2}狩猎、\rarity{1}逃脱计划、\rarity{0}尖啸。
+    \item \textbf{B：} \rarity{0}连续反弹、\rarity{0}猎杀者、\rarity{0}早有准备、\rarity{0}刀刃之舞、\rarity{0}触不可及、\rarity{0}斗篷与匕首、\rarity{0}致命毒药、\rarity{0}偏折、\rarity{1}猛扑、\rarity{1}飞镖、\rarity{1}精密瞄准、\rarity{1}背刺、\rarity{1}冲刺、\rarity{1}扫腿、\rarity{1}咕嘟冒泡、\rarity{1}无尽刀刃、\rarity{2}刺杀、\rarity{2}回响斩击、\rarity{2}萎靡、\rarity{2}夜魇、\rarity{2}钢铁风暴、\rarity{2}涂毒、\rarity{3}幽魂形态。
+    \item \textbf{C：} \rarity{0}匕首雨、\rarity{0}带毒刺击、\rarity{0}突然一拳、\rarity{0}预判、\rarity{0}蛇咬、\rarity{1}紧勒、\rarity{1}终结技、\rarity{1}精确切击、\rarity{1}铭记死亡、\rarity{1}恫吓、\rarity{1}蜃景、\rarity{1}战术大师、\rarity{2}华丽收场、\rarity{2}腐蚀波、\rarity{2}刀刃陷阱。
+    \item \textbf{D：} \rarity{0}投掷匕首、\rarity{0}切割、\rarity{0}闪躲翻滚、\rarity{1}串刺、\rarity{1}弹跳药瓶、\rarity{1}袖里乾坤、\rarity{1}手上技法、\rarity{2}谋划专家、\rarity{3}压制。
+    \item \textbf{F：} \rarity{0}翻越撑击、\rarity{1}迷雾、\rarity{1}独门技术、\rarity{1}毒性爆发、\rarity{1}速行者。
+\end{itemize}
+
+\textbf{注：} 表中 C 级的跟进（恫吓）指代的是改版后的恫吓，如果是 0.103 的跟进则为 F 级。
+
+\textbf{具体单卡评测在后面章节，这里进行简短解释：} \\
+目前版本环境利好刀贼。刀的听牌面很广：如精准、幻影之刃、刀刃陷阱；任何伤害增益比如跟踪和易伤；任何力量增益比如金刚杵和非凡技艺；任何出牌数相关增益比如折扇、金纸、余像、风的女儿等。加上目前墨之刃改版后变成了不消耗的大刀舞，刀从过渡到终端都比较自然，出伤快相对不怕小怪，有数值增益就能打 Boss，说不定还能意外和其他职业牌形成联动。相比之下，毒牌在二三层道中难以出手，更适合拖中长线打 Boss。由于刀吃到了版本福利，刀相关牌排名都会略高，而纯奇巧体系地位则大幅下降。
+
+猎人卡池虚弱和物理防牌浓度高，且有灵动、融入暗影、残影等极大利好防御端的牌，所以猎人卡池的核心加费就是靠防牌数值去拖回合实现变相加费。现阶段战术大师已不好用，子弹时间是金卡，所以猎人最大的加费就是防住，防住一回合就多一回合的费。很多人会感觉猎人缺费，其实猎人只要不开大量的能力都不会太缺费。抓牌时多进行卡组评估，判断想抓的牌到底需不需要，抓了有没有费出，没费出不如洁癖一点，尽量把费留给关键牌上。
+
+\subsubsection{运营思路}
+
+\textbf{【一层思路与过渡】}
+
+猎人卡池中存在寄托、余像、灵动这种几乎无论玩什么卡组都很强的能力牌，而各个体系也有相应的强终端（如刀的刀刃陷阱，毒的触媒），所以猎人在过渡期正常抓牌让每张牌做好本职工作的同时去找这些数值怪，上限自然就来了，无需专门战未来，也不必一层只盯着某一个特定的体系抓牌。此外，猎人不以运转为核心不代表不抓过牌，这一点需知晓。
+
+猎人开局抽 7 加上基础牌自带虚弱，是五职业中一层打弱怪战损最低的职业，同时也是一层打精英最稳定的职业。猎人的一层下限比较高，和塔1一样，由于猎人初始牌没有伤害增益牌，如果一层发牌就是不给好的输出可能会导致烂完。不排除实战会遇到这种情况，一旦真的发生了就跑路，在开局选项不佳的情况下不要冒险选多精英且无法跑路的路线（塔2猎人能用的过渡牌数量远多于塔1，这种情况还是比较少的）。
+
+过渡输出的选择可以按照梯度表来选。先制打击、连续反弹、猎杀者这种都是无竞争可以先无脑带一张的牌（说的是刚开局，不是说已经有先制打击和猎杀者了然后再无脑抓个连续反弹）。匕首雨、毒刺、投掷匕首这种可以2选无其他好输出时选择。一层毒牌抓位大致为：毒雾 \textgreater{} 小毒 \textgreater{} 蛇咬，咕嘟冒泡在有一张毒的时候可以视为一张小毒+。毒牌 1 选竞争不过好的物理输出，等有了合适的物理输出再去抓毒为 Boss 兜底是比较舒服的，暗港的毒抓位相对高一些。
+
+一层如果没有精准、幻影之刃等遗物也没有伤害性药水的情况下，纯物理猎人是比较难打 Boss 的，尤其是乐嘉、瀑布巨兽、仪式兽二阶段，没毒这种魔法伤害容易被 Boss 滚雪球。
+
+关于一层路线，猎人是正常的尽量多走精英火堆。猎人的一层中和敲位较高，一般为 2 敲：1 敲敲过渡输出，2 敲敲中和。敲了中和等于多了一个回合的低压，变相相当于敲了一张防或是能多出一张输出牌。猎人完全不怕暗港精英，唯一要注意的是输出够不够少吃骇鳗一刀；密林三精英都不适合拖回合，尽量选择后置精英路线，保证有不错的过渡输出水平再进。
+
+删牌方面，猎人一层一般暗港先删打击，密林先删防御，后续删什么看卡组输出与防御的浓度，进了二层之后基本只删打击了。值得注意的是，非凡技艺和闪亮登场对猎人的增益是很显著的，猎人开局或是一层商店都可以考虑这两张牌。
+
+\textbf{【二层思路与对策】}
+
+二层猎人打小怪有先天优势，不太怕被小怪开幕雷击血入，部分职业不好处理的猎人杀手、胧光怪等猎人都不怕。二层的猎人应考虑扩大优势，评估能不能打过二层精英。如果只怕最多 1 个精英直接走最肥的路线；如果感觉控不住战损就不要勉强，选择能跑路的路线。最好还是自己玩猎人时二层尽量多走精英，玩多了就大致清楚猎人什么时候真的怕二层精英了，很多时候猎人对二层精英都有着明显的掌控力，光看卡组不一定能想清楚。
+
+106 改版的感染棱柱威胁是最大的，不一定会有很高的战损，但也很难低于 15，没有灵动基本会稳定吃两刀，部分时候千足虫能用药水快速解决，对比之下感染棱柱血厚交伤害性药可能没有什么效果。
+
+Boss 方面，没有寄托的猎人会比较难打知识恶魔，选择少抽牌如果知识恶魔第三次连击还打不死，基本选扣血也凉了。由于知识恶魔出伤其实不快，卡组没寄托没灵动进知识恶魔尽量借助无色等外部力量或者直接速杀，毒和有能力的刀效果都比较显著。关于沙虫，因为猎人的真加费很少，打沙虫如果输出不够不能在 10 回合内杀掉，后面狂乱逃离都到 2c 就玩不了了。如果预感卡组不好打沙虫可以提前准备毒牌。
+
+\textbf{【三层思路与终端】}
+
+三层猎人拿到好用先古的可能性会略低于其他职业，无伤大雅。路线按需选择，猎人一层二层横冲直撞，到了三层不一定缺敲位，可以考虑火堆睡觉，多打怪多去商店看牌。如果要打精英就考虑打了精英之后还能不能在最后一个火堆睡一觉后接近满血，并且带着药进 Boss。
+
+三层 Boss 猎人一般不怕女王，会视情况怕实验体或者沙漏（0.103 的门扉不怕）。实验体一阶段通常白给，有寄托基本都能腐乳实验体，寄托减小了实验体转阶段以及无实体转换造成的卡组不稳定；没寄托就比较难受了，一般用后空翻和残影来过牌，把节奏往自己有利的方向拖。沙漏的设定纯是来恶心无烧牌的猎人的，白背包、隐秘匕首在沙漏战都可以弃掉凋萎当做临时防御。猎人打沙漏不能拖太久，哪怕是超级龟壳也扛不住一手凋萎+3，最好能在凋萎+2后不久，也就是 6-8 回合击杀沙漏。没什么特别好的办法，纯看卡组数值。进三层后觉得打不过沙漏就多找牌，找复数张精准、找刀刃陷阱、找触媒、找跟踪、找群蛇形态等，这种情况哪怕打别的怪要增加战损也得拿数值牌了；也可以留复制药、超巨化来针对沙漏。此外沙漏自带三层人工，尤其是靠跟踪打伤害的卡组可以提前准备破人工药水或者暴露。
+
+\textbf{【总结】}
+
+关于猎人单卡讲解会在后面章节细说，目前的猎人打好短期战线大多情况都能把雪球滚起来，到了三层之后针对一下三层 Boss 即可，不宜听牌，也不宜啥都抓。
+
+\subsubsection{其他玩法}
+（此部分适合娱乐或特定环境，打连胜请谨慎选用）：
+
+\paragraph{运转（奇巧）猎}
+很遗憾，猎人的卡池并不能满足多种玩法，其实上述攻略给出的也不是某种具体的玩法，有点类似杂食的感觉。而针对性抓运转牌的奇巧猎、转转猎、华丽猎作为唯一猎人有特色的玩法已经不再辉煌了，这里简单介绍。
+
+奇巧牌的特色大多为裸出不划算，被弃血赚，所以运转猎的数值就靠不停地出奇巧牌，将纯粹的加费和过牌端口转化为数值。运转猎的核心卡是杂技，杂技本身提供大量过牌的时候还可以打出奇巧牌，过多的牌位可以靠早有准备、隐秘匕首来处理。整体的运营思路就是基本盯着奇巧相关牌抓，抓杂技、本能、战术、早有准备、隐秘匕首，数值靠连续反弹、触不可及、迷雾等奇巧牌、以及偏折预判等 0 费牌。最后通过删牌和少抓牌实现一回合洗一次牌甚至单回合洗多次牌达成上限，数值不够时可以靠华丽、腐蚀波等替代上限。
+
+由于删牌价格变贵、事件删牌减少、门扉沙漏的加入，该方法已经不适合作为主流玩法，仅建议在一层早期发杂技本能或是单纯想娱乐玩法时尝试游玩。
+
+\paragraph{联机模式的猎人}
+联机的猎人通常被称为“夹击发射器”，现因为版本猎人环境的变化该说法已经不是很准确了。猎人只能偶尔出出夹击或是寄托保留夹击而不是只出夹击，一回合出好几张。这个变动算是让联机的猎人目的性不再那么单一，可以让其他队友给自己当拐而不是自己当 buff 手。
+
+联机猎人初始牌没有易伤，如果队伍中猎人骨妹数量偏多就会明显感觉到一层打强怪都吃力，感觉怎么都打不死。猎人易伤源不多，联机看到暴露必抓。联机的猎人基本也是只玩刀，刀吃团队增益效果显著，常常能在中后期成为团队中伤害最高的角色，毒只建议在有多名猎人的情况下游玩。
+
+综上，如果在联机模式选出了猎人并且目标是赢，可以当成连胜来打。降低对毒牌的预期，略微降低对防牌的需求（比如后空翻不要有几张带几张了，鬼祟这种看见了还是很能拿的），暴露、夹击、尖啸适当拿。只要渡过了前期的无伤害期，或是团队里有战士、储君能兜底一层前半层，那么联机的猎人后面都会是一帆风顺。
+
+\subsection[储君]{\icon{icons/character_icon_regent.png}储君}
+
+\subsubsection{必胜公式}
+
+\carddesc{1.6cm}{characters/char_select_regent.png}{
+因为储君是塔2新角色、加上职业本身流派众多，再加上这个职业本身很强，使得哪怕是储君高手之间也会有很大的理解差异。本章会有较大的篇幅来介绍储君各个流派以及核心思路。考虑到储君受个人打法风格影响很大，在吸收了多名储君高手的理解后，本文还是会尽量将各路理解与本人自己的风格结合并统一。建议学习储君攻略不要只学一半或是只看梯度表，学一半的结果会很糟糕。
+}{0}{1}
+
+储君在 100 版本后经历了几次加强，随着玩家理解的提升，已经成为了公认的数值怪，玩的好就是目前版本的最强职业。储君的卡池充斥着大量的优质数值牌和部分一牌带动多牌的轮椅牌，储君卡池的过渡输出和猎人一比很难不笑。储君的核心口诀是：\textbf{“垃圾牌带飞一层，二三层转职成为狂战士、刺客或法师”}。
+
+\begin{itemize}
+    \item \textbf{狂战士}：大致意思是卡组以暴力一波为主，积攒数个回合的资源然后一下子爆发出来秒掉怪物。
+    \item \textbf{刺客}：大致意思是把卡组烧完打小循环去多次出核心牌。
+    \item \textbf{法师}：是最常见也最易构筑的，大致意思是卡组以能力驱动为主，需要先花资源开出特定的能力然后变成数值怪。
+\end{itemize}
+
+\subsubsection{卡池介绍}
+
+哪怕不熟悉储君的玩家也会知道，储君的卡池有三个风格鲜明的体系，分别为：辉星、铸剑、印牌。储君的三个体系都同时既有攻又有防又有上限，与其他职业相比（如战士的放血并不是单独流派，只是放血牌通常有高数值；猎人的刀和毒一般都是作为输出，需要配合其他牌使用），储君的每个体系单拎出来都有完整的生态。因此，实战中选择倾向哪个体系、体系之间如何联动、是否需要考虑转型等问题是提高储君胜率的关键。也正因储君体系众多且逻辑自洽，储君是赢法最多、受个人影响最大的角色。
+
+储君的卡牌同战猎一样可以分为数值牌和功能牌，但这里我们不这么分，我们按各个流派区分。储君的所有卡牌细分可以分为以下体系：
+
+\begin{itemize}
+    \item \textbf{辉星牌：} \rarity{0}星界脉冲、\rarity{0}太阳打击、\rarity{0}新月长矛、\rarity{0}引导之星、\rarity{0}群星斗篷、\rarity{0}辉光、\rarity{0}收集光辉、\rarity{0}隐秘藏品、\rarity{1}辐射、\rarity{1}伽马爆破、\rarity{1}星尘、\rarity{1}明耀打击、\rarity{1}葬送、\rarity{1}决胜一击、\rarity{1}类星体、\rarity{1}粒子墙、\rarity{1}胜券在王、\rarity{1}星位序列、\rarity{1}倒映、\rarity{1}共鸣、\rarity{1}黑洞、\rarity{1}群星之子、\rarity{2}彗星、\rarity{2}星灭、\rarity{2}七星、\rarity{2}大爆炸、\rarity{2}抉择，抉择、\rarity{2}铸剑者、\rarity{2}中子护盾、\rarity{2}创世纪、\rarity{2}虚空形态。
+    \item \textbf{铸剑牌：} \rarity{0}战火铸就、\rarity{0}淬炼刀刃、\rarity{0}战利品、\rarity{1}征服者、\rarity{1}征召上前、\rarity{1}铸墙、\rarity{1}熔炉、\rarity{1}招架、\rarity{2}大爆炸、\rarity{2}铸剑者、\rarity{2}追踪之刃、\rarity{2}剑圣。
+    \item \textbf{印牌：} \rarity{0}碰撞轨迹、\rarity{0}下去！、\rarity{1}超质量体、\rarity{1}类星体、\rarity{1}冲锋！！、\rarity{1}君权自授、\rarity{1}创世之柱、\rarity{1}光谱偏移、\rarity{2}传承之锤、\rarity{2}新生之喜、\rarity{2}护驾！！！、\rarity{2}武器库。
+    \item \textbf{多段：} \rarity{0}星界脉冲、\rarity{0}天穹之力、\rarity{0}星星点点、\rarity{1}辐射、\rarity{1}星尘、\rarity{1}月面射击、\rarity{1}独白、\rarity{1}地形改造、\rarity{1}共鸣、\rarity{2}天际钻头、\rarity{2}锻打成型、\rarity{2}七星、\rarity{2}抉择，抉择、\rarity{2}王之凝视。
+    \item \textbf{控顶：} \rarity{0}光子切割、\rarity{0}宇宙冷漠、\rarity{1}王者之拳、\rarity{1}王者之踢、\rarity{1}微光、\rarity{1}征召上前、\rarity{2}所向无敌。
+    \item \textbf{烧牌/仆从牌：} \rarity{0}下去！、\rarity{1}冲锋！！、\rarity{2}护驾！！！、\rarity{2}暴政。
+    \item \textbf{其他（多为加费、过牌和纯数值牌）：} \rarity{0}下砸、\rarity{0}何人僭越、\rarity{0}流光溢彩、\rarity{1}霸权、\rarity{1}汇流、\rarity{1}预言、\rarity{1}暗淡蓝点、\rarity{1}环绕轨道、\rarity{2}如此甚好、\rarity{2}轰击、\rarity{2}迫降、\rarity{2}既定事项、\rarity{2}王国资产、\rarity{2}虚空形态。
+\end{itemize}
+
+储君的抓牌之间会互相影响，抓辉星牌会提高一部分辉星牌的抓率，其他体系亦然。抓体系牌的时候注意攻防比例，如果比例失衡（比如缺少防牌），哪怕给其他体系的防牌也要正常抓。同时储君和猎人一样，不宜一棵树上吊死，不应只盯着一个体系不放而完全不抓该体系之外的牌。有很多牌是纯粹的数值高且和其他体系有联动（比如铸墙和辉星体系无关，但玩辉星抓一张铸墙可以当优质防御，同时解放其他大剑牌抓位；比如宇宙冷漠是控顶牌，但玩大剑抓宇宙冷漠可以捞大剑或是其他关键牌）。将各个体系分类仅仅是方便下文对各个体系进行单独介绍，实战抓牌可根据之后给出的梯度表和发育思路来抓。
+
+\paragraph{辉星体系}
+储君最基本的体系。储君初始遗物和卡牌自带辉星，有很多卡牌需要花费辉星才能打出。初始卡牌下，第一轮洗牌之前最多可以产 5 辉星，因此一层第一张 3 辉星及以下的辉星过渡牌基本都是可以带的。无论第一张辉星牌抓的是几辉，敲崇拜或是抓第一张产星牌都是有很大提升的（抓 2 辉牌敲崇拜 6 星可以出陨星+2辉牌共 3 次；抓 3 辉牌敲崇拜第二轮洗牌前一共 9 辉，可以出 1 次陨星 + 2 次 3 辉牌，如果不敲崇拜只有 7 辉，不能出第二次 3 辉牌）。
+
+花辉牌方面：类星体、伽马爆破和倒映可以一抓直接拿；星界脉冲、群星斗篷缺数值可以 2 抓考虑抓取；葬送基本强绑定隐秘藏品，无隐秘藏品不抓；辐射需要卡组有汇流或隐秘藏品，且最好开局有删牌抓取；黑洞在卡组缺伤害且已经抓过辉相关牌的情况下可以考虑；引导之星通常不视为过渡输出，产辉溢出且缺过牌才考虑；胜券在王在有产辉且路线安全的情况下建议裸一张。金卡方面，七星、抉择在卡组抓了一张产辉牌的情况下即可战未来；彗星无脑抓；铸剑者不建议无搭配裸抓，裸抓不如葬送。
+
+如果一层第一张花辉牌还没出，先来了产辉牌，抓位基本为：汇流 \textgreater{} 收集光辉 \textgreater{} 隐秘藏品 \textgreater{} 胜券在王 \textgreater{} 明耀打击 \textgreater{} 辉光 \textgreater{} 太阳打击（无输出可提高明耀打击抓位）。金卡里面大爆炸来就抓，创世纪如果实在实在打不过 1 层 Boss 再抓。关于决胜一击，可以将决胜一击视为过渡输出而不是产辉牌，如果已经抓了决胜一击，可以适当将其视为产辉牌从而提高花辉牌抓位，但二层之后不再能将卡组里的决胜一击视为产辉牌。
+
+2 层、3 层评估卡组是否缺辉星，一般首先判断卡组的类型。
+\begin{itemize}
+    \item 如果卡组内辉星相关牌较多、产辉牌 $\le$ 2 张、且所有花辉牌总花费 \textgreater{} 总产出 + 3，则该卡组可以再补产辉牌。
+    \item 如果卡组判断缺辉，但同时黄费也缺，可以考虑不抓辉牌而是早点将已有产辉牌敲起来。
+    \item 如果卡组判断缺辉，但卡组不以辉星牌为主，可以不急着补产辉牌（如卡组里有类星体和星界脉冲，且已经有其他不错的输出牌，可以不出星界脉冲只出类星体和陨星，能出得起这两张牌就不算缺辉）。
+    \item 如果卡组有胜券在王或是天赋君权遗物能爆一波辉星，如果卡组核心不是辉星牌，在辉花完之前能杀完怪就可以不抓辉牌；如果辉星牌是卡组核心牌（如彗星、群星之子），不要因为能爆一波辉星就觉得辉星够用，大大方方继续抓产辉牌提高续航能力。
+\end{itemize}
+
+3 层 Boss 的辉星要么用来爆抉择、彗星、星尘、七星等终端，要么为了粒子墙、星灭、倒映、群星之子去防，要么用来出星位序列加费。出流星雨和类星体这种不怎么耗星的牌，玩能力型卡组基本不需要大量的产辉，基本只要不是辉星终端或是群星之子卡组，黄费都拿去做别的事了而不是一直产辉。所以隐秘藏品的发挥会较好。没有环绕轨道和虚空形态等在三层关底是没费产辉的，辉星卡组需注意这一点，秒不掉 Boss 后续产辉跟不上就要被秒了。
+
+\paragraph{大剑体系}
+大剑牌经过两轮加强后已经是强力过渡体系了，战火铸就、淬炼刀刃都是常见的白卡且过渡数值极高。在配合陨星的情况下战火铸就 3c 打 32，淬炼刀 2c 打 28，相当于一个重锤和一个残杀+。铸墙更是数值怪，2c 给 12 点及格防的同时铸造一把 20 的大剑出来。
+
+由于大多数铸剑牌数值高且功能性强（如淬炼刀退回费用、战利品抽牌、招架提供格挡），因此铸剑牌是一层过渡最适合抓的牌。一般一层铸墙、淬炼刀可以无脑先带一张（输出成型可以考虑不带淬炼刀，缺防不玩大剑也能先抓个铸墙）；战火铸就精英堵路可以一抓，不堵路可以二抓考虑；征服者不建议裸抓也不建议有铸剑牌时抓，如果卡组打出大剑频率很低可以略微考虑（如抓铸墙是用来防的，铸剑主要靠熔炉）；战利品 1 层在有环绕轨道+或是同时有铸剑牌+招架时可以考虑，如卡组铸剑效率低且缺输出也可以考虑抓敲战利品；招架在有铸剑牌时就可以考虑，如果不怕 1 层 Boss 可以带两张；征召上前不建议 1 层抓取，除非已经有招架或是费用溢出。金卡方面，铸剑者需要产辉极度溢出或是有抉择时考虑；追踪之刃来得早可以抓，1 进 2 看见除非特别怕盛碗虫或是千足虫，否则不建议抓；剑圣在有铸剑牌且卡组未成型时可以直接抓，之后找机会敲，纯粹的强大。
+
+二层三层铸剑依旧可以当主力。有剑圣或是抉择可以一直玩铸剑玩到底；其他时候一般不能只玩铸剑，需要配合一点辉星和印牌，大剑负责补伤害以及触发招架。如果卡组有招架甚至双招架，可以抓宇宙冷漠、征召上前等来捞大剑。3 层 Boss 战方面，大剑打门扉、实验体、沙漏都有先天优势，会略微怕女王，可以考虑抓追踪之刃针对女王，打 3 层 Boss 数值不够可以抓征服者提伤害。
+
+\paragraph{印牌体系}
+当前储君最稳定最好赢的体系。储君常常受费用或过牌量的困扰，印牌有替代过牌的作用，可能会印出生产制造、自动化等加费或是妙计、黑暗镣铐等零费牌。在长线战斗下，印牌可以让储君在战斗中滚雪球实现稳定击杀（经典单类星体腐乳瀑布巨兽和乐嘉）；同时印牌也有保短线战斗的能力（如印牌可以改随机数印出合适的牌或是让药水开出好牌；也可以在这场战斗提前偷看后面印的是什么牌，然后 SL 把好牌留到下一场战斗）。再加上印牌体系囊括了三张好用的仆从牌，防御端也有蓝卡创世之柱，可以说印牌体系成型即无敌。
+
+一层可以 1 抓碰撞轨迹和类星体；君权无其他防牌竞争可以先带一张；下去！在卡组初步成型后或是有费用时带一张；冲锋！！删 2 + 数值高，可以无脑带第一张；创世之柱可以在安全的情况下裸，最好是在有至少一张非铸剑印牌的情况下抓，胜利卡组抓两张创世之柱是比较常见的；光谱偏移在有敲且无更好选项时选择，或是已经有创世之柱的情况下抓；超质量体一般不会过早抓，同灰烬打击不同，灰烬打越烧牌出手率越高，超质量体越印牌出手率越低，建议有宇宙冷漠等控顶牌时考虑。金卡方面，新生之喜一般可以抓一张，纯 3 费卡组可以考虑不要；武器库前期在有印牌且物理输出不是印牌体系和铸剑体系的情况下考虑（这两个体系吃力量增益不明显）；护驾！！！可以无脑抓，能大烧能印一堆牌还给一堆防，无敌了。
+
+二层三层的印牌一般就是仆从牌润滑卡组，创世之柱提供大量防御，类星体、君权保道中的同时有腐乳 Boss 的能力。印牌不会作为唯一体系来玩，卡组里有那么几张印牌相关牌就会有明显增益。3 层 Boss 方面，可以靠创世之柱作为终端防，武器库作为终端输出，可以在 3 层 Boss 前用无色印牌调一个滚石或者孤注一掷存着拿去针对 Boss。在有环绕轨道和创世之柱的情况下可以商店买灾祸作为终端。印牌比较难作为输出终端，输出方面可以靠辉星牌和大剑解决。
+
+\paragraph{多段体系}
+储君比较容易被忽视的体系。多段体系一般不作为独立体系存在，而是强绑定辉星体系，算是辉星体系的一类数值解法。
+
+多段的存在感较低，最常见的情况就是 1 层抓天穹、星尘作为过渡输出，抓星星点点用来做过渡防，1 进 2 带个天际钻头寻找梦想。通常多段牌就是处于找机会的过程中：辐射需要卡组足够小、产辉浓度足够高；独白和月面射击需要卡组有抉择或是护驾！！！或是严重缺费才会考虑；地形改造需要卡组确定终端输出为多段牌时才比较有用，在攻击牌数量较少且卡组里有多段牌时可以考虑直接带一张去听牌（如 1 层抓了天穹和淬炼刀然后删了 2 打）；七星是一张可以尽孝的牌，七星来的早可以考虑集中全部资源去打七星；锻打成型可作为多段体系的终端，相当于是涂毒++，如果卡组对牌序掌控力较好，可以靠多段牌打一波然后锻打一下，之后转那个高伤害大剑；抉择，抉择是多段体系的核心牌以及轮椅牌，抉择可以爆出大量的辉星或是出多次共鸣、地形改造等，大大提高辐射、星尘、月面射击的牌效。
+
+通常正常游玩时一般可以带个抉择、星尘、七星或是天际钻头，碰到附魔或是其他多段利好联动可以随时转型多段核心，不要特别盯着多段玩，多段不发附魔不发关键牌就是折磨。多段吃拐率高就意味着没拐就没数值。
+
+\subsubsection{卡池梯度表}
+
+考虑到储君多体系之间联动不明显，单独给各体系排表显然不合理，因此类似战士，储君梯度表分为：一层梯度表；以及二层及之后功能牌梯度表。
+
+\textbf{【一层（包括一进二）梯度表】}
+
+\includegraphics[width=\textwidth]{tier/tier-list-the-regent-1S+.png}
+\includegraphics[width=\textwidth]{tier/tier-list-the-regent-1S.png}
+\includegraphics[width=\textwidth]{tier/tier-list-the-regent-1A.png}
+\includegraphics[width=\textwidth]{tier/tier-list-the-regent-1B.png}
+\includegraphics[width=\textwidth]{tier/tier-list-the-regent-1C.png}
+\includegraphics[width=\textwidth]{tier/tier-list-the-regent-1F.png}
+
+\begin{itemize}
+    \item \textbf{S+：} \rarity{2}大爆炸、\rarity{1}铸墙、\rarity{2}彗星、\rarity{2}护驾！！！、\rarity{1}倒映、\rarity{2}暴政、\rarity{2}剑圣。
+    \item \textbf{S：} \rarity{0}下去！、\rarity{2}轰击、\rarity{1}冲锋！！、\rarity{0}碰撞轨迹、\rarity{1}汇流、\rarity{1}伽马爆破、\rarity{2}天际钻头、\rarity{2}所向无敌、\rarity{1}创世之柱、\rarity{1}类星体、\rarity{0}淬炼刀刃。
+    \item \textbf{A：} \rarity{2}锻打成型、\rarity{0}天穹之力、\rarity{2}迫降、\rarity{0}宇宙冷漠、\rarity{2}星灭、\rarity{0}收集光辉、\rarity{1}王者之踢、\rarity{1}王者之拳、\rarity{0}何人僭越、\rarity{2}如此甚好、\rarity{1}环绕轨道、\rarity{2}七星、\rarity{1}星尘、\rarity{1}光谱偏移、\rarity{2}新生之喜、\rarity{1}胜券在王、\rarity{2}抉择，抉择、\rarity{0}隐秘藏品。
+    \item \textbf{B：} \rarity{0}星界脉冲、\rarity{1}黑洞、\rarity{0}群星斗篷、\rarity{1}群星之子、\rarity{0}下砸、\rarity{1}葬送、\rarity{1}熔炉、\rarity{0}辉光、\rarity{1}霸权、\rarity{2}传承之锤、\rarity{1}决胜一击、\rarity{1}君权自授、\rarity{1}粒子墙、\rarity{1}招架、\rarity{0}星星点点、\rarity{0}光子切割、\rarity{1}辐射、\rarity{2}追踪之刃、\rarity{1}明耀打击、\rarity{0}战利品、\rarity{0}战火铸就、\rarity{2}武器库、\rarity{2}虚空形态、\rarity{2}王国资产、\rarity{1}地形改造、\rarity{1}星位序列。
+    \item \textbf{C：} \rarity{1}征服者、\rarity{2}创世纪、\rarity{0}引导之星、\rarity{1}月面射击、\rarity{1}独白、\rarity{0}太阳打击、\rarity{2}中子护盾、\rarity{1}超质量体、\rarity{2}铸剑者、\rarity{0}流光溢彩、\rarity{1}征召上前、\rarity{1}微光、\rarity{2}既定事项。
+    \item \textbf{F：} \rarity{1}共鸣、\rarity{0}新月长矛、\rarity{2}王之凝视、\rarity{1}暗淡蓝点、\rarity{1}预言。
+\end{itemize}
+
+\textbf{注：} 同等级排名不分先后；0.107 版本王之凝视得到了增强，但位置不变。
+
+刚刚介绍各个体系时已基本介绍完 1 层过渡的抓位，在此不过多赘述。值得注意的是，储君的抓牌之间会有显著互相影响，前面抓的牌会大幅改变后面抓牌的优先级，所以实战在已经抓了几张牌后不要一直按着表来抓，考虑自己卡组实际情况来。
+
+\textbf{【二层及之后功能牌梯度表】}
+
+\includegraphics[width=\textwidth]{tier/tier-list-the-regent-2S+.png}
+\includegraphics[width=\textwidth]{tier/tier-list-the-regent-2S.png}
+\includegraphics[width=\textwidth]{tier/tier-list-the-regent-2A.png}
+\includegraphics[width=\textwidth]{tier/tier-list-the-regent-2B.png}
+\includegraphics[width=\textwidth]{tier/tier-list-the-regent-2F.png}
+
+\begin{itemize}
+    \item \textbf{S+：} \rarity{2}大爆炸、\rarity{1}环绕轨道、\rarity{2}抉择，抉择、\rarity{2}护驾！！！、\rarity{1}创世之柱、\rarity{2}剑圣、\rarity{2}暴政。
+    \item \textbf{S：} \rarity{2}武器库、\rarity{1}星位序列、\rarity{1}群星之子、\rarity{1}冲锋！！、\rarity{2}彗星、\rarity{1}汇流、\rarity{0}宇宙冷漠、\rarity{1}类星体、\rarity{1}微光、\rarity{0}隐秘藏品、\rarity{3}流星雨、\rarity{1}倒映、\rarity{1}暗淡蓝点、\rarity{1}招架、\rarity{1}星尘、\rarity{1}胜券在王、\rarity{1}征召上前、\rarity{2}虚空形态、\rarity{3}封印王座。
+    \item \textbf{A：} \rarity{2}锻打成型、\rarity{0}下去！、\rarity{2}轰击、\rarity{0}天穹之力、\rarity{2}既定事项、\rarity{0}辉光、\rarity{2}天际钻头、\rarity{2}星灭、\rarity{1}预言、\rarity{1}辐射、\rarity{2}七星、\rarity{0}战利品、\rarity{1}超质量体、\rarity{1}地形改造、\rarity{2}铸剑者、\rarity{1}粒子墙。
+    \item \textbf{B：} \rarity{1}黑洞、\rarity{1}征服者、\rarity{1}熔炉、\rarity{0}引导之星、\rarity{2}传承之锤、\rarity{1}月面射击、\rarity{1}君权自授、\rarity{0}星星点点、\rarity{1}光谱偏移。
+    \item \textbf{F：} \rarity{2}创世纪、\rarity{2}王之凝视、\rarity{1}独白、\rarity{1}共鸣。
+\end{itemize}
+
+\textbf{注：} 同等级排名不分先后；0.107 版本王之凝视得到了增强，位置提高到 B 级。
+
+在后期，储君的加费、过牌、烧牌、控顶牌地位会越来越高，排在上面的牌要么能提供费用过牌等从而提高卡组稳定性，要么数值纯粹够高。
+
+\subsubsection{运营思路}
+
+\textbf{【一层思路与过渡】}
+
+储君开局选项比较自由，由于过渡数值高可以放心拿钓鱼竿、删 2 等（有精英堵路依旧尊重一下）。相对来说铸剑体系适合暗港过渡，辉星体系适合密林过渡，不过一般还是来什么抓什么。
+
+关于铸剑、辉星、印牌体系各个牌 1 层的抓牌优先级前文已经提到过，这里不多赘述。淬炼刀、伽马爆破、冲锋、碰撞轨迹等都是 1 抓可以无脑的牌，霸权、战火铸就、星界脉冲、天穹之力等 2 抓可以抓取。遇到的第一张过渡防一般都可以先带一张，铸墙和倒映是最好的，抓位甚至可能在无过渡输出时仍然大于输出牌，尤其是暗港，铸墙倒映都能很好针对精英强怪。收集光辉、星星点点也不错，流光溢彩和宇宙冷漠不建议无脑先带一张，有配合再考虑。基本储君抓俩过渡输出、抓个防再抓个下去！或是何人僭越之类的就可以带着一坨垃圾通关一层了，路上遇到汇流、类星体等强牌可以随手拿着。
+
+这时候就可以开始根据卡组情况战未来了（安全的情况下早点战未来也可以）：能敲的环绕轨道、有剑的剑圣、有星的群星之子、有印牌的创世之柱（创世之柱可以早点抓当过渡防）、有费的微光战利品等。1 层 Boss 里面乐嘉、瀑布巨兽、仪式兽、灵魂异鱼都不需要太尊重，只要卡组不是纯辉星卡组，稍微有点铸剑牌和印牌这种有成长的牌就随便过。墨灵不能速杀还会塞牌，会比较克纯大剑，多段牌方面除了星尘打墨灵都没有明显优势，墨灵滑溜破完之后挺脆的，评估一下有伤害的卡组能不能活到第 7 回合（第二次重击前）；如果伤害不够，要考虑能不能吃了第二次重击之后还能活下来。同族小队出伤快数量多，对储君有硬性血量要求，怕小队可以提前抓敲下砸或黑洞过渡。
+
+\textbf{【二三层流派分支与对策】}
+
+二三层储君的可能性太多了，根据卡组的类型分为力量型、运转型、能力型卡组三类，储君需要对自己的卡组类型有比较清楚的认知。
+
+\textbf{1. 力量型卡组：}
+卡组里辉星牌和多段牌偏多，卡组的强度全在核心几张牌的联动上面，通过打出这些牌积攒一波高输出秒怪（如抉择铸剑者、如活力星尘、如辐射锻打成型）。力量型卡组一般是一层抓到抉择、地形改造、胜券在王等牌，使得攒一波会有特别高的伤害。
+如果你评估你的卡组为力量型卡组，首先要精简卡组去缩短爆一波的时间，提高稳定性；其次是要思考数值够不够打 Boss，打小怪乱杀的卡组打 Boss 很可能数值不够，大多数力量型卡组都秒不掉 Boss 的，要留后路（比如能稳定产星多次出七星星尘、或是多出几次锻打铸剑者锻出来的剑、或是干脆抓点能力和印牌）。尤其是女王有双单位分散火力、实验体有多段血条，比较克制力量型卡组。力量型卡组的好处是道中过渡能力强，小怪精英基本一路乱杀，听到关键牌就赢。
+\textit{（力量型卡组适配先古举例：发光珍珠、大\textasciitilde 抱抱、卓越斗篷、投斧）}
+
+\textbf{2. 运转型卡组：}
+字面意思，卡组里有冲锋、护驾、暴政等烧牌，烧完之后可以频繁出关键牌（如有招架的大剑、卡组有星位序列和过牌）。有些能力型卡组烧完之后也可以转起来，不过运转型卡组通常更洁能力牌更少，意味着启动更快。如果一层抓了烧牌且有计策、汇流、均衡、招架、星位序列、辉光、辐射、孤注一掷等小卡组利好牌就可以去走精简。通俗点就是靠频繁洗牌的增益去实现类似于开了一大堆能力牌的作用。
+如果评估自己的卡组为运转型卡组，需要判断启动速度如何，启动完之前有没有数值，如果烧完之前没数值会被强怪精英各种开幕雷击，这种情况别精简了赶紧多抓数值。运转型卡组会比较听牌，没听到关键牌如星位序列、环绕轨道、微光等就会缺费缺过牌；或是没听到招架、彗星等高数值关键牌数值就会很低，像是打完一波之后无力的力量型卡组。运转型卡组和能力型卡组是比较相近的，多抓点能力和数值就是能力型卡组，没数值就放弃转转转去拿创世之柱、暗淡蓝点、星灭、武器库等。运转型卡组基本只怕女王，女王可能会同时魂缚住加费和过牌导致便秘，多抓过牌针对女王或者留抽牌药、赌徒药。
+\textit{（运转型卡组适配先古举例：大\textasciitilde 抱抱、铁棒、切肉刀）}
+
+\textbf{3. 能力型卡组：}
+需要花时间启动之后才有显著数值的卡组。卡组里不一定有很多能力，但卡组一定要花时间启动，要开环绕轨道、招架、创世之柱、光谱偏移、胜券在王、群星之子等，要提前养剑或者烧掉打击防御等。能力型卡组结合了储君各个优点，启动完即无敌。很多人玩储君会有完全不怕 3 个 3 层 Boss 的感觉，就是因为能力型卡组启动完就是无敌。大多数储君卡组都是此类卡组，所以只要认为自己卡组不是力量型和运转型卡组，就可以往能力型方面去发育。
+能力型卡组留够血量就不会怕任何 Boss，但是会极度怕开幕雷击，残杀千足虫、四书五经、电球头、组装师、三骑士、灵魂枢纽甚至坏意图的青蛙骑士都会让启动完之前的储君掉大血。多抓物理输出物理防可以缓解道中压力，虽然会降低启动速度，不过卡组里带个碰撞轨迹、星界脉冲、天穹之力啥的去杀杀四书五经和组装师小弟都挺好用，碰到附魔事件也不会空过。能力型卡组 3 层一定要少打精英，把状态留给 Boss，进去开完能力就赢，3 层只略微怕实验体，实验体前两回合的压力较大，能较早击杀第一阶段同时不影响开出关键能力就很舒服了。
+\textit{（能力型卡组适配先古举例：钻石头冠、娇嫩蕨草、皮草大衣、布质果实、宝石面具、利爪）}
+
+另提一嘴 2 层 Boss：招架大剑和印牌烧牌克沙虫；知识恶魔启动慢，不是纯物理输出和无征召无宇宙冷漠纯铸剑就好打；帝皇蟹压力比较大，要保证能活过火箭，注意虚弱覆盖率。
+
+\subsubsection{其他玩法}
+很遗憾，储君目前所有玩法都适合打连胜，并且已在上文都提到过。
+
+\paragraph{联机模式的储君}
+联机的储君初始能提供易伤虚弱，可以让队伍比较健康的见到第一只精英。联机储君给队友 buff 的效果较差，一般是主力输出手，一层抓完过渡牌后无脑凑高数值辉星体系或是多段，靠队友给于的力量和伤害翻倍爆伤害。铸墙、淬炼刀、铸剑者、剑圣任意有 2 的情况下可以后续玩大剑为主，打 Boss 找队友要个超巨化药水就很舒服。
+
+团队互助方面：如果队伍里其他人没多少战士和储君，可以不拿王之凝视去当辅助，没 AOE 没多段的王之凝视不好用；“锤子时间”是很强很强的，人越多越强，4 人相当于 4 倍铸剑，在关键回合让所有队友一起出剑爆伤害，锤子时间上不了手会比较难受，还是值得玩玩的；“慷慨捐助”如果队伍里有不缺费的队友，可以抓一个固定给那个队友塞无色。玩慷慨捐助的注意事项是：确保队友不会生气（）。塞无色很少会是负面的，但是以队友意愿为主，有人不喜欢被塞，开心还是最重要哒。
+
+\subsection[亡灵契约师]{\icon{icons/character_icon_necrobinder.png}亡灵契约师}
+
+\subsubsection{必胜公式}
+
+\carddesc{1.6cm}{characters/char_select_necrobinder.png}{
+同样作为塔2的新角色，亡灵契约师（后文都称为骨妹）人气比储君低上不少 。或许是因为骨妹设计机制保守，有点像防御型的战士，同时各个体系设计不是很完善，比如只有增生能给奥斯提（后文都称为小手）回血，只有先古牌守护者和金卡牺牲和小手血上限相关 。正因如此，骨妹抓牌不是追求体系内的联动，而是尽量去找关键强卡然后围绕着关键牌运营 。因为骨妹卡组中存在着许多数值给的十分慷慨但是单拎出来可能强度不明显的蓝卡金卡，骨妹的必胜口诀是：\textbf{“前期保证即时战力，适当战未来，围绕核心卡构筑卡组”} 。
+}{0}{1}
+
+\subsubsection{卡池介绍}
+
+骨妹卡池的主要特征是高费，大体可以分为召唤、灵魂、灾厄、小手、虚无等体系。骨妹的各个体系单拿出来强度都不是很高，同时各个体系之间也缺乏联动，相较于储君根据卡组联动抓牌，骨妹更像是猎人，对战力有帮助的牌就先带着，后面抓到关键数值牌再转型卡组。
+
+这里将骨妹的卡根据体系种类进行分类：
+\begin{itemize}
+    \item \textbf{高费：} \rarity{0}收割、\rarity{0}鬼火、\rarity{0}唤起、\rarity{0}吸引仇恨、\rarity{1}得力助手、\rarity{1}击掌、\rarity{1}切断、\rarity{1}埋葬、\rarity{1}挽歌、\rarity{1}预借时间、\rarity{1}死亡使者、\rarity{1}拖延、\rarity{1}死亡之舞、\rarity{1}友谊、\rarity{1}致死性、\rarity{1}血肉戏法、\rarity{2}根除、\rarity{2}大限已至、\rarity{2}巨镰、\rarity{2}榨取、\rarity{2}重构、\rarity{2}末日降临、\rarity{2}死者苏生、\rarity{2}精神过载、\rarity{2}亡灵精通、\rarity{2}领域、\rarity{2}死神形态。
+    \item \textbf{召唤体系：} \rarity{0}出击、\rarity{0}护卫、\rarity{0}唤起、\rarity{0}来生、\rarity{0}吸引仇恨、\rarity{1}紧追不放、\rarity{1}挽歌、\rarity{1}洁净、\rarity{1}增生、\rarity{2}死者苏生、\rarity{2}亡灵精通、\rarity{3}守护者。
+    \item \textbf{灵魂体系：} \rarity{0}剥夺、\rarity{0}守墓人、\rarity{1}死亡行军、\rarity{1}切断、\rarity{1}挽歌、\rarity{1}捕捉灵魂、\rarity{1}纠缠、\rarity{2}灵魂风暴、\rarity{2}降灵、\rarity{2}吞噬生命。
+    \item \textbf{灾厄体系：} \rarity{0}荒疫打击、\rarity{0}鞭打、\rarity{0}负能量脉冲、\rarity{1}死亡之门、\rarity{1}无处可逃、\rarity{1}死亡使者、\rarity{1}倒数计时、\rarity{1}厄运之衣、\rarity{2}大限已至、\rarity{2}末日降临、\rarity{2}死神形态。
+    \item \textbf{小手体系：} \rarity{0}出击、\rarity{0}戳击、\rarity{0}响指、\rarity{0}重压、\rarity{1}得力助手、\rarity{1}取回、\rarity{1}紧追不放、\rarity{1}猛晃、\rarity{1}碎骨、\rarity{1}击掌、\rarity{1}钙化、\rarity{2}榨取、\rarity{2}哨卫模式、\rarity{3}守护者。
+    \item \textbf{虚无体系：} \rarity{0}玷污、\rarity{0}雕琢打击、\rarity{0}恐惧、\rarity{0}违逆、\rarity{1}刺破帷幕、\rarity{1}亡魂牵引、\rarity{1}领会、\rarity{1}弱化之触、\rarity{1}书页风暴、\rarity{1}致死性、\rarity{2}女妖之嚎、\rarity{2}灰烬之灵、\rarity{2}虚空之唤、\rarity{2}领域。
+    \item \textbf{控牌：} \rarity{0}播种、\rarity{0}坟冢爆射、\rarity{0}收割、\rarity{0}鬼火、\rarity{1}洁净、\rarity{1}清淤、\rarity{1}增生、\rarity{2}降灵、\rarity{2}牺牲、\rarity{2}幻景、\rarity{3}禁忌魔典。
+    \item \textbf{Debuff：} \rarity{0}恐惧、\rarity{0}违逆、\rarity{1}摧残、\rarity{1}紧追不放、\rarity{1}击掌、\rarity{1}腐败、\rarity{1}弱化之触、\rarity{1}死亡使者、\rarity{1}血肉戏法、\rarity{2}苦难、\rarity{2}吊杀、\rarity{2}命运同担、\rarity{2}湮灭。
+\end{itemize}
+
+可以发现骨妹大多卡牌是纯粹的单体系卡，或是单纯将两个体系简单相加（如切断结合了2c和灵魂）。
+
+\paragraph{高费体系}
+总体来说高费不算作一个单独的体系，而是类似099猎人的过牌一样，是不可或缺的一部分，同时能增幅各个体系。骨妹卡池有着大量的优质加费，预借时间、友谊、领域、唤起等。整个骨妹的高费体系基本由预借时间单卡撑起，预借时间可以无压力打出高费牌，同时与死亡之舞、挽歌、重构、根除有着极为变态的配合。实战可以无脑抓第一张预借时间，在安全的情况下可以先带友谊、唤起或挽歌，过渡牌方面，收割击掌致死性值得一抓，拖延值得作为第一张防，后续其他牌看情况拿，如费用溢出可以考虑吸引仇恨，缺过牌考虑切断，金卡缺伤害补压榨根除。
+
+\paragraph{灵魂体系}
+灵魂体系基本没有输出，起一个延迟抽牌效果，和控牌以及高费相配合可以增加卡组掌控力。门扉沙漏和改版棱柱加大了抓灵魂的压力，至少不再能抓多张捕捉灵魂了。灵魂体系的最大问题是极度怕鬼抽，开灵魂要一回合，后续灵魂上手还要一回合，因此灵魂不能当做真过牌嗯造。守墓人可以一抓作为过渡防，无压力情况下可以抓一张捕捉灵魂或挽歌，在有灵魂的情况下就可以考虑死亡行军了，在有敲位的情况下可以考虑降灵和吞噬生命。
+
+\paragraph{虚无体系}
+虚无体系之间比较割裂，如果没有刺破帷幕书页风暴女妖之嚎灰烬之灵是不会故意多抓虚无牌的，一般就是过渡的时候抓违逆玷污和弱化之触，可以在有虚无牌的时候抓刺破帷幕，之后如果来女妖虚空之唤等关键牌可以继续围绕虚无运营。
+
+\paragraph{小手体系}
+小手体系是物理输出最高的体系，有钙化猛晃击掌榨取等高伤牌，小手输出的问题非常明显，就是没防没过牌，只能拿来输出，除了极少数局可以靠紧追不放和猛晃起防外，小手只能作为物理直伤，好在小手牌伤害都高，无需抓太多张污染卡组，用灵魂和控牌为之服务使其发挥最大作用即可。过渡期戳击取回击掌可以一抓，重压二抓考虑，无竞争情况可以带一张响指，在抓了至少一张小手牌的时候就可以考虑猛晃和钙化（钙化可以裸），后期如果是小手作为终端一般就是钙化+猛晃了，反复把重压猛晃捞上手爆伤害。
+
+\paragraph{灾厄体系}
+灾厄体系被笑称最弱的体系，因为灾厄延迟发动的机制，尽管数值比物理牌高出了约30\%，但延迟触发，大多数小怪和精英战斗是在5回合内解决的，130\%输出但是回合数+1意味着要至少长达4个回合的战斗才会赚，加上灾厄没有末日降临的话等于没有斩杀能力，实际要至少5回合以上的战斗才能享受到灾厄的高数值。同时灾厄体系和防御端也很割裂，除死亡之门外并没有好用的防，厄运之衣数值实在太低。所以如果不是开局连着发有配合的灾厄牌，尽量不要主动玩灾厄。灾厄的两张关键牌是无处可逃和苦难，无处可逃在卡组里有两张灾厄的时候就可以拿，输出很高，苦难可以极大的缓解灾厄不好打小怪精英的问题，但可惜很少会抓灾厄牌在遇到苦难，也很少先拿苦难然后再抓灾厄牌。
+
+\paragraph{召唤体系}
+召唤体系和高费体系一样是基石，召唤组成了骨妹防御端的半边天，同时有出击可以将召唤转化为伤害，逻辑是自洽的。虽然召唤的数值比纯格挡低了30\%，约等于吃了脆弱，但召唤不吃脆弱和负敏捷（）召唤的优势主要是两点，一是类似于壁垒可以跨回合，二是可以通过出击变成铁斩波。比如说，乍一看骨妹的卡组是5防5打，但是护卫可以跨回合，且护卫可以增幅出击，实际上护卫是打5防5，就使得骨妹打弱怪几乎没有战损。养手是很稳定的玩法，但单护卫显然是养不起手的，因此在有养手需求时护卫敲位较高，而且要抓其他的召唤牌，在卡组召唤只有护卫的情况下来生挽歌和死者苏生是最适合抓的，他们性价比高召唤量大，抓了这些牌之后再抓增生洁净等可以起到锦上添花的作用。关于亡灵精通，其实就是不吃牌序的第二张出击，可以让本来是铁斩波的召唤牌变成双倍铁斩波，一般不将亡灵精通作为输出终端，出击单核较为常见，不过卡组较大或是其他情况导致不能频繁打出出击的话还是尽量找其他输出终端。
+
+可以发现骨妹真要列流派可以列一大堆，但每个都不成体系，所以骨妹除了灾厄牌看作单独的一类之外，其他牌可以摆脱体系思维，需要什么抓什么。
+
+\subsubsection{卡池梯度表}
+
+下面先放出骨妹全局梯度表（过渡性质的金卡会略微放低，同等级之间排名不分先后，整体环境参考 beta 版）。
+
+\includegraphics[width=\textwidth]{tier/tier-list-necrobinder-1S+.png}
+\includegraphics[width=\textwidth]{tier/tier-list-necrobinder-1S.png}
+\includegraphics[width=\textwidth]{tier/tier-list-necrobinder-1A.png}
+\includegraphics[width=\textwidth]{tier/tier-list-necrobinder-1B.png}
+\includegraphics[width=\textwidth]{tier/tier-list-necrobinder-1C.png}
+\includegraphics[width=\textwidth]{tier/tier-list-necrobinder-1D.png}
+\includegraphics[width=\textwidth]{tier/tier-list-necrobinder-1F.png}
+
+\begin{itemize}
+    \item \textbf{S+：} \rarity{1}预借时间、\rarity{1}弱化之触、\rarity{1}致死性、\rarity{2}根除、\rarity{2}虚空之唤。
+    \item \textbf{S：} \rarity{0}收割、\rarity{0}违逆、\rarity{0}唤起、\rarity{1}刺破帷幕、\rarity{1}埋葬、\rarity{1}挽歌、\rarity{1}清淤、\rarity{1}友谊、\rarity{1}钙化、\rarity{1}死亡之舞、\rarity{1}书页风暴、\rarity{2}榨取、\rarity{2}女妖之嚎、\rarity{2}幻景、\rarity{2}死者苏生、\rarity{2}精神过载、\rarity{2}领域、\rarity{3}守护者、\rarity{3}禁忌魔典。
+    \item \textbf{A：} \rarity{0}戳击、\rarity{0}玷污、\rarity{0}坟冢爆射、\rarity{0}响指、\rarity{0}鬼火、\rarity{0}守墓人、\rarity{0}来生、\rarity{1}死亡行军、\rarity{1}击掌、\rarity{1}捕捉灵魂、\rarity{1}增生、\rarity{1}拖延、\rarity{1}血肉戏法、\rarity{2}降灵、\rarity{2}重构、\rarity{2}吞噬生命、\rarity{2}灰烬之灵。
+    \item \textbf{B：} \rarity{0}重压、\rarity{1}得力助手、\rarity{1}取回、\rarity{1}猛晃、\rarity{1}摧残、\rarity{1}碎骨、\rarity{1}切断、\rarity{1}领会、\rarity{1}无处可逃、\rarity{1}洁净、\rarity{1}腐败、\rarity{1}死亡使者、\rarity{1}忧郁、\rarity{2}苦难、\rarity{2}巨镰、\rarity{2}不死、\rarity{2}末日降临、\rarity{2}亡灵精通、\rarity{2}死神形态。
+    \item \textbf{C：} \rarity{0}雕琢打击、\rarity{0}恐惧、\rarity{1}亡魂牵引、\rarity{1}死亡之门、\rarity{1}纠缠、\rarity{2}吊杀、\rarity{2}命运同担、\rarity{2}哨卫模式。
+    \item \textbf{D：} \rarity{0}能量汲取、\rarity{0}负能量脉冲、\rarity{0}吸引仇恨、\rarity{0}鞭打、\rarity{1}紧追不放、\rarity{1}倒数计时、\rarity{2}大限已至、\rarity{2}湮灭、\rarity{2}牺牲。
+    \item \textbf{F：} \rarity{0}荒疫打击、\rarity{0}剥夺、\rarity{0}播种、\rarity{1}厄运之衣、\rarity{2}灵魂风暴。
+\end{itemize}
+
+骨妹只排一张表是因为大多卡牌定位清晰，过渡就是过渡，功能就是功能，上限就是上限，梦想就是梦想。实战抓牌应该同类型卡牌互相比较，且功能牌（如烧牌）在后期的价值会有所提高。
+
+\subsubsection{运营思路}
+
+\textbf{【一层思路与过渡】}
+
+开局方面，骨妹的榨取、精神过载和根除值得拿沉重石板，骨妹的飞溅和勒紧开比其他职业还要强，此外连射、震荡波、均衡也不错。在无堵路精英安全的情况下骨妹删2打比较强。
+
+骨妹是全职业1层弱怪战损最低职业，作为代价骨妹的初始生命低一些 。骨妹前期抓牌要非常尊重精英和强怪，一定要尽可能先抓过渡输出，在保证过渡输出的情况下才能开始战未来 。收割、玷污、戳击、击掌、碎骨、致死性都是很不错的一抓过渡，重压、刺破帷幕、能量汲取较弱，精英前没敲位不考虑恐惧 。灾厄方面仅建议抓死亡使者过渡，暗港有敲位的情况下可以考虑负能量脉冲或倒数计时 。一层遇到第一张预借时间、挽歌、违逆、守墓人、弱化之触都能拿，没防的时候可以一抓拖延，唤起最好在卡组有2费牌时拿，无竞争情况下可以考虑带响指、来生、友谊、捕捉灵魂、腐败 。一般不会一层无配合抓雕琢打、鞭打、亡魂牵引等 。在过渡时骨妹要随时注意可能的未来，如预借时间+挽歌、有费的埋葬、死者苏生、有虚无牌的女妖之嚎、虚空之唤、根除、榨取等，这些组合都是值得战未来并投入大量资源的，可以提供极大的卡组稳定性或是爆炸的输出 。
+
+一层精英方面，骨妹暗港需要输出打骇鳗，密林平等的怕全部三个精英，打密林精英需要充足的输出能力，不然就跑 。
+
+Boss方面，骨妹暗港boss都不是很怕，需要注意防牌浓度，如果养不起手是会怕瀑布巨兽和乐嘉的 。密林的骨妹需要能速杀同族的小弟，能3回合杀1个小弟5回合杀完小弟就没有压力；骨妹打墨灵破滑溜是主要问题，骨妹大多牌是单段输出，虽然养手一定程度上可以克制墨灵但如果一直被塞破不完滑溜就会被反向滚雪球了，可以留荆棘药或者靠捕捉灵魂戳击得力助手来破，实在不行路上打击变啄击效果也不错；仪式兽是骨妹最怕的密林boss，第一阶段连续撞击使得骨妹几乎无法养出手，如果卡组只有养手而没有其他输出会被仪式兽直接滚雪球到死，高费体系适合打仪式兽，一阶段和仪式兽换血后二阶段要靠拖延违逆忧郁等高质量防牌防御，只要能把仪式兽早点打进二阶段并且卡组里有过渡防就不算太难打。
+
+\textbf{【二三层流派分支与对策】}
+
+二三层骨妹的启动一般是主要问题，养手要先召唤，血肉、虚空之唤、友谊、领域等能力要开，灵魂要先塞进抽牌堆，降灵、雕琢打和洁净这种在启动期间打出是没什么用的。玩骨妹经常会感觉二层被千足虫薄纱，被 0.107 感染棱柱薄纱，以及被三层四书五经、组装师等小怪压血。这和骨妹需要花时间启动关系很大。怕新版感染棱柱是因为骨妹召唤基本都是技能牌，养不起手本身血上限就低，吃两刀 10+ 就很残了。
+
+这也是为什么致死性、弱化之触、根除、挽歌、死者苏生、违逆强，这些牌的高数值缓解了骨妹的启动压力。骨妹卡组数值很高，能安全度过前两回合并且打出跨回合收益牌就不会再吃战损了。
+
+必胜口诀里说过，骨妹要围绕关键卡构筑。上文介绍了一层怎么保证前期战力，那么这里就具体明了地指出骨妹到底哪些牌值得作为关键牌，也就是上限。
+
+实战的时候去凑下面列出的上限羁绊然后去尽孝即可（上述解法至少能覆盖 98\% 以上的骨妹种子，极少数情况前期没有战未来或是单纯什么好上限都没发的局需要靠遗物和劣质上限解决，如手抓亡魂牵引、死亡行军、纯灾厄龟壳等）：
+
+\begin{itemize}
+    \item \textbf{物理直伤}：致死性/重构/死神形态/摧残 + 榨取/埋葬、预借时间/重构 + 根除
+    \item \textbf{虚无体系}：虚空之唤、女妖之嚎
+    \item \textbf{小手体系}：钙化 + 猛晃/多张钙化
+    \item \textbf{养手体系}：预借时间/重构 + 挽歌、死者苏生 + 增生、吞噬生命 + 挽歌/捕捉灵魂
+    \item \textbf{Debuff体系}：血肉戏法 + 死神形态/小卡组湮灭/多张血肉戏法、无处可逃 + 多张灾厄/多张无处可逃/小卡组
+    \item \textbf{吊杀体系}：小卡组吊杀
+    \textit{（注：上文所有的小卡组条件不是单指卡组卡牌少，有雕琢打、洁净、幻景、降灵等大量烧牌或是有坟冢爆射、清淤等帮助关键牌复用等情况都可以算是小卡组）}
+\end{itemize}
+
+下面对各个种类的解法进行具体解析：
+
+\paragraph{物理直伤}
+一般由物伤增幅 + 高数值物理输出组成。骨妹的物伤增幅牌是很多的：致死性、易伤、摧残、死神形态、重构都可以大幅提高物理输出；同时骨妹存在榨取、埋葬、女妖、根除等单卡伤害极高的物理输出。有任一物理增幅 + 高伤物理牌就可以杀穿道中，如果多物理增幅叠加可以直接秒掉 boss。常规对局不一定能凑齐物理增幅叠加，所以在道中乱杀的时候不要忘了为了 boss 准备药水，靠药水和遗物兜底，一波打不死就等机会再打两波。
+
+致死性是最好用的物理增幅，泛用性很广，可以作为一抓过渡，一般带两张都行，实在没其他伤害增幅或是有女妖可以继续抓更多；0.103 正式版的摧残还不错，如果卡组里有任一易伤虚弱就能拿，0.107 的摧残被削之后最好有敲位再抓，或是能保证易伤虚弱覆盖时间长（如有敲过的腐败）；重构作为一张功能牌，在费用溢出或者有 X 费的情况下就能考虑抓，一般不太会为了输出去抓重构，能带动重构的卡组本身就不会弱，不过重构 + 榨取、重构 + 根除的数值很高，作为上限也是可以的；死神形态一般认为是 boss 特攻卡，抓了就是拿去打 boss 的。死神形态很克制沙虫、知识恶魔、女王、门扉和沙漏，跨层在点进先古前 sl 是会回到领取 boss 奖励的，可以偷看 boss 再决定要不要死神，如果卡组里有血肉、无处可逃等其他 debuff 牌可以增加死神的抓率。
+
+\paragraph{虚无}
+虚无体系的强度一大半在虚空之唤，另一小半在女妖之嚎，没有这两张牌的虚无通常是没有体系的概念的（只考虑通常情况，抓幽灵种子解放虚无相关牌等特例需要玩的时候随机应变）。抓虚无牌只是看上了纸面数值，不过反过来说抓虚无牌过渡能提高女妖、书页风暴或灰烬之灵的抓率，进而解放虚无体系。
+
+虚空之唤强就强在单卡即可解放整个虚无体系，且就算不玩虚无体系单卡强度本身就非常高。在卡组带得动一张虚空之唤且没有形成其他稳定体系的时候可以无脑抓一张虚空之唤，后续如果没找到其他好牌可以直接敲虚空之唤当做核心，十字弓和印牌储君有多强虚空之唤就有多强。女妖在卡组里有两张虚无牌时可以无脑带一张，如路线安全可以考虑单虚无牌的情况下抓女妖战未来，不建议在只有预借时间+ 的时候抓敲女妖，几乎触发不了。女妖输出高且是 aoe，有了女妖和物理增幅只需要防一防然后出 0 费女妖就能一路通关了。除了女妖和虚空之唤，书页风暴和灰烬之灵也可根据卡组情况抓取，虚无体系的最强适配遗物是十字弓，可以考虑拿十字弓之后转去玩虚无。亡魂牵引方面，由于亡魂牵引输出并不高，仅在有十字弓等能大量打出虚无牌的时候考虑抓取作为上限伤害补充。
+
+\paragraph{小手}
+这里的小手是指除去榨取，靠小手攻击段数达成上限的玩法。典型的情况就是戳击、重压、响指、猛晃。响指保留重压或猛晃，打一波之后靠坟冢或清淤捞回来继续打。只要有一张钙化，猛晃的数值就很可怕，如果前期抓了戳击或是重压过渡就可以抓取猛晃，后续如果遇到钙化就可以考虑小手上限。单钙化 + 猛晃输出通常是不够打 boss 的，需要找物理增幅牌或是抓更多的钙化，也可以玩混伤，打钙化 + 猛晃的同时养手打出击。在极少数情况下，在已经以猛晃为核心处境尴尬但数值不够的卡组可以考虑抓紧追不放配合猛晃去大量召唤。
+
+\paragraph{养手}
+养手当上限的好处是养手同时解决了防御端的问题，养手体系整体不偏科。问题在于养手流的输出通常存在问题，中大卡组无法频繁打出出击，也不是所有局都有守护者。如果有预借时间不消耗挽歌或是吞噬生命、捕捉灵魂等大量持续召唤的牌，同时有增生、违逆兜底，这种情况养手比较舒服。如果只有死者苏生、挽歌一波，就得考虑多抓物理增幅牌或者干脆就把养手当成防御，去找其他的物理终端。适合养手出击一条路走到黑的卡组得至少有个比较好的条件：如不消耗挽歌、吞噬生命 + 捕捉灵魂、增生 + 守护者、卡组能烧干净、有大量物理增幅、有违逆/摧残/增生小手死不掉。
+
+\paragraph{Debuff}
+debuff 上限有两种，一种是血肉戏法，一种是灾厄。
+血肉戏法由于数值给的极为慷慨，在有跨回合加费的情况下开出血肉之后只要不停地出防牌和 debuff 牌怪物就会自己全部死掉。单血肉的数值不是特别高，要打三层 boss 需要第二张血肉或者湮灭或者死神形态等。血肉戏法的问题是本体太贵，所以建议在有加费和违逆或是弱化之触的情况下再抓取，这样开了血肉之后也能防住，并且造成伤害，不建议裸血肉，骨妹不缺这一种上限。
+
+灾厄不建议任何连胜玩家以灾厄为目的去构筑卡组，灾厄体系在无配合单走的情况下数值拉胯且与物理输出割裂，吃不到物理增幅。相对来说暗港的负能量脉冲、倒数计时、死亡使者抓位会高一点，在不得已抓到或是变出来灾厄牌的情况下也不要主动想着去转灾厄流。只有手上同时有灾厄牌 + 苦难/无处可逃/血肉戏法的时候去主动抓更多灾厄相关牌，否则灾厄一旦未形成体系就会被 2 层小怪精英直接打爆。
+
+\paragraph{吊杀}
+其实吊杀单核和死亡行军单核一样，都极其不稳定且吃卡组掌控力。由于吊杀指数翻倍有一定的优势，因此将吊杀单独作为一类上限，而死亡行军只能算作伤害补充，不能充当上限。吊杀单核需要卡组有坟冢和清淤或是多张捕捉灵魂来增加吊杀的出手率，同时卡组最好有幻景、降灵、洁净等烧牌。可以发现吊杀核心的卡组有大量的费用需求同时还要保证过牌频率，对卡组的要求极高；同时吊杀卡组需要有一定的 debuff 牌来破人工。由于吊杀打群怪和小怪弱，卡组里最好有一定的物理输出，而不是只有一个吊杀，转吊杀就意味着没费养手防御，道中若是保不住战损可能 boss 都见不到。此外，吊杀卡组比较怕女王，魂缚会使得吊杀可能和过牌被绑定，可以多抓捕捉灵魂尊重女王。
+
+\subsubsection{其他玩法}
+（此部分适合娱乐或特定环境，打连胜请谨慎选用）：
+
+\paragraph{灾厄骨妹}
+灾厄不适合打连胜不仅是因为收益滞后、与其他体系割裂，还有一个很大的问题是灾厄体系没有什么轮椅牌，就使得专门玩灾厄也不是很舒服。实战中如果想玩灾厄尽量在暗港玩，无处可逃、负能量脉冲和死亡使者可以裸抓，负能量脉冲抓敲两张都可以，过牌在有加费的情况下可以抓敲鞭打（鞭打虽然菜但在灾厄体系里是超越剑柄的存在），一层暗港的倒数计时在只玩灾厄的情况是及格过渡。防御方面，灾厄之衣数值很低且骨妹没多段灾厄，不建议拿，靠多种死亡之门和违逆就可以了，玩灾厄也可以正常用手防御。后续上限方面，有物理牌的情况下可以抓死神形态，其他情况可以抓血肉戏法和末日降临，大限将至不是很好用，如果打不过单体 boss 可以抓一个针对一下。灾厄相关的遗物，一个羊皮纸一个修书刀都是很厉害的，只可惜是灾厄遗物了。
+
+\paragraph{烧光光骨妹}
+烧光光骨妹是 0.99 版本的主流，前期靠雕琢，后期靠幻景、洁净、降灵。当时守墓人、降灵、挽歌未削，预借时间可复用，因此烧完之后可以不停转转转。现在虽然烧牌的牌只有金卡降灵被削，但环境已发生大的变化，无脑烧牌不再适合连胜。如果想玩烧牌的话可以裸雕琢，裸雕琢之后能靠刺破帷幕和高费牌过渡，有雕琢的卡组可以抓不死转型虚无体系。烧牌骨妹后期可利用捕捉灵魂 + 挽歌一波爆一大堆灵魂慢慢用，用幻景、洁净等烧牌。因为预借时间已经不能无限了，所以靠伪无限的出击、或吊杀、或无处可逃来充当上限，麻烦一点也可以女妖上限或者出击/重压/猛晃上限。
+
+\paragraph{联机骨妹}
+联机骨妹常常是队伍里的 debuff 手，骨妹有摧残、违逆、恐惧、腐败、弱化之触等团队 debuff 牌，尤其是摧残和弱化之触演都不演了；同时骨妹因为拥有优秀的防御端，可以在联机的时候更贪一点。
+
+联机一层的骨妹是很菜的，类似机器人一样，骨妹和战、猎、储的联动较弱，骨妹本身基础牌也没有 debuff，带骨妹的联机队伍可能打完仨弱怪俩强怪就全残了，只有骨妹还身体健康。因此联机骨妹一层在正常抓牌的同时可以倾向于先抓收割、埋葬等高数值牌，同时摧残、违逆、恐惧、腐败、弱化之触等看到就抓（队伍里易伤够了就不抓恐惧了），在队伍 debuff覆盖率确保之后骨妹就正常抓牌了。
+
+联机的骨妹后期通常可以在充当 buff 手的同时打出很多伤害。联机不要碰灾厄体系，无处可逃也不要玩，除非队伍里有至少仨骨妹或者能确保自己能反复出无处可逃。输出方面，联机的骨妹可以抓死神形态、大限将至，靠摧残、易伤、夹击等多倍伤害进行超级加倍；养手的骨妹同样也很厉害，联机通常怪物都会挂着虚弱、负力量等 debuff，打人根本不疼，骨妹可以靠这一点去无损养手打出击，在 boss 成长起来队友燃尽了之后仍然具有与 boss 一战的能力。吊杀同样不建议玩，可能机器人电流相声都出好几次了吊杀还没叠起来，除非能一直转。
+
+\subsection[故障机器人]{\icon{icons/character_icon_defect.png}故障机器人}
+
+\subsubsection{必胜公式}
+
+\carddesc{1.6cm}{characters/char_select_defect.png}{
+塔2的机器人是设计的很失败的角色，很多机制都像是半成品，能力卡大多都是铁斩波，没有任何的上限数值美。稀缺的集中和没用的能力使得机器人的玩法从一代的挂球防杀变成了运转为主。状态体系相关牌大多数值慷慨，有过牌有加费，逻辑自洽，且状态体系和其他职业牌以及无色牌极为适配，加上黑球牌数值高，因此机器人的必胜口诀是：\textbf{“尽量精简，删牌优先，小循环是唯一目标”}。
+}{0}{1}
+
+\subsubsection{卡池介绍}
+
+机器人与储君骨妹截然不同，机器人需要一条路走到黑。其他职业可以说每个牌都有自己的梦想和抱负，机器人这边不一样。机器人无需将卡牌按体系进行分类，只需分为运转相关牌、泛用牌/高数值牌/上限牌和其他牌三类。
+
+（叠甲：下面所列举出的其他牌不代表真的弱，而是需要配合才有可观强度，不值得裸抓或是后期价值低。一层该抓过渡牌就抓，后续会给出详细的梯度表）
+
+\begin{itemize}
+    \item \textbf{运转相关牌：} \rarity{0}编译冲击、\rarity{0}内核加速、\rarity{0}冷静头脑、\rarity{0}全息影像、\rarity{1}火箭飞拳、\rarity{1}超频、\rarity{1}聚变、\rarity{1}快速检索、\rarity{1}内存清理、\rarity{1}压缩、\rarity{1}迭代、\rarity{2}万物一心、\rarity{2}陨石打击。
+    \item \textbf{泛用牌/高数值牌/上限牌：} \rarity{0}电击、\rarity{0}双重释放、\rarity{0}眼部攻击、\rarity{0}高速脱离、\rarity{0}充电、\rarity{1}空值、\rarity{1}折射、\rarity{1}冰寒、\rarity{1}启动流程、\rarity{1}漆黑、\rarity{1}同步、\rarity{1}暗影之盾、\rarity{1}雷霆、\rarity{1}暴涨、\rarity{2}打碎、\rarity{2}超临界态、\rarity{2}多重释放、\rarity{2}模组改造、\rarity{2}重启、\rarity{2}信号增强、\rarity{2}彩虹、\rarity{2}电流相生、\rarity{2}碎片整理、\rarity{2}缓冲、\rarity{2}回响形态、\rarity{3}四重释放、\rarity{3}偏差认知。
+    \item \textbf{其他牌：} \rarity{0}光束射线、\rarity{0}爪击、\rarity{0}趁势打击、\rarity{0}弹幕齐射、\rarity{0}寒流、\rarity{0}集中打击、\rarity{0}扫荡射线、\rarity{0}污秽攻击、\rarity{0}骚动、\rarity{0}热修复、\rarity{0}飞跃、\rarity{0}引雷针、\rarity{0}球状闪电、\rarity{1}超越光速、\rarity{1}特斯拉线圈、\rarity{1}刮削、\rarity{1}人工合成、\rarity{1}分离、\rarity{1}暴风雨、\rarity{1}白噪声、\rarity{1}玻璃工艺、\rarity{1}混沌、\rarity{1}强撑、\rarity{1}双倍能量、\rarity{1}冰川、\rarity{1}冰雹风暴、\rarity{1}扩容、\rarity{1}雷暴、\rarity{1}循环、\rarity{1}烟囱、\rarity{1}子程序、\rarity{1}野性、\rarity{2}螺旋钻击、\rarity{2}超能光束、\rarity{2}散射炮、\rarity{2}适应打击、\rarity{2}冰之长枪、\rarity{2}遗传算法、\rarity{2}化废为宝、\rarity{2}机器学习、\rarity{2}冷却剂、\rarity{2}旋转工艺、\rarity{2}吞噬暗影、\rarity{2}创造性 AI。
+\end{itemize}
+
+能看到，机器人卡池有大量的铁斩波和能力铁斩波，有相当一部分牌后期价值极低，和机器人的初始遗物一样没有存在感。但是机器人依旧是要抓过渡牌过渡的，运转相关牌也不是无脑抓，下面先给出机器人的完整梯度表。
+
+\subsubsection{卡池梯度表}
+
+同猎人一样，机器人的牌大多定位清晰，只做一张表不会太乱，同类型的卡牌横向比较即可。
+
+\includegraphics[width=\textwidth]{tier/tier-list-defect-1S+.png}
+\includegraphics[width=\textwidth]{tier/tier-list-defect-1S.png}
+\includegraphics[width=\textwidth]{tier/tier-list-defect-1A.png}
+\includegraphics[width=\textwidth]{tier/tier-list-defect-1B.png}
+\includegraphics[width=\textwidth]{tier/tier-list-defect-1C.png}
+\includegraphics[width=\textwidth]{tier/tier-list-defect-1D.png}
+\includegraphics[width=\textwidth]{tier/tier-list-defect-1F.png}
+
+\begin{itemize}
+    \item \textbf{S+：} \rarity{1}漆黑、\rarity{2}超临界态、\rarity{1}快速检索、\rarity{3}四重释放。
+    \item \textbf{S：} \rarity{2}万物一心、\rarity{1}冰寒、\rarity{1}压缩、\rarity{0}编译冲击、\rarity{2}碎片整理、\rarity{2}模组改造、\rarity{1}超频、\rarity{1}内存清理、\rarity{2}打碎、\rarity{2}信号增强、\rarity{1}雷霆、\rarity{0}内核加速、\rarity{1}火箭飞拳。
+    \item \textbf{A：} \rarity{2}缓冲、\rarity{0}高速脱离、\rarity{1}启动流程、\rarity{1}暴涨、\rarity{0}充电、\rarity{0}冷静头脑、\rarity{2}回响形态、\rarity{1}聚变、\rarity{2}遗传算法、\rarity{0}全息影像、\rarity{1}迭代、\rarity{2}机器学习、\rarity{2}多重释放、\rarity{1}空值、\rarity{3}偏差认知、\rarity{2}旋转工艺、\rarity{2}重启、\rarity{1}折射、\rarity{1}暗影之盾、\rarity{1}同步、\rarity{2}电流相生。
+    \item \textbf{B：} \rarity{1}扩容、\rarity{0}球状闪电、\rarity{2}吞噬暗影、\rarity{1}双倍能量、\rarity{2}散射炮、\rarity{1}冰川、\rarity{1}玻璃工艺、\rarity{0}眼部攻击、\rarity{2}螺旋钻击、\rarity{2}冰之长枪、\rarity{0}引雷针、\rarity{2}陨石打击、\rarity{2}彩虹、\rarity{1}特斯拉线圈、\rarity{2}化废为宝。
+    \item \textbf{C：} \rarity{2}适应打击、\rarity{1}混沌、\rarity{1}超越光速、\rarity{0}热修复、\rarity{0}飞跃、\rarity{0}趁势打击、\rarity{1}分离、\rarity{1}暴风雨、\rarity{0}骚动。
+    \item \textbf{D：} \rarity{0}光束射线、\rarity{0}寒流、\rarity{2}冷却剂、\rarity{2}创造性 AI、\rarity{1}野性、\rarity{1}强撑、\rarity{0}集中打击、\rarity{1}冰雹风暴、\rarity{2}超能光束、\rarity{1}烟囱、\rarity{1}雷暴、\rarity{1}子程序、\rarity{1}白噪声、\rarity{0}污秽攻击、\rarity{0}弹幕齐射。
+    \item \textbf{F：} \rarity{0}爪击、\rarity{1}循环、\rarity{1}刮削、\rarity{0}扫荡射线、\rarity{1}人工合成。
+\end{itemize}
+
+\textbf{注：} 同级之间排名不分先后、该表以 0.107 版本为参考，如为 0.103 版本，则打碎、特斯拉线圈、散射炮的地位都会下降。
+
+\subsubsection{运营思路}
+
+\textbf{【一层思路与过渡】}
+
+机器人初始牌强度低，是所有职业打三弱怪平均战损最高的。电击约等于打击，双放约等于 1c 打 12（由于双放打双怪比如蝌蚪和蛞蝓可能会演，实际上要更弱一点）。但是机器人的过渡牌，尤其是各种球牌数值高且有回合收益。球闪、玻璃工艺、引雷针、折射、冰寒等牌都数值达标，加上机器人蓝卡存在三张黑球，使得机器人一层抓够过渡后强度合格。除了部分时候输出低怕密林的精英，其余时候尤其是在暗港，机器人可以有充足的发育空间。且机器人挂球的机制克制除同族小队之外的一层所有 Boss，因此机器人只要开局弱怪不掉太多血或者没堵路精英，一层压力都不会很大，可以放心敲电双和其他关键牌为二层做准备。
+
+二代机器人的状态机制使得机器人的运转能力大幅提高，一代不抓的超频在二代变成了十分泛用的过牌。二代机器人有快检、超频、编冲、火箭飞拳、冷头等真过牌，也有全息、万物等伪过牌；有内核、内存清理和聚变等加费；有压缩、散射炮、内存清理处理状态牌或烧牌。必要时状态体系也可以抓烟囱和化废为宝作为输出补充。可以看到，机器人状态体系逻辑自洽且与本卡池联动紧密，大量的过牌保下限，配合产球或烧牌机制可以达成上限。所以机器人的基本思路就是\textbf{精简抓关键牌实现运转}。
+
+至于二代机器人为什么不能像一代一样，在过渡强度合格后抓能力防杀？是因为二代集中稀缺，除了金卡、内核遗物、磁盘和集中药水外没有任何真正意义上的集中，无法大量挂集中电冰球防杀。且二代机器人金卡和能力拉胯，里面有大量的打击+、防御+和铁斩波（诸如野性、超能光束、冰雹风暴、循环、子程序等），要么难用，要么就业空间窄，要么数值低无法充当上限。二代也没有散热片提高开能力的稳定性。因此除了娱乐整活外，不推荐任何对局发展能力机。
+
+实战思路方面：开局的机器人同其他职业一样先找即时战力。机器人的涅奥护符稍微弱一些，删 2 的机器人短期难以提供战力提升，要删 2 需要找安全路线并尽快把电双敲起来，能活下来删 2 就很厉害。机器人不建议变 1 和变 2，卡组里的能力牌前期大多都是纯伤口。无色方面飞溅、勒紧、计策都很厉害。不建议机器人石板开，有打碎可以考虑，其他一概不要。
+
+一层机器人正常先找输出和过渡防，优先拿高数值过渡以及后期仍有发挥的牌。高数值过渡如漆黑、雷霆、折射、空值、暗影护盾，稍微弱一点的有球闪、引雷针、有产电球牌的特斯拉线圈、暴涨等。过渡防最好的白卡是充电，后期也有作用。除此之外启动流程、高速脱离、压缩都可以拿，飞跃不到逼不得已不抓。如果没抓到好的过渡防也没事，靠引雷针玻璃工艺的格挡混一混，或是靠冷头冰寒冰川等冰球来抗过前期。
+
+一层适合抓的后期也有作用的牌有：冰寒、压缩、编冲、内存清理、快检、冷头、聚变、全息、火箭飞拳等。内核在有过牌或者有大费再拿，迭代在有状态且战力已经达标的时候可以考虑，眼部有敲位才考虑，在过渡强度达标且有球位需求时（尤其是有大量冰球黑球牌时）可以抓扩容（扩容对冰球相当于集中，对黑球等离子球相当于扩大跨回合收益）。机器人很少出现一层战未来的情况，因为大多战未来的牌实际上抓到就有收益。金卡方面，107 版本的打碎无脑强，配合黑球可以直接达成上限；万物和超临界态属于万金油可以无脑带；只要有球位需求就可以抓碎片和模组改良；信号增强因为可以跨回合，所以手上有不错的能力就能带一张。其他金卡根据实际情况抓取。
+
+\textbf{【二层思路与对策】}
+
+二层机器人日子过得怎么样要看先古。四重释放、金字塔、大抱抱、故事书等利好运转的先古可以说拿到就赢。发其他先古就要看情况避战找商店删牌了。机器人没有打碎的情况下不是很好打千足虫，大多时候也很怕棱柱（尤其是 107 的棱柱基本是稳定 -20 往上）。强怪方面机器人除了部分阴间怪之外还会怕产卵虫，如果秒不掉产卵虫然后黑球被小虫吃掉就有可能被滚雪球，三层的组装师同理。没拿到强力先古的机器人二层避战混一混就行。Boss 方面基本不怕沙虫，有黑球剩下俩也不怕，没黑球看情况：少过牌怕知识恶魔，少球少防怕帝皇蟹，留好集中药抽牌药等做准备。
+
+\textbf{【三层思路与终端】}
+
+三层瓦库基本给不了机器人什么像人的东西，有斗篷、悖论、模拟、音乐盒、宝石面具拿着就行，都不给得考虑阳伞抢商店（确定能转起来的卡组不要拿）或者吃俩诅咒。坦克斯方面铁棒很强，投斧和钗也还行，转不起来的卡组拿拿十字弓也可以，有加费有过牌但是一点输出没有只有电击双放的卡组可以考虑拿利爪。诺奴佩普给神化、给迅捷 3、给围巾都不错，钻石头冠机器人一般没什么用，卡组里有回响、机器学习等能力要开可以拿。机器人进三层之后能不能打过 Boss 都很明朗，打得过就避战，打不过就走商店精英发育。精英方面大机器人就开幕雷击比较烦，后面大机器人启动慢无所畏惧；大眼第三回合开始伤害很高，可能吃不少战损；三骑士通常不怕，前两回合能杀一个就行。
+
+前面一直说机器人要精简，但没明确说具体的上限。绝大多数的对局靠小卡组状态打小循环：火箭飞拳/编冲过牌，压缩/内存清理烧牌，刮死 Boss。不过 107 沙漏版本会较大限制该上限，所以达成小循环的卡组如果遇到沙漏，要想办法从其他上限那里借点东西。
+
+除小循环之外，最常见的上限是黑球，尤其是有漆黑和打碎的黑球，3c 出俩漆黑+ 再出打碎是打 103，恐怖如斯，实战只会更高，且黑球体系和小卡组体系契合，二者可以互为补充。养黑球需要拖回合，因此在转不起来不能一直出漆黑的情况下最好能有扩容和冰球拖回合。
+
+如果黑球也没有，小循环也打不起来，就会找一些特解。最常见的特解是电流相生，虽然 3c 且吃敲的电流相生很幽默，但关键时候打 Boss 真的能救命，尤其是要打沙漏的小循环卡组。除电流相生外的本卡池特解已经不多了，化废为宝、回响形态能提供一些缺少的数值。至于创造性 AI 等牌是纯粹的垃圾，不存在充当上限的可能，无需考虑。
+
+机器人因为卡池特性，少数时候在本卡池外也会有上限，如大奖。机器人的大奖很强，会开出超临界态、螺旋钻击、内核、模组改良等牌，数值达标，可以靠大量加费和全息反复打出大奖作为上限。拿了棱彩宝石或者海玻璃或者色彩哲学家的机器人，拿到其他职业牌恰好与暴涨、野性、万物、超临界态等牌形成联动时也可直接作为上限，实战遇到时根据实际情况考虑。
+
+\subsubsection{其他玩法}
+
+\paragraph{能力机}
+能力机其实就是雷霆雷暴机，由传统意义上的能力机演化而来。因为能力牌大多各玩各的且数值拉胯，玩能力机最后都会变成靠雷霆和雷暴打伤害。雷霆雷暴机打不了连胜主要因为雷暴和子程序没保留，稳定性欠佳，在雷霆雷暴数量不足的时候这些能力都是粘液，下限较低。如果玩雷霆雷暴机可以尽可能抓取多的雷霆和雷暴以及过渡防，一层正常抓过渡输出生存，用雷霆的数值混过去。雷霆雷暴机要胡起来需要至少 2 张雷霆和 2 张雷暴，在此之上越多越好，必要时可以抓 AI、子程序、信号增强提高稳定性。旗子、能力减费、疯狂科学、干手都可以极大地增幅雷霆雷暴机，胡起来还是很爽的。
+
+\paragraph{物理机}
+塔 2 的全新玩法，因为稳定性不足、高强度绑定暴涨且与初始牌的电击双放契合度差，因此无法打连胜，但物理机本身的强度很高，爽感也足够。物理机分为“骚动机”和“暴涨机”两种。
+\begin{itemize}
+    \item \textbf{骚动机}：字面意思，抓取尽可能多的骚动并删除打击，使一轮洗牌出一次骚动就能打出大量伤害。骚动机和暴涨不冲突，可以正常抓暴涨，同时抓运转相关牌增加洗牌速度，因为骚动打光之后抽牌堆就只有技能牌了，靠快检等洗牌之后能再打一波。骚动机基本只接受骚动和万物两张攻击牌，除此之外一概不抓。
+    \item \textbf{暴涨机}：靠暴涨或多暴涨提供的高力敏暴力输出，双暴涨的 6 力 6 敏使得出任何过渡攻击和过渡防都能杀穿。暴涨机对各种攻击牌的接受度都很高，污秽攻击、折射、骚动等都能抓，暴涨机最厉害的攻击牌是螺旋钻击。本卡池外，其他职业牌和无色牌对暴涨机的提升都非常大。玩暴涨机需要注意攻防比例，必要的抽牌和加费保证能尽快开出暴涨，抓骚动的暴涨机可以刻意只抓 2c 及以上的攻击牌增加骚动的收益，有横祸也不错。因为暴涨不是删除球位，所以过渡时候诸如玻璃工艺等牌也是可以抓的，少量冰球玻璃球不会因为球位减少变的很弱。
+\end{itemize}
+
+\paragraph{联机的故障机器人}
+作为联机的传统瘤子职业，机器人在联机发挥拉胯。前期数值低，协助队友能力差，吃队友加成低，后期上限不足，仿佛完全是为了坑队友而设计的职业。这和安东尼思考不周有脱不开的关系。
+
+现版本如果真的想玩机器人联机或是运气不好随机到了机器人，可以尝试直接往精简的方向走：路上发漆黑直接转型黑球机，发暴涨直接转型物理机，发雷霆就多抓电球，都没有可以硬洁，抓球牌也没什么输出，只抓运转组件状态牌等羁绊，让队友做好抗压的准备，中后期靠运转数值或者电流相生输出。
+
+机器人有眼部和光束射线两张牌可以帮助队友，实战建议除非真的很缺 debuff，否则都不要拿，这俩都不好用而且拖累机器人自己的发育，引火可以积极抓取为队友加费。联机机器人还是挺吃队友强度的，队友抗不了压可能就全队暴毙了，机器人什么都做不了，悲。
+
+\end{document}

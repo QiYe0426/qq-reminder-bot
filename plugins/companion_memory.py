@@ -17,10 +17,9 @@ from nonebot.log import logger
 from plugins.access_control import FEATURE_COMPANION, admin_denial, is_group_feature_enabled
 from plugins.companion_registry import (
     DB_PATH,
+    is_companion_target_enabled,
+    companion_target_started_at,
     init_companion_db,
-    is_companion_registered,
-    sender_name,
-    set_registration,
 )
 from plugins.message_archive import DB_PATH as ARCHIVE_DB_PATH
 
@@ -37,6 +36,7 @@ DEFAULT_RECENT_CONTEXT_LIMIT = 8
 DEFAULT_MEMORY_LOOKUP_LIMIT = 5
 DEFAULT_KNOWLEDGE_LOOKUP_LIMIT = 3
 DEFAULT_KNOWLEDGE_MIN_SCORE = 2
+DEFAULT_KNOWLEDGE_SCAN_LIMIT = 4000
 DEFAULT_PROMPT_GUARD_ENABLED = "1"
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_BOT_PERSONA_PATH = PROJECT_ROOT / "config" / "bot_persona_prompt.txt"
@@ -92,6 +92,9 @@ PROFILE_FIELDS = (
     "topics",
     "summary",
 )
+
+DEFAULT_GROUP_PROFILE_LIMIT = 100
+MAX_GROUP_PROFILE_LIMIT = 500
 
 driver = get_driver()
 scheduler = AsyncIOScheduler(timezone="Asia/Shanghai")
@@ -220,6 +223,89 @@ def normalize_confidence(value: object) -> float:
     return min(max(confidence, 0.0), 1.0)
 
 
+def normalize_knowledge_category(category: str) -> str:
+    raw = " ".join((category or "").split()).strip()
+    if not raw:
+        return ""
+
+    raw = raw.replace("／", "/").replace("\\", "/").replace("-", "/").replace("_", "/")
+    parts = [part.strip() for part in raw.split("/") if part.strip()]
+    if not parts:
+        return ""
+
+    def normalize_tree(value: str) -> str:
+        compact = re.sub(r"[\s.]+", "", value.lower())
+        mapping = {
+            "sts2": "STS2",
+            "sts-2": "STS2",
+            "sts二": "STS2",
+            "slaythespire2": "STS2",
+            "slaythespireii": "STS2",
+            "杀戮尖塔2": "STS2",
+            "塔2": "STS2",
+            "二代": "STS2",
+            "2代": "STS2",
+            "二": "STS2",
+        }
+        return mapping.get(compact, value.strip().upper()[:16])
+
+    def normalize_kind(value: str) -> str:
+        compact = re.sub(r"[\s.]+", "", value.lower())
+        mapping = {
+            "card": "card",
+            "卡牌": "card",
+            "牌": "card",
+            "character": "character",
+            "characters": "character",
+            "角色": "character",
+            "职业": "character",
+            "relic": "relic",
+            "relics": "relic",
+            "遗物": "relic",
+            "potion": "potion",
+            "potions": "potion",
+            "药水": "potion",
+            "enemy": "enemy",
+            "monster": "enemy",
+            "monsters": "enemy",
+            "怪物": "enemy",
+            "敌人": "enemy",
+            "小怪": "enemy",
+            "elite": "elite",
+            "精英": "elite",
+            "boss": "boss",
+            "首领": "boss",
+            "event": "event",
+            "events": "event",
+            "事件": "event",
+            "mechanic": "mechanic",
+            "mechanics": "mechanic",
+            "机制": "mechanic",
+            "keyword": "keyword",
+            "keywords": "keyword",
+            "关键词": "keyword",
+            "术语": "mechanic",
+            "power": "power",
+            "powers": "power",
+            "能力": "power",
+            "状态": "power",
+            "enchantment": "enchantment",
+            "enchantments": "enchantment",
+            "附魔": "enchantment",
+            "guide": "guide",
+            "攻略": "guide",
+            "指南": "guide",
+            "词典": "mechanic",
+        }
+        return mapping.get(compact, value.strip().lower()[:16])
+
+    tree = normalize_tree(parts[0])
+    if len(parts) == 1:
+        return tree
+    kind = normalize_kind(parts[1])
+    return f"{tree}/{kind}" if kind else tree
+
+
 def extract_target_user_id(event: GroupMessageEvent) -> str | None:
     for segment in event.get_message():
         if segment.type == "at":
@@ -303,6 +389,16 @@ async def init_companion_memory_db() -> None:
         )
         await db.execute(
             """
+            CREATE TABLE IF NOT EXISTS group_profiles (
+                group_id TEXT PRIMARY KEY,
+                summary TEXT NOT NULL DEFAULT '',
+                max_chars INTEGER NOT NULL DEFAULT 100,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
+        await db.execute(
+            """
             CREATE TABLE IF NOT EXISTS companion_knowledge_items (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 title TEXT NOT NULL,
@@ -379,6 +475,78 @@ async def set_companion_setting(setting_key: str, setting_value: str) -> None:
         await db.commit()
 
 
+
+def normalize_group_profile_limit(value: object) -> int:
+    try:
+        limit = int(value)
+    except (TypeError, ValueError):
+        limit = DEFAULT_GROUP_PROFILE_LIMIT
+    return min(max(limit, 20), MAX_GROUP_PROFILE_LIMIT)
+
+
+def normalize_group_profile_summary(summary: object, max_chars: int) -> str:
+    text = " ".join(str(summary or "").split()).strip()
+    return text[:max_chars]
+
+
+async def get_group_profile(group_id: str | int) -> dict[str, object]:
+    await ensure_companion_memory_db()
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            """
+            SELECT group_id, summary, max_chars, updated_at
+            FROM group_profiles
+            WHERE group_id = ?
+            """,
+            (str(group_id),),
+        )
+        row = await cursor.fetchone()
+    if row is None:
+        return {"group_id": str(group_id), "summary": "", "max_chars": DEFAULT_GROUP_PROFILE_LIMIT, "updated_at": ""}
+    return {
+        "group_id": str(row["group_id"]),
+        "summary": str(row["summary"] or ""),
+        "max_chars": normalize_group_profile_limit(row["max_chars"]),
+        "updated_at": str(row["updated_at"] or ""),
+    }
+
+
+async def save_group_profile(group_id: str | int, summary: object, max_chars: object = DEFAULT_GROUP_PROFILE_LIMIT) -> dict[str, object]:
+    await ensure_companion_memory_db()
+    limit = normalize_group_profile_limit(max_chars)
+    normalized_summary = normalize_group_profile_summary(summary, limit)
+    timestamp = now_text()
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            """
+            INSERT INTO group_profiles (group_id, summary, max_chars, updated_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(group_id) DO UPDATE SET
+                summary = excluded.summary,
+                max_chars = excluded.max_chars,
+                updated_at = excluded.updated_at
+            """,
+            (str(group_id), normalized_summary, limit, timestamp),
+        )
+        await db.commit()
+    return await get_group_profile(group_id)
+
+
+async def group_profile_context(group_id: str | int) -> str:
+    if not await is_group_feature_enabled(str(group_id), FEATURE_COMPANION):
+        return ""
+    profile = await get_group_profile(group_id)
+    summary = str(profile.get("summary") or "").strip()
+    if not summary:
+        return ""
+    return (
+        "当前群画像：\n"
+        f"{summary}\n"
+        "这是本群整体氛围和话题边界，只能作为回复风格参考；不要直接说自己读取了群画像。"
+    )
+
+
 def default_bot_persona_prompt() -> str:
     if not DEFAULT_BOT_PERSONA_PATH.exists():
         return ""
@@ -445,7 +613,26 @@ async def list_knowledge_items() -> list[aiosqlite.Row]:
             """
             SELECT id, title, content, keywords, category, enabled, created_at, updated_at
             FROM companion_knowledge_items
-            ORDER BY updated_at DESC, id DESC
+            ORDER BY
+                CASE
+                    WHEN category LIKE 'STS2/card%' THEN 1
+                    WHEN category LIKE 'STS2/character%' THEN 2
+                    WHEN category LIKE 'STS2/relic%' THEN 3
+                    WHEN category LIKE 'STS2/potion%' THEN 4
+                    WHEN category LIKE 'STS2/enemy%' THEN 5
+                    WHEN category LIKE 'STS2/elite%' THEN 6
+                    WHEN category LIKE 'STS2/boss%' THEN 7
+                    WHEN category LIKE 'STS2/event%' THEN 8
+                    WHEN category LIKE 'STS2/mechanic%' THEN 9
+                    WHEN category LIKE 'STS2/keyword%' THEN 10
+                    WHEN category LIKE 'STS2/power%' THEN 11
+                    WHEN category LIKE 'STS2/enchantment%' THEN 12
+                    WHEN category LIKE 'STS2/guide%' THEN 13
+                    ELSE 99
+                END,
+                category COLLATE NOCASE ASC,
+                title COLLATE NOCASE ASC,
+                id DESC
             """
         )
         return await cursor.fetchall()
@@ -482,6 +669,7 @@ async def save_knowledge_item(
     normalized_keywords = normalize_keywords(keywords)
     if not normalized_keywords:
         normalized_keywords = tokenize_for_lookup(f"{normalized_title} {normalized_content}")[:12]
+    normalized_category = normalize_knowledge_category(category)
     async with aiosqlite.connect(DB_PATH) as db:
         if item_id:
             await db.execute(
@@ -499,7 +687,7 @@ async def save_knowledge_item(
                     normalized_title,
                     normalized_content,
                     dump_json(normalized_keywords),
-                    category.strip()[:100],
+                    normalized_category,
                     1 if enabled else 0,
                     timestamp,
                     item_id,
@@ -524,7 +712,7 @@ async def save_knowledge_item(
                     normalized_title,
                     normalized_content,
                     dump_json(normalized_keywords),
-                    category.strip()[:100],
+                    normalized_category,
                     1 if enabled else 0,
                     timestamp,
                     timestamp,
@@ -542,9 +730,85 @@ async def delete_knowledge_item(item_id: int) -> None:
         await db.commit()
 
 
+async def replace_knowledge_items(
+    knowledge_items: list[dict[str, object]],
+    *,
+    clear_category_prefixes: list[str] | None = None,
+) -> dict[str, int]:
+    await ensure_companion_memory_db()
+    timestamp = now_text()
+    prefixes = [normalize_knowledge_category(prefix) for prefix in (clear_category_prefixes or [])]
+    prefixes = [prefix for prefix in prefixes if prefix]
+    deleted = 0
+    inserted = 0
+
+    async with aiosqlite.connect(DB_PATH) as db:
+        for prefix in prefixes:
+            cursor = await db.execute(
+                """
+                SELECT COUNT(*)
+                FROM companion_knowledge_items
+                WHERE category = ? OR category LIKE ?
+                """,
+                (prefix, f"{prefix}/%"),
+            )
+            row = await cursor.fetchone()
+            deleted += int(row[0] or 0) if row else 0
+            await db.execute(
+                """
+                DELETE FROM companion_knowledge_items
+                WHERE category = ? OR category LIKE ?
+                """,
+                (prefix, f"{prefix}/%"),
+            )
+
+        for item in knowledge_items:
+            title = str(item.get("title") or "").strip()[:200] or "未命名知识"
+            content = str(item.get("content") or "").strip()[:12000]
+            keywords = normalize_keywords(item.get("keywords") or [])
+            if not keywords:
+                keywords = tokenize_for_lookup(f"{title} {content}")[:12]
+            category = normalize_knowledge_category(str(item.get("category") or ""))
+            enabled_value = item.get("enabled", True)
+            if isinstance(enabled_value, str):
+                enabled = enabled_value.strip().lower() not in {"0", "false", "off", "no", "disabled"}
+            else:
+                enabled = bool(enabled_value)
+
+            await db.execute(
+                """
+                INSERT INTO companion_knowledge_items (
+                    title,
+                    content,
+                    keywords,
+                    category,
+                    enabled,
+                    created_at,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    title,
+                    content,
+                    dump_json(keywords),
+                    category,
+                    1 if enabled else 0,
+                    timestamp,
+                    timestamp,
+                ),
+            )
+            inserted += 1
+
+        await db.commit()
+
+    return {"deleted": deleted, "inserted": inserted}
+
+
 def knowledge_score(row: aiosqlite.Row, question_tokens: list[str]) -> int:
     title = str(row["title"] or "").lower()
     content = str(row["content"] or "").lower()
+    category = normalize_knowledge_category(str(row["category"] or "")).lower()
     keywords: list[str] = []
     try:
         loaded_keywords = json.loads(row["keywords"] or "[]")
@@ -559,6 +823,8 @@ def knowledge_score(row: aiosqlite.Row, question_tokens: list[str]) -> int:
             score += 5
         if token in title:
             score += 4
+        if token in category:
+            score += 3
         if token in content:
             score += 1
     return score
@@ -584,6 +850,12 @@ async def lookup_knowledge(question: str) -> list[aiosqlite.Row]:
         minimum=1,
         maximum=100,
     )
+    scan_limit = get_int_env(
+        "COMPANION_KNOWLEDGE_SCAN_LIMIT",
+        DEFAULT_KNOWLEDGE_SCAN_LIMIT,
+        minimum=1,
+        maximum=10000,
+    )
     await ensure_companion_memory_db()
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
@@ -593,8 +865,10 @@ async def lookup_knowledge(question: str) -> list[aiosqlite.Row]:
             FROM companion_knowledge_items
             WHERE enabled = 1
             ORDER BY updated_at DESC, id DESC
-            LIMIT 200
+            LIMIT ?
             """
+            ,
+            (scan_limit,)
         )
         rows = await cursor.fetchall()
 
@@ -711,7 +985,7 @@ async def recent_user_messages(
         return await cursor.fetchall()
 
 
-async def recent_registered_group_context(group_id: str, limit: int) -> list[aiosqlite.Row]:
+async def recent_target_group_context(group_id: str, limit: int) -> list[aiosqlite.Row]:
     if not ARCHIVE_DB_PATH.exists():
         return []
 
@@ -719,21 +993,21 @@ async def recent_registered_group_context(group_id: str, limit: int) -> list[aio
     async with aiosqlite.connect(DB_PATH) as db:
         cursor = await db.execute(
             """
-            SELECT user_id, registered_at
-            FROM companion_registrations
-            WHERE group_id = ? AND active = 1
+            SELECT user_id, selected_at
+            FROM companion_targets
+            WHERE group_id = ? AND enabled = 1
             """,
             (group_id,),
         )
-        registration_rows = await cursor.fetchall()
-        registered_after = {str(row[0]): str(row[1] or "") for row in registration_rows}
-        registered_user_ids = list(registered_after)
+        target_rows = await cursor.fetchall()
+        target_after = {str(row[0]): str(row[1] or "") for row in target_rows}
+        target_user_ids = list(target_after)
 
-    if not registered_user_ids:
+    if not target_user_ids:
         return []
 
-    placeholders = ", ".join("?" for _ in registered_user_ids)
-    params: tuple[object, ...] = (group_id, *registered_user_ids, limit)
+    placeholders = ", ".join("?" for _ in target_user_ids)
+    params: tuple[object, ...] = (group_id, *target_user_ids, limit)
     async with aiosqlite.connect(ARCHIVE_DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
@@ -752,8 +1026,8 @@ async def recent_registered_group_context(group_id: str, limit: int) -> list[aio
         rows = await cursor.fetchall()
     filtered_rows = []
     for row in reversed(rows):
-        registered_at = registered_after.get(str(row["user_id"]), "")
-        if registered_at and str(row["created_at"]) < registered_at:
+        selected_at = target_after.get(str(row["user_id"]), "")
+        if selected_at and str(row["created_at"]) < selected_at:
             continue
         filtered_rows.append(row)
     return filtered_rows
@@ -790,19 +1064,8 @@ async def get_update_state(group_id: str, user_id: str) -> aiosqlite.Row | None:
         return await cursor.fetchone()
 
 
-async def registration_started_at(group_id: str, user_id: str) -> str | None:
-    await ensure_companion_memory_db()
-    async with aiosqlite.connect(DB_PATH) as db:
-        cursor = await db.execute(
-            """
-            SELECT registered_at
-            FROM companion_registrations
-            WHERE group_id = ? AND user_id = ? AND active = 1
-            """,
-            (group_id, user_id),
-        )
-        row = await cursor.fetchone()
-    return str(row[0]) if row and row[0] else None
+async def target_started_at(group_id: str, user_id: str) -> str | None:
+    return await companion_target_started_at(group_id, user_id)
 
 
 async def update_state_success(group_id: str, user_id: str, last_message_id: int) -> None:
@@ -832,17 +1095,17 @@ async def update_state_success(group_id: str, user_id: str, last_message_id: int
         await db.commit()
 
 
-async def latest_user_message_id_after_registration(group_id: str, user_id: str) -> int:
+async def latest_user_message_id_after_target_enabled(group_id: str, user_id: str) -> int:
     if not ARCHIVE_DB_PATH.exists():
         return 0
 
-    registered_at = await registration_started_at(group_id, user_id)
-    created_filter = "AND created_at >= ?" if registered_at else ""
+    target_enabled_at = await target_started_at(group_id, user_id)
+    created_filter = "AND created_at >= ?" if target_enabled_at else ""
     params: tuple[object, ...] = (
         group_id,
         user_id,
-        registered_at,
-    ) if registered_at else (
+        target_enabled_at,
+    ) if target_enabled_at else (
         group_id,
         user_id,
     )
@@ -903,7 +1166,7 @@ async def call_summary_model(
 
     base_url = ai_base_url()
     client = AsyncOpenAI(api_key=api_key, base_url=base_url) if base_url else AsyncOpenAI(api_key=api_key)
-    prompt = f"""你在为一个 QQ 群 bot 更新“已注册用户”的陪伴画像。
+    prompt = f"""你在为一个 QQ 群 bot 更新“控制台已选择记录对象”的陪伴画像。
 
 边界：
 - 只根据用户本人近期发言更新，不要使用未给出的信息。
@@ -1065,11 +1328,11 @@ async def write_profile_and_memories(
         await db.commit()
 
 
-async def summarize_registered_user(group_id: str, user_id: str, *, force: bool = False) -> tuple[bool, str]:
+async def summarize_companion_target(group_id: str, user_id: str, *, force: bool = False) -> tuple[bool, str]:
     if not await is_group_feature_enabled(group_id, FEATURE_COMPANION):
         return False, "本群未开启陪伴画像。"
-    if not await is_companion_registered(group_id, user_id):
-        return False, "用户未注册陪伴画像。"
+    if not await is_companion_target_enabled(group_id, user_id):
+        return False, "用户未在控制台开启陪伴画像记录。"
 
     state = await get_update_state(group_id, user_id)
     last_message_id = int(state["last_message_archive_id"] or 0) if state else 0
@@ -1087,7 +1350,7 @@ async def summarize_registered_user(group_id: str, user_id: str, *, force: bool 
         group_id,
         user_id,
         after_id=last_message_id,
-        after_created_at=await registration_started_at(group_id, user_id),
+        after_created_at=await target_started_at(group_id, user_id),
     )
     min_messages = get_int_env("COMPANION_MEMORY_MIN_MESSAGES", DEFAULT_MIN_MESSAGES, minimum=1)
     if not rows:
@@ -1115,15 +1378,15 @@ async def summarize_registered_user(group_id: str, user_id: str, *, force: bool 
     return True, f"已总结 {len(safe_rows)} 条新消息{suffix}。"
 
 
-async def active_registered_users() -> list[aiosqlite.Row]:
+async def active_companion_targets() -> list[aiosqlite.Row]:
     await ensure_companion_memory_db()
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
             """
             SELECT group_id, user_id
-            FROM companion_registrations
-            WHERE active = 1
+            FROM companion_targets
+            WHERE enabled = 1
             ORDER BY updated_at ASC
             """
         )
@@ -1139,13 +1402,13 @@ async def process_companion_updates() -> None:
     async with update_lock:
         processed = 0
         batch_users = get_int_env("COMPANION_MEMORY_BATCH_USERS", DEFAULT_BATCH_USERS, minimum=1, maximum=20)
-        for row in await active_registered_users():
+        for row in await active_companion_targets():
             if processed >= batch_users:
                 break
             group_id = str(row["group_id"])
             user_id = str(row["user_id"])
             try:
-                changed, reason = await summarize_registered_user(group_id, user_id)
+                changed, reason = await summarize_companion_target(group_id, user_id)
                 if changed:
                     processed += 1
                     logger.info(f"Companion profile updated for {group_id}/{user_id}: {reason}")
@@ -1189,7 +1452,7 @@ async def companion_reply_context(group_id: str | int, user_id: str | int, quest
     user_text = str(user_id)
     if not await is_group_feature_enabled(group_text, FEATURE_COMPANION):
         return ""
-    if not await is_companion_registered(group_text, user_text):
+    if not await is_companion_target_enabled(group_text, user_text):
         return ""
 
     await ensure_companion_memory_db()
@@ -1207,7 +1470,7 @@ async def companion_reply_context(group_id: str | int, user_id: str | int, quest
         maximum=30,
     )
     memories = await lookup_memories(group_text, user_text, question, memory_limit) if memory_limit else []
-    recent_rows = await recent_registered_group_context(group_text, context_limit) if context_limit else []
+    recent_rows = await recent_target_group_context(group_text, context_limit) if context_limit else []
 
     sections: list[str] = []
     profile_text = profile_to_text(profile)
@@ -1218,7 +1481,7 @@ async def companion_reply_context(group_id: str | int, user_id: str | int, quest
         sections.append("相关记忆：\n" + "\n".join(memory_lines))
     recent_text = render_messages(recent_rows)
     if recent_text:
-        sections.append("本群最近已注册群友聊天片段：\n" + recent_text)
+        sections.append("本群最近已允许记录群友聊天片段：\n" + recent_text)
 
     if not sections:
         return ""
@@ -1244,7 +1507,7 @@ async def clear_profile(
     group_text = str(group_id)
     user_text = str(user_id)
     latest_message_id = (
-        await latest_user_message_id_after_registration(group_text, user_text)
+        await latest_user_message_id_after_target_enabled(group_text, user_text)
         if keep_history_out
         else None
     )
@@ -1289,8 +1552,8 @@ async def clear_profile(
 
 
 async def profile_status_text(group_id: str, user_id: str) -> str:
-    if not await is_companion_registered(group_id, user_id):
-        return "你还没有注册陪伴画像。发送“同意猎宝记录我”后，猎宝才会为你更新画像。"
+    if not await is_companion_target_enabled(group_id, user_id):
+        return "当前群没有在控制台为该 QQ 开启陪伴画像记录。开启后猎宝才会基于本群聊天更新画像。"
 
     profile = await get_profile(group_id, user_id)
     profile_text = profile_to_text(profile)
@@ -1299,7 +1562,7 @@ async def profile_status_text(group_id: str, user_id: str) -> str:
         detail = ""
         if state and state["last_error"]:
             detail = f"\n最近一次更新失败：{state['last_error']}"
-        return f"你已经注册陪伴画像，但还没有生成画像。等你多聊几句，或发送“更新我的画像”。{detail}"
+        return f"控制台已开启陪伴画像记录，但还没有生成画像。等这个 QQ 在本群多聊几句，后台会自动更新；管理员也可以在控制台维护。{detail}"
     return "你的陪伴画像：\n" + profile_text
 
 
@@ -1342,45 +1605,24 @@ async def handle_my_profile(event: Event) -> None:
 async def handle_reset_my_profile(event: Event) -> None:
     group_event = require_group(event)
     if group_event is None:
-        await reset_my_profile.finish(Message("画像需要在群聊里重置。"))
-    await clear_profile(group_event.group_id, group_event.user_id, keep_history_out=True)
-    await reset_my_profile.finish(Message("已重置你的陪伴画像，注册状态保留。之后会基于新的聊天重新生成。"))
+        await reset_my_profile.finish(Message("画像需要在群聊里查看。"))
+    await reset_my_profile.finish(Message("群内自助重置已关闭。请管理员在猎宝控制台重置画像。"))
 
 
 @delete_my_profile.handle()
 async def handle_delete_my_profile(event: Event) -> None:
     group_event = require_group(event)
     if group_event is None:
-        await delete_my_profile.finish(Message("画像需要在群聊里删除。"))
-    await clear_profile(group_event.group_id, group_event.user_id)
-    await set_registration(
-        group_id=str(group_event.group_id),
-        user_id=str(group_event.user_id),
-        display_name=sender_name(group_event),
-        consent_text=group_event.get_plaintext().strip(),
-        active=False,
-    )
-    await delete_my_profile.finish(Message("已删除你的陪伴画像，并退出注册。之后猎宝不会再为你更新画像。"))
+        await delete_my_profile.finish(Message("画像需要在群聊里查看。"))
+    await delete_my_profile.finish(Message("群内自助删除已关闭。请管理员在猎宝控制台关闭记录或删除画像。"))
 
 
 @refresh_my_profile.handle()
 async def handle_refresh_my_profile(event: Event) -> None:
     group_event = require_group(event)
     if group_event is None:
-        await refresh_my_profile.finish(Message("画像需要在群聊里更新。"))
-    try:
-        changed, reason = await summarize_registered_user(
-            str(group_event.group_id),
-            str(group_event.user_id),
-            force=True,
-        )
-    except Exception:
-        logger.exception("Manual companion profile refresh failed")
-        await refresh_my_profile.finish(Message("画像更新失败了，稍后再试一下。"))
-
-    if changed:
-        await refresh_my_profile.finish(Message(reason))
-    await refresh_my_profile.finish(Message(reason))
+        await refresh_my_profile.finish(Message("画像需要在群聊里查看。"))
+    await refresh_my_profile.finish(Message("群内自助更新已关闭。画像会由后台自动更新，管理员也可以在猎宝控制台维护。"))
 
 
 @view_member_profile.handle()

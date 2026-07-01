@@ -1,7 +1,7 @@
 [project]
 name = "qq-reminder-bot"
-version = "1.2.0"
-description = "A small QQ reminder bot built with NoneBot2 and OneBot v11."
+version = "2.0.0"
+description = "HunterBot, a QQ assistant with AI agent tools, reminders, reports, memory, and an admin console."
 requires-python = ">=3.10"
 dependencies = [
     "nonebot2[fastapi]>=2.3.0",
@@ -20,17 +20,21 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 py-modules = ["bot"]
-packages = ["plugins"]
+packages = ["plugins", "plugins.admin_console"]
+
+[tool.setuptools.package-data]
+"plugins.admin_console" = ["static/*.html", "static/*.css", "static/*.js"]
 
 [tool.nonebot]
 plugins = [
     "plugins.access_control",
     "plugins.companion_registry",
     "plugins.companion_memory",
-    "plugins.companion_admin",
+    "plugins.admin_console",
     "plugins.message_archive",
     "plugins.reminder",
     "plugins.ai_chat",
+    "plugins.group_reactions",
     "plugins.message_collector",
     "plugins.storage_status",
     "plugins.media_insights",

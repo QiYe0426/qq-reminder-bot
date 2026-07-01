@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>猎宝控制台</title>
+  <link rel="stylesheet" href="/hunterbot/admin-console/static/style.css?v=20260701-8" />
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-title">猎宝控制台</div>
+        <div class="brand-subtitle">HunterBot Admin</div>
+      </div>
+
+      <nav class="main-nav" aria-label="主导航">
+        <button class="nav-item active" data-view="persona" type="button">Bot 人设</button>
+        <button class="nav-item" data-view="knowledge" type="button">知识库</button>
+        <button class="nav-item" data-view="groups" type="button">群管理</button>
+      </nav>
+
+      <div class="side-panel" id="sidePanel"></div>
+
+      <div class="version" id="version">v1.2.1</div>
+    </aside>
+
+    <main class="workspace">
+      <header class="topbar">
+        <div>
+          <h1 id="pageTitle">Bot 人设</h1>
+          <p id="pageSubtitle">编辑猎宝全局回复风格和设定。</p>
+        </div>
+        <div class="top-actions">
+          <div class="theme-switch" aria-label="颜色模式">
+            <button class="theme-option" data-theme-option="light" type="button">日间</button>
+            <button class="theme-option" data-theme-option="dark" type="button">夜间</button>
+          </div>
+          <span class="status" id="status"></span>
+          <button class="button ghost" id="refreshButton" type="button">刷新</button>
+          <button class="button primary" id="saveButton" type="button">保存</button>
+        </div>
+      </header>
+
+      <section class="content" id="content"></section>
+    </main>
+  </div>
+
+  <script src="/hunterbot/admin-console/static/app.js?v=20260701-8"></script>
+</body>
+</html>

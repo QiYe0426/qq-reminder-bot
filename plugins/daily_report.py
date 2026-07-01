@@ -20,6 +20,7 @@ from nonebot.params import RegexGroup
 from plugins.access_control import (
     DB_PATH as ACCESS_DB_PATH,
     FEATURE_COLLECTOR,
+    FEATURE_DAILY_REPORT_AUTO,
     admin_denial,
     admin_user_ids,
     init_access_db,
@@ -41,10 +42,13 @@ DAILY_REPORT_ENABLED_ENV = "DAILY_REPORT_ENABLED"
 DAILY_REPORT_GROUP_IDS_ENV = "DAILY_REPORT_GROUP_IDS"
 DAILY_REPORT_SEND_TIME_ENV = "DAILY_REPORT_SEND_TIME"
 DAILY_REPORT_TIMEZONE_ENV = "DAILY_REPORT_TIMEZONE"
+DAILY_REPORT_STARTUP_GRACE_MINUTES_ENV = "DAILY_REPORT_STARTUP_GRACE_MINUTES"
 DEFAULT_SUMMARY_MODEL = "deepseek-v4-pro"
 DEFAULT_SUMMARY_TIMEOUT_SECONDS = 90
 DEFAULT_SUMMARY_CHUNK_MESSAGES = 80
 DEFAULT_SUMMARY_MAX_INPUT_CHARS = 24000
+DEFAULT_STARTUP_GRACE_MINUTES = 120
+RUNNING_REPORT_STALE_MINUTES = 180
 REPORT_CHAT_CHUNK_CHARS = 1200
 REPORT_CHAT_MAX_CHARS = 4800
 REPORT_DAY_START_HOUR = 4
@@ -121,6 +125,28 @@ def report_group_ids() -> list[str]:
     return parse_id_list(os.getenv(DAILY_REPORT_GROUP_IDS_ENV, ""))
 
 
+def automatic_report_group_source() -> str:
+    return "env" if report_group_ids() else "collector"
+
+
+async def init_daily_report_run_db() -> None:
+    await init_access_db()
+    async with aiosqlite.connect(ACCESS_DB_PATH) as db:
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS daily_report_runs (
+                group_id TEXT NOT NULL,
+                target_date TEXT NOT NULL,
+                status TEXT NOT NULL,
+                error TEXT,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (group_id, target_date)
+            )
+            """
+        )
+        await db.commit()
+
+
 async def collector_enabled_group_ids() -> list[str]:
     await init_access_db()
     async with aiosqlite.connect(ACCESS_DB_PATH) as db:
@@ -135,6 +161,120 @@ async def collector_enabled_group_ids() -> list[str]:
         )
         rows = await cursor.fetchall()
     return [str(row[0]) for row in rows]
+
+
+async def collector_auto_report_group_ids() -> list[str]:
+    await init_access_db()
+    async with aiosqlite.connect(ACCESS_DB_PATH) as db:
+        cursor = await db.execute(
+            """
+            SELECT collector.group_id
+            FROM group_feature_settings collector
+            LEFT JOIN group_feature_settings auto
+              ON auto.group_id = collector.group_id AND auto.feature = ?
+            WHERE collector.feature = ?
+              AND collector.enabled = 1
+              AND COALESCE(auto.enabled, 1) = 1
+            ORDER BY collector.group_id ASC
+            """,
+            (FEATURE_DAILY_REPORT_AUTO, FEATURE_COLLECTOR),
+        )
+        rows = await cursor.fetchall()
+    return [str(row[0]) for row in rows]
+
+
+async def automatic_report_group_ids() -> list[str]:
+    explicit_group_ids = report_group_ids()
+    if explicit_group_ids:
+        return explicit_group_ids
+    return await collector_auto_report_group_ids()
+
+
+def skip_reason_text(reason: str) -> str:
+    return {
+        "sent": "已经生成过，本轮不重复发送",
+        "running": "上一轮仍在生成中",
+    }.get(reason, reason or "未知原因")
+
+
+async def daily_report_already_sent(group_id: str, target_date: date) -> bool:
+    await init_daily_report_run_db()
+    async with aiosqlite.connect(ACCESS_DB_PATH) as db:
+        cursor = await db.execute(
+            """
+            SELECT status
+            FROM daily_report_runs
+            WHERE group_id = ? AND target_date = ?
+            """,
+            (str(group_id), target_date.isoformat()),
+        )
+        row = await cursor.fetchone()
+    return bool(row and row[0] == "sent")
+
+
+async def mark_daily_report_run(group_id: str, target_date: date, status: str, error: str = "") -> None:
+    await init_daily_report_run_db()
+    updated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    async with aiosqlite.connect(ACCESS_DB_PATH) as db:
+        await db.execute(
+            """
+            INSERT INTO daily_report_runs (group_id, target_date, status, error, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(group_id, target_date) DO UPDATE SET
+                status = excluded.status,
+                error = excluded.error,
+                updated_at = excluded.updated_at
+            """,
+            (str(group_id), target_date.isoformat(), status, error[:1000], updated_at),
+        )
+        await db.commit()
+
+
+async def begin_daily_report_run(group_id: str, target_date: date) -> str | None:
+    await init_daily_report_run_db()
+    now = datetime.now()
+    updated_at = now.strftime("%Y-%m-%d %H:%M:%S")
+    stale_before = (now - timedelta(minutes=RUNNING_REPORT_STALE_MINUTES)).strftime("%Y-%m-%d %H:%M:%S")
+    async with aiosqlite.connect(ACCESS_DB_PATH) as db:
+        cursor = await db.execute(
+            """
+            INSERT OR IGNORE INTO daily_report_runs (group_id, target_date, status, error, updated_at)
+            VALUES (?, ?, 'running', '', ?)
+            """,
+            (str(group_id), target_date.isoformat(), updated_at),
+        )
+        if cursor.rowcount:
+            await db.commit()
+            return None
+
+        cursor = await db.execute(
+            """
+            SELECT status, updated_at
+            FROM daily_report_runs
+            WHERE group_id = ? AND target_date = ?
+            """,
+            (str(group_id), target_date.isoformat()),
+        )
+        row = await cursor.fetchone()
+        status = str(row[0]) if row else "unknown"
+        last_updated = str(row[1]) if row and row[1] else ""
+        if status == "sent":
+            await db.commit()
+            return "sent"
+        if status == "running" and last_updated >= stale_before:
+            await db.commit()
+            return "running"
+
+        await db.execute(
+            """
+            UPDATE daily_report_runs
+            SET status = 'running', error = '', updated_at = ?
+            WHERE group_id = ? AND target_date = ?
+            """,
+            (updated_at, str(group_id), target_date.isoformat()),
+        )
+        await db.commit()
+    return None
 
 
 def summary_model() -> str:
@@ -169,6 +309,27 @@ def daily_report_send_time() -> tuple[int, int]:
     hour = min(max(int(match.group(1)), 0), 23)
     minute = min(max(int(match.group(2)), 0), 59)
     return hour, minute
+
+
+def daily_report_startup_grace_minutes() -> int:
+    return get_int_env(
+        DAILY_REPORT_STARTUP_GRACE_MINUTES_ENV,
+        DEFAULT_STARTUP_GRACE_MINUTES,
+        minimum=0,
+        maximum=1440,
+    )
+
+
+def startup_catchup_target_date(now: datetime | None = None) -> date | None:
+    now = now or datetime.now()
+    hour, minute = daily_report_send_time()
+    scheduled_at = datetime.combine(now.date(), datetime.min.time()).replace(hour=hour, minute=minute)
+    grace_minutes = daily_report_startup_grace_minutes()
+    if grace_minutes <= 0:
+        return None
+    if scheduled_at <= now <= scheduled_at + timedelta(minutes=grace_minutes):
+        return now.date() - timedelta(days=1)
+    return None
 
 
 def is_private_report_event(event: Event) -> bool:
@@ -253,6 +414,25 @@ def report_chat_body(markdown: str) -> str:
         stripped = line.strip()
         if stripped.startswith("##") and "附录" in stripped:
             break
+        lines.append(line)
+    body = "\n".join(lines).strip()
+    return body or "日报内容为空。"
+
+
+def report_pdf_body(markdown: str) -> str:
+    lines: list[str] = []
+    skipping_preview_block = False
+    for line in markdown.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("##") and "附录" in stripped:
+            break
+        if stripped == "# 猎bot日报预览":
+            skipping_preview_block = True
+            continue
+        if skipping_preview_block and stripped.startswith("## "):
+            skipping_preview_block = False
+        if skipping_preview_block:
+            continue
         lines.append(line)
     body = "\n".join(lines).strip()
     return body or "日报内容为空。"
@@ -945,7 +1125,7 @@ async def generate_daily_report_files(
     pdf_filename = markdown_filename.removesuffix(".md") + ".pdf"
     pdf_path = report_file_path(pdf_filename)
     try:
-        write_pdf_report(markdown_content, pdf_path)
+        write_pdf_report(report_pdf_body(markdown_content), pdf_path)
         return markdown_filename, markdown_content, pdf_filename
     except Exception:
         logger.exception("Failed to generate PDF report")
@@ -960,8 +1140,25 @@ class PrivateReportEvent:
         return self._user_id
 
 
-async def send_daily_report_to_admins(bot: Bot, group_id: str, target_date: date) -> None:
-    group_name = await get_group_name(bot, group_id)
+async def send_daily_report_notice(bot: Bot, message: str) -> None:
+    admin_ids = sorted(admin_user_ids())
+    if not admin_ids:
+        logger.warning("Daily report notice skipped: no admins configured")
+        return
+    for admin_id in admin_ids:
+        try:
+            await bot.call_api("send_private_msg", user_id=int(admin_id), message=message)
+        except Exception:
+            logger.exception(f"Failed to send daily report notice to admin {admin_id}")
+
+
+async def send_daily_report_to_admins(
+    bot: Bot,
+    group_id: str,
+    target_date: date,
+    group_name: str | None = None,
+) -> str:
+    group_name = group_name or await get_group_name(bot, group_id)
     markdown_filename, markdown_content, pdf_filename = await generate_daily_report_files(
         group_id,
         target_date,
@@ -970,18 +1167,20 @@ async def send_daily_report_to_admins(bot: Bot, group_id: str, target_date: date
     admin_ids = sorted(admin_user_ids())
     if not admin_ids:
         logger.warning("Daily report skipped: no admins configured")
-        return
+        return pdf_filename
+
+    if not pdf_filename:
+        message = f"群 {group_id} {target_date.strftime('%Y-%m-%d')} 日报生成失败：PDF 未生成。"
+        for admin_id in admin_ids:
+            try:
+                await bot.call_api("send_private_msg", user_id=int(admin_id), message=message)
+            except Exception:
+                logger.exception(f"Failed to send daily report failure notice to admin {admin_id}")
+        raise RuntimeError("PDF 未生成")
 
     for admin_id in admin_ids:
         event = PrivateReportEvent(admin_id)
         try:
-            if not pdf_filename:
-                await bot.call_api(
-                    "send_private_msg",
-                    user_id=int(admin_id),
-                    message=f"群 {group_id} {target_date.strftime('%Y-%m-%d')} 日报生成失败：PDF 未生成。",
-                )
-                continue
             await send_existing_file(bot, event, report_file_path(pdf_filename), pdf_filename)
             await bot.call_api(
                 "send_private_msg",
@@ -990,14 +1189,20 @@ async def send_daily_report_to_admins(bot: Bot, group_id: str, target_date: date
             )
         except Exception:
             logger.exception(f"Failed to send daily report to admin {admin_id}")
+    return pdf_filename
 
 
 async def scheduled_daily_report_job() -> None:
     if not daily_report_enabled():
         return
-    groups = await collector_enabled_group_ids()
+    target_date = date.today() - timedelta(days=1)
+    await run_automatic_daily_reports(target_date, reason="cron")
+
+
+async def run_automatic_daily_reports(target_date: date, reason: str) -> None:
+    groups = await automatic_report_group_ids()
     if not groups:
-        logger.warning("Daily report skipped: no collector-enabled groups")
+        logger.warning("Daily report skipped: no configured or collector-enabled groups")
         return
     try:
         bot = get_bot()
@@ -1005,19 +1210,79 @@ async def scheduled_daily_report_job() -> None:
         logger.exception("Daily report skipped: no bot instance")
         return
 
-    target_date = date.today() - timedelta(days=1)
+    logger.info(
+        f"Daily report automatic run started: reason={reason}, "
+        f"target_date={target_date.isoformat()}, groups={','.join(groups)}"
+    )
+    source_text = "环境变量 DAILY_REPORT_GROUP_IDS" if automatic_report_group_source() == "env" else "控制台自动发送开关"
+    await send_daily_report_notice(
+        bot,
+        "\n".join(
+            [
+                "自动日报开始",
+                f"触发方式：{reason}",
+                f"日报日期：{target_date.isoformat()}",
+                f"群数量：{len(groups)}",
+                f"群来源：{source_text}",
+                f"群号：{', '.join(groups)}",
+            ]
+        ),
+    )
+    sent_count = 0
+    skipped_count = 0
+    failed_count = 0
     for group_id in groups:
+        group_name = await get_group_name(bot, group_id)
+        skip_reason = await begin_daily_report_run(group_id, target_date)
+        if skip_reason:
+            skipped_count += 1
+            logger.info(
+                f"Daily report skipped: status={skip_reason}, group={group_id}, "
+                f"target_date={target_date.isoformat()}"
+            )
+            await send_daily_report_notice(
+                bot,
+                f"自动日报跳过：{group_name}（{group_id}）\n日期：{target_date.isoformat()}\n原因：{skip_reason_text(skip_reason)}",
+            )
+            continue
         try:
-            await send_daily_report_to_admins(bot, group_id, target_date)
-        except Exception:
+            await send_daily_report_notice(
+                bot,
+                f"自动日报开始生成：{group_name}（{group_id}）\n日期：{target_date.isoformat()}",
+            )
+            await send_daily_report_to_admins(bot, group_id, target_date, group_name=group_name)
+            await mark_daily_report_run(group_id, target_date, "sent")
+            sent_count += 1
+            logger.info(f"Daily report sent: group={group_id}, target_date={target_date.isoformat()}")
+        except Exception as exc:
+            await mark_daily_report_run(group_id, target_date, "failed", repr(exc))
+            failed_count += 1
             logger.exception(f"Daily report job failed for group {group_id}")
+            await send_daily_report_notice(
+                bot,
+                f"自动日报失败：{group_name}（{group_id}）\n日期：{target_date.isoformat()}\n错误：{repr(exc)[:500]}",
+            )
+    await send_daily_report_notice(
+        bot,
+        "\n".join(
+            [
+                "自动日报结束",
+                f"日报日期：{target_date.isoformat()}",
+                f"成功：{sent_count}",
+                f"跳过：{skipped_count}",
+                f"失败：{failed_count}",
+            ]
+        ),
+    )
 
 
 @driver.on_startup
 async def startup_daily_report() -> None:
     if not daily_report_enabled():
         return
+    await init_daily_report_run_db()
     hour, minute = daily_report_send_time()
+    grace_minutes = daily_report_startup_grace_minutes()
     if not scheduler.running:
         scheduler.start()
     scheduler.add_job(
@@ -1027,8 +1292,19 @@ async def startup_daily_report() -> None:
         minute=minute,
         id="hunterbot_daily_report",
         replace_existing=True,
+        misfire_grace_time=max(60, grace_minutes * 60) if grace_minutes > 0 else 60,
+        coalesce=True,
     )
-    logger.info(f"Daily report scheduled at {hour:02d}:{minute:02d}")
+    logger.info(
+        f"Daily report scheduled at {hour:02d}:{minute:02d}, "
+        f"startup_grace_minutes={grace_minutes}"
+    )
+    catchup_date = startup_catchup_target_date()
+    if catchup_date:
+        logger.warning(
+            f"Daily report startup catch-up queued: target_date={catchup_date.isoformat()}"
+        )
+        asyncio.create_task(run_automatic_daily_reports(catchup_date, reason="startup_catchup"))
 
 
 @daily_report_preview.handle()
