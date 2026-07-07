@@ -52,6 +52,19 @@ const labels = {
   keyword_retort: "关键词回怼",
 };
 
+const agentCategoryLabels = {
+  core: "核心",
+  web: "联网",
+  reminder: "提醒",
+  knowledge: "知识库",
+  group_context: "群上下文",
+  daily_report: "日报",
+  profile: "画像",
+  admin: "管理",
+  chime: "常数报时",
+  general: "通用",
+};
+
 const $ = (id) => document.getElementById(id);
 
 function preferredTheme() {
@@ -576,6 +589,8 @@ function renderGroups() {
 
   featuresPanel.append(title, grid);
   layout.appendChild(featuresPanel);
+  layout.appendChild(renderAgentCapabilitiesPanel());
+  layout.appendChild(renderAgentToolsPanel());
   layout.appendChild(renderKeywordRetortPanel());
 
   if (group.features?.companion) {
@@ -591,6 +606,121 @@ function renderGroups() {
   layout.appendChild(renderArchivePanel());
 
   content.appendChild(layout);
+}
+
+function agentToolLabel(tool) {
+  return tool?.label || labels[tool?.name] || tool?.name || "未命名工具";
+}
+
+function agentToolMeta(tool) {
+  const parts = [];
+  if (tool.requires_admin) parts.push("管理员");
+  if (tool.requires_group) parts.push("群聊");
+  if (tool.requires_feature) parts.push(`依赖 ${labels[tool.requires_feature] || tool.requires_feature}`);
+  if (!tool.configurable) parts.push("基础能力");
+  return parts;
+}
+
+function renderAgentCapabilitiesPanel() {
+  const tools = Array.isArray(state.data?.agent_tools) ? state.data.agent_tools : [];
+  const panel = document.createElement("div");
+  panel.className = "panel section agent-capabilities-panel";
+
+  const title = document.createElement("h2");
+  title.className = "section-title";
+  title.textContent = "Agent 可用能力";
+
+  const note = document.createElement("p");
+  note.className = "muted";
+  note.textContent = "这里显示猎宝目前知道自己可以调用哪些工具；具体到某个群是否允许调用，在下方“本群 Agent 工具权限”里控制。";
+
+  const groups = new Map();
+  for (const tool of tools) {
+    const category = tool.category || "general";
+    if (!groups.has(category)) groups.set(category, []);
+    groups.get(category).push(tool);
+  }
+
+  const grid = document.createElement("div");
+  grid.className = "agent-capability-grid";
+  for (const [category, items] of groups) {
+    const block = document.createElement("div");
+    block.className = "agent-capability-block";
+    const heading = document.createElement("div");
+    heading.className = "agent-capability-heading";
+    heading.textContent = agentCategoryLabels[category] || category;
+    block.appendChild(heading);
+
+    for (const tool of items) {
+      const item = document.createElement("div");
+      item.className = "agent-capability-item";
+      const name = document.createElement("div");
+      name.className = "agent-capability-name";
+      name.textContent = agentToolLabel(tool);
+      const desc = document.createElement("div");
+      desc.className = "agent-capability-desc";
+      desc.textContent = tool.description || tool.name || "";
+      const meta = document.createElement("div");
+      meta.className = "agent-tool-tags";
+      for (const tag of agentToolMeta(tool)) {
+        const chip = document.createElement("span");
+        chip.className = "agent-tool-tag";
+        chip.textContent = tag;
+        meta.appendChild(chip);
+      }
+      item.append(name, desc, meta);
+      block.appendChild(item);
+    }
+    grid.appendChild(block);
+  }
+
+  panel.append(title, note, grid);
+  return panel;
+}
+
+function renderAgentToolsPanel() {
+  const tools = Array.isArray(state.group?.agent_tools?.tools) ? state.group.agent_tools.tools : [];
+  const panel = document.createElement("div");
+  panel.className = "panel section agent-tools-panel";
+
+  const title = document.createElement("h2");
+  title.className = "section-title";
+  title.textContent = "本群 Agent 工具权限";
+
+  const note = document.createElement("p");
+  note.className = "muted";
+  note.textContent = "关闭某个工具后，猎宝在这个群里不会把该工具交给 Agent，也会拦截模型硬调用。";
+
+  const grid = document.createElement("div");
+  grid.className = "switch-grid agent-tool-switch-grid";
+  for (const tool of tools) {
+    const disabled = !tool.configurable;
+    const wrap = document.createElement("label");
+    wrap.className = `switch-card agent-tool-card${disabled ? " disabled" : ""}`;
+
+    const text = document.createElement("div");
+    const name = document.createElement("div");
+    name.className = "switch-title";
+    name.textContent = agentToolLabel(tool);
+    const desc = document.createElement("div");
+    desc.className = "switch-note";
+    const tags = agentToolMeta(tool);
+    desc.textContent = `${tool.description || tool.name || ""}${tags.length ? `（${tags.join(" / ")}）` : ""}`;
+    text.append(name, desc);
+
+    const toggle = document.createElement("span");
+    toggle.className = "toggle";
+    toggle.innerHTML = `<input class="agent-tool-toggle" id="agent_tool_${tool.name}" data-tool-name="${tool.name}" type="checkbox" ${tool.enabled ? "checked" : ""} ${disabled ? "disabled" : ""}><span></span>`;
+    const input = toggle.querySelector("input");
+    if (!disabled) {
+      input.onchange = () => saveGroup({ auto: true }).catch((error) => status(error.message, true));
+    }
+    wrap.append(text, toggle);
+    grid.appendChild(wrap);
+  }
+
+  panel.append(title, note, grid);
+  return panel;
 }
 
 function renderCompanionFeaturePanel() {
@@ -1025,6 +1155,16 @@ function selectedChimeEnabled() {
 function selectedChimeMode() {
   const selected = selectedChimeState();
   return selected === "off" ? (state.group?.chime?.mode || "hourly") : selected;
+}
+
+function readAgentToolSettings() {
+  const result = {};
+  document.querySelectorAll(".agent-tool-toggle").forEach((node) => {
+    if (!node.disabled && node.dataset.toolName) {
+      result[node.dataset.toolName] = node.checked;
+    }
+  });
+  return result;
 }
 
 function renderCompanionManager() {
@@ -1566,6 +1706,7 @@ async function saveGroup(options = {}) {
       summary: readInput("groupProfileSummary"),
       max_chars: readNumber("groupProfileMaxChars", state.group?.group_profile?.max_chars || 100),
     },
+    agent_tools: readAgentToolSettings(),
   };
   state.group = await api(`${API}/api/groups/${state.selectedGroupId}`, {
     method: "PUT",

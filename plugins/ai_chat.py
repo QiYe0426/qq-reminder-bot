@@ -22,13 +22,22 @@ from nonebot import on_message
 from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, Message, MessageEvent
 from nonebot.log import logger
 
-from plugins.access_control import FEATURE_AI_CHAT, FEATURE_COLLECTOR, FEATURE_REMINDER, admin_denial, is_feature_allowed, is_group_feature_enabled
+from plugins.access_control import (
+    FEATURE_AI_CHAT,
+    FEATURE_COLLECTOR,
+    FEATURE_REMINDER,
+    admin_denial,
+    admin_user_ids,
+    is_feature_allowed,
+    is_group_feature_enabled,
+)
 from plugins.agent_tools import (
     get_agent_tool_definitions,
     has_agent_tool,
     merge_agent_tool_definitions,
     run_registered_agent_tool,
 )
+from plugins.agent_tool_access import filter_allowed_agent_tool_definitions, is_agent_tool_allowed
 from plugins.chime_service import (
     CHIME_MODE_HOURLY,
     get_chime_state,
@@ -109,6 +118,10 @@ AGENT_SYSTEM_INSTRUCTIONS = (
     "如果用户要提醒群里的别人但对象不明确，应先确认对象；用户也可以通过 @某人 明确指定。"
     "如果用户询问杀戮尖塔2/STS2 的卡牌、遗物、角色、敌人、Boss、事件、关键词、机制或攻略，优先使用 search_sts2_knowledge；涉及卡牌强度、抓率和版本变化时，要同时参考107攻略和108相对107差异。"
     "如果用户要你回忆、查找、总结当前群刚才或最近聊过什么，使用 get_group_context；需要关键词时传 keyword，不需要时查最近消息。"
+    "如果管理员询问当前群状态、功能开关、消息采集数量或 Agent 工具权限，使用 get_group_status。"
+    "如果管理员询问昨日总结、昨天日报、群日报或指定日期总结，使用 generate_daily_report；未指定日期时按昨天处理。"
+    "如果管理员询问当前群画像，使用 get_group_profile；如果管理员询问某个群友/某人的画像，使用 get_member_profile。"
+    "这些管理类工具只能给管理员使用；普通用户请求时不要猜测内部数据，应说明需要管理员权限。"
     "如果用户要查看或设置当前会话的常数报时，使用 get_chime 或 set_chime。"
     "设置常数报时前要遵守现有权限和群功能开关。"
     "遇到最新、实时、外部事实、价格、天气、新闻、公告、活动标题、版本更新、政策法规、人物机构现状等问题时，优先使用 web_search。"
@@ -1479,6 +1492,7 @@ def current_scope(event: MessageEvent) -> ReminderScope:
 
 
 def current_tool_context(event: MessageEvent) -> dict[str, object]:
+    is_admin = str(event.user_id) in admin_user_ids()
     if isinstance(event, GroupMessageEvent):
         return {
             "_user_id": str(event.user_id),
@@ -1486,6 +1500,7 @@ def current_tool_context(event: MessageEvent) -> dict[str, object]:
             "_target_id": str(event.group_id),
             "_event": event,
             "_scope": current_scope(event),
+            "_is_admin": is_admin,
         }
     return {
         "_user_id": str(event.user_id),
@@ -1493,6 +1508,7 @@ def current_tool_context(event: MessageEvent) -> dict[str, object]:
         "_target_id": str(event.user_id),
         "_event": event,
         "_scope": current_scope(event),
+        "_is_admin": is_admin,
     }
 
 
@@ -1544,6 +1560,10 @@ async def agent_web_search(query: str, max_results: int | None = None) -> dict[s
 
 
 async def run_agent_tool(name: str, args: dict[str, object], context: dict[str, object]) -> dict[str, object]:
+    allowed, reason = await is_agent_tool_allowed(name, context)
+    if not allowed:
+        return {"ok": False, "error": "tool_not_allowed", "message": reason}
+
     if name == "web_search":
         query = str(args.get("query") or "")
         raw_max_results = args.get("max_results")
@@ -1705,6 +1725,7 @@ async def ask_ai_with_agent(question: str, *, extra_context: str = "", event: Me
         {"role": "user", "content": question},
     ]
     tool_context = current_tool_context(event)
+    available_tools = await filter_allowed_agent_tool_definitions(AGENT_TOOLS, tool_context)
 
     tool_call_count = 0
     while tool_call_count < max_tool_calls:
@@ -1713,7 +1734,7 @@ async def ask_ai_with_agent(question: str, *, extra_context: str = "", event: Me
             model=agent_model_name(),
             timeout_seconds=timeout_seconds,
             temperature=agent_temperature(),
-            tools=AGENT_TOOLS,
+            tools=available_tools,
             tool_choice="auto",
         )
         message = response.choices[0].message

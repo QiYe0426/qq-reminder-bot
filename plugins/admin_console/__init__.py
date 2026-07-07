@@ -37,6 +37,12 @@ from plugins.access_control import (
     set_group_feature,
     set_group_feature_limits,
 )
+from plugins.agent_tool_access import (
+    agent_tool_capabilities_state,
+    group_agent_tool_state,
+    init_agent_tool_access_db,
+    save_group_agent_tool_state,
+)
 from plugins.chime_service import (
     CHIME_MODE_HOURLY,
     get_chime_state as get_target_chime_state,
@@ -243,6 +249,7 @@ def normalize_profile_payload(payload: dict[str, object]) -> dict[str, object]:
 
 async def ensure_console_databases() -> None:
     await init_access_db()
+    await init_agent_tool_access_db()
     await init_archive_db()
     await init_companion_db()
     await init_companion_memory_db()
@@ -488,9 +495,12 @@ async def archived_groups() -> list[dict[str, object]]:
 async def configured_group_ids() -> list[str]:
     group_ids: set[str] = set()
     await init_access_db()
+    await init_agent_tool_access_db()
     await init_companion_db()
     async with aiosqlite.connect(ACCESS_DB_PATH) as db:
         cursor = await db.execute("SELECT DISTINCT group_id FROM group_feature_settings ORDER BY group_id ASC")
+        group_ids.update(str(row[0]) for row in await cursor.fetchall() if row[0])
+        cursor = await db.execute("SELECT DISTINCT group_id FROM group_agent_tool_settings ORDER BY group_id ASC")
         group_ids.update(str(row[0]) for row in await cursor.fetchall() if row[0])
     if COMPANION_DB_PATH.exists():
         async with aiosqlite.connect(COMPANION_DB_PATH) as db:
@@ -696,6 +706,7 @@ async def group_state(group_id: str) -> dict[str, object]:
         },
         "keyword_retort": keyword_retort,
         "group_profile": await get_group_profile(group_id),
+        "agent_tools": await group_agent_tool_state(group_id),
         "chime": chime,
         "members": await list_group_members(group_id),
         "archive": await group_archive_state(group_id),
@@ -759,6 +770,9 @@ async def save_group_state(group_id: str, payload: dict[str, object]) -> dict[st
             group_profile.get("summary", ""),
             group_profile.get("max_chars", 100),
         )
+    agent_tools = payload.get("agent_tools") if isinstance(payload.get("agent_tools"), dict) else {}
+    if agent_tools:
+        await save_group_agent_tool_state(group_id, agent_tools)
     if FEATURE_CHIME in features:
         chime = payload.get("chime") if isinstance(payload.get("chime"), dict) else {}
         mode = str(chime.get("mode") or CHIME_MODE_HOURLY)
@@ -1041,6 +1055,7 @@ async def console_state() -> dict[str, object]:
         "selected_group": selected_group,
         "group": await group_state(selected_group) if selected_group else None,
         "knowledge": await knowledge_state(),
+        "agent_tools": agent_tool_capabilities_state(),
         "version": app_version(),
         "route_prefix": ROUTE_PREFIX,
     }

@@ -50,6 +50,10 @@ def has_agent_tool(name: str) -> bool:
     return name in _TOOLS
 
 
+def list_agent_tools() -> list[AgentTool]:
+    return list(_TOOLS.values())
+
+
 def get_agent_tool_definitions(names: Iterable[str] | None = None) -> list[dict[str, object]]:
     requested = list(names) if names is not None else list(_TOOLS)
     definitions: list[dict[str, object]] = []

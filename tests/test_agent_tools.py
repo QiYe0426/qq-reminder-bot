@@ -4,6 +4,7 @@ from datetime import datetime
 import aiosqlite
 
 from plugins import knowledge_service, reminder_service
+from plugins.agent_tools.admin_tools import mentioned_user_ids
 from plugins.agent_tools import group_context_tools
 from plugins.agent_tools import (
     get_agent_tool_definitions,
@@ -14,6 +15,24 @@ from plugins.agent_tools import (
 )
 from plugins.group_context_service import remember_transient_group_message
 from plugins.reminder_service import ReminderScope
+
+
+class FakeSegment:
+    def __init__(self, segment_type: str, data: dict[str, object]) -> None:
+        self.type = segment_type
+        self.data = data
+
+
+class FakeMentionEvent:
+    self_id = "999"
+
+    def get_message(self) -> list[FakeSegment]:
+        return [
+            FakeSegment("at", {"qq": "999"}),
+            FakeSegment("text", {"text": " 看画像 "}),
+            FakeSegment("at", {"qq": "10001"}),
+            FakeSegment("at", {"qq": "10001"}),
+        ]
 
 
 def test_reminder_tools_are_registered() -> None:
@@ -29,10 +48,26 @@ def test_reminder_tools_are_registered() -> None:
     assert has_agent_tool("cancel_reminder")
     assert has_agent_tool("search_sts2_knowledge")
     assert has_agent_tool("get_group_context")
-    assert {"create_reminder", "list_reminders", "cancel_reminder", "search_sts2_knowledge", "get_group_context"} <= names
+    assert {
+        "create_reminder",
+        "list_reminders",
+        "cancel_reminder",
+        "search_sts2_knowledge",
+        "get_group_context",
+        "generate_daily_report",
+        "get_group_status",
+        "get_group_profile",
+        "get_member_profile",
+    } <= names
     assert get_agent_tool("create_reminder").requires_feature == "ai_chat"
     assert get_agent_tool("search_sts2_knowledge").requires_feature == "ai_chat"
     assert get_agent_tool("get_group_context").requires_group is True
+    assert get_agent_tool("generate_daily_report").requires_admin is True
+    assert get_agent_tool("get_member_profile").requires_group is True
+
+
+def test_member_profile_tool_can_read_non_bot_mentions() -> None:
+    assert mentioned_user_ids({"_event": FakeMentionEvent()}) == ["10001"]
 
 
 def test_registered_tool_definitions_replace_same_name_base_definition() -> None:

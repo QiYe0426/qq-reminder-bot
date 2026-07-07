@@ -6,6 +6,7 @@ from .registry import (
     get_agent_tool,
     get_agent_tool_definitions,
     has_agent_tool,
+    list_agent_tools,
     merge_agent_tool_definitions,
     register_tool,
     register_tools,
@@ -14,11 +15,13 @@ from .registry import (
 from .group_context_tools import GROUP_CONTEXT_TOOLS
 from .knowledge_tools import KNOWLEDGE_TOOLS
 from .reminder_tools import REMINDER_TOOLS
+from .admin_tools import ADMIN_TOOLS
 
 
 register_tools(REMINDER_TOOLS)
 register_tools(KNOWLEDGE_TOOLS)
 register_tools(GROUP_CONTEXT_TOOLS)
+register_tools(ADMIN_TOOLS)
 
 
 __all__ = [
@@ -27,6 +30,7 @@ __all__ = [
     "get_agent_tool",
     "get_agent_tool_definitions",
     "has_agent_tool",
+    "list_agent_tools",
     "merge_agent_tool_definitions",
     "register_tool",
     "register_tools",

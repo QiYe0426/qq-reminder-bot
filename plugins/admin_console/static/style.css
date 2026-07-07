@@ -251,6 +251,67 @@ button {
   font-size: 12px;
 }
 
+.agent-capability-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.agent-capability-block {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-soft);
+  overflow: hidden;
+}
+
+.agent-capability-heading {
+  padding: 9px 11px;
+  border-bottom: 1px solid var(--line);
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.agent-capability-item {
+  padding: 10px 11px;
+  border-top: 1px solid var(--line);
+}
+
+.agent-capability-item:first-of-type {
+  border-top: 0;
+}
+
+.agent-capability-name {
+  font-weight: 650;
+}
+
+.agent-capability-desc {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.agent-tool-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 7px;
+}
+
+.agent-tool-tag {
+  padding: 2px 6px;
+  border: 1px solid var(--accent-line);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 11px;
+}
+
+.agent-tool-switch-grid {
+  margin-top: 12px;
+}
+
 .theme-switch {
   display: inline-flex;
   gap: 3px;
