@@ -610,6 +610,115 @@ button {
   font-weight: 700;
 }
 
+.keyword-retort-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.keyword-retort-heading,
+.keyword-retort-toggle,
+.keyword-retort-toolbar,
+.keyword-retort-rule-header,
+.keyword-retort-reply,
+.keyword-retort-reply-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.keyword-retort-heading {
+  justify-content: space-between;
+}
+
+.keyword-retort-heading .section-title {
+  margin-bottom: 0;
+}
+
+.keyword-retort-toggle {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.keyword-retort-scan {
+  font-size: 12px;
+}
+
+.keyword-retort-rule-list {
+  display: grid;
+  gap: 10px;
+}
+
+.keyword-retort-rule {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--card-bg);
+}
+
+.keyword-retort-rule-header {
+  flex-wrap: wrap;
+}
+
+.keyword-retort-rule-header .keyword-field {
+  flex: 1 1 220px;
+}
+
+.check-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 30px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.check-field input {
+  width: 16px;
+  height: 16px;
+}
+
+.keyword-retort-rule-usage {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.keyword-retort-replies {
+  display: grid;
+  gap: 8px;
+}
+
+.keyword-retort-reply {
+  align-items: stretch;
+}
+
+.keyword-retort-reply select {
+  width: 86px;
+  min-height: 34px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--field-bg);
+  color: var(--text);
+}
+
+.keyword-retort-reply textarea {
+  min-height: 42px;
+  flex: 1 1 320px;
+  padding: 8px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--field-bg);
+  color: var(--text);
+  resize: vertical;
+}
+
+.keyword-retort-rule .empty {
+  min-height: 54px;
+  font-size: 12px;
+}
+
 .number-field {
   display: grid;
   gap: 5px;

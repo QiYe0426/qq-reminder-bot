@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
 import json
 import os
 import time
 from datetime import datetime
+from http.cookies import SimpleCookie
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from urllib.error import URLError
 from urllib.request import Request as UrlRequest
@@ -23,6 +27,7 @@ from plugins.access_control import (
     FEATURE_COMPANION,
     FEATURE_CONSTANT_RETORT,
     FEATURE_DAILY_REPORT_AUTO,
+    FEATURE_KEYWORD_RETORT,
     init_access_db,
     get_group_feature_limits,
     get_group_feature_usage,
@@ -52,6 +57,11 @@ from plugins.companion_memory import (
     save_knowledge_item,
 )
 from plugins.companion_registry import init_companion_db, set_companion_target
+from plugins.group_reactions import (
+    init_keyword_retort_db,
+    keyword_retort_state,
+    save_keyword_retort_rules,
+)
 from plugins.message_archive import DB_PATH as ARCHIVE_DB_PATH, init_archive_db
 from sts_knowledge_seed import seed_sts_knowledge
 
@@ -62,6 +72,8 @@ driver = get_driver()
 
 ROUTE_PREFIX = "/hunterbot/admin-console"
 ADMIN_TOKEN_ENV = "COMPANION_ADMIN_TOKEN"
+ADMIN_SESSION_COOKIE = "hunterbot_admin_session"
+ADMIN_SESSION_MAX_AGE_SECONDS = 180 * 24 * 60 * 60
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 AVATAR_CACHE_DIR = Path("data/admin_console/group_avatars")
 AVATAR_CACHE_TTL_SECONDS = 7 * 24 * 60 * 60
@@ -87,7 +99,7 @@ FEATURE_CHIME = "hourly_chime"
 
 try:
     from fastapi import Header, HTTPException, Query, Request
-    from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+    from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 except Exception:  # pragma: no cover
     Header = None
     HTTPException = None
@@ -96,10 +108,51 @@ except Exception:  # pragma: no cover
     FileResponse = None
     HTMLResponse = None
     JSONResponse = None
+    RedirectResponse = None
 
 
 def admin_token() -> str:
     return os.getenv(ADMIN_TOKEN_ENV, "").strip()
+
+
+def admin_session_value() -> str:
+    token = admin_token()
+    if not token:
+        return ""
+    return hmac.new(
+        token.encode("utf-8"),
+        b"hunterbot-admin-session-v1",
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def valid_admin_session(value: str | None) -> bool:
+    expected = admin_session_value()
+    return bool(value and expected and hmac.compare_digest(value, expected))
+
+
+def cookie_from_scope(scope: dict[str, object], name: str) -> str:
+    raw_cookie = ""
+    for key, value in scope.get("headers", []):
+        if key.lower() == b"cookie":
+            raw_cookie = value.decode("latin-1", errors="ignore")
+            break
+    if not raw_cookie:
+        return ""
+    parsed = SimpleCookie()
+    try:
+        parsed.load(raw_cookie)
+    except Exception:
+        return ""
+    morsel = parsed.get(name)
+    return morsel.value if morsel else ""
+
+
+def app_version() -> str:
+    try:
+        return f"v{version('qq-reminder-bot')}"
+    except PackageNotFoundError:
+        return "v2.0.0"
 
 
 def check_token(token: str | None = None, authorization: str | None = None) -> None:
@@ -193,6 +246,7 @@ async def ensure_console_databases() -> None:
     await init_companion_db()
     await init_companion_memory_db()
     await init_chime_db()
+    await init_keyword_retort_db()
 
 
 def group_label(row: aiosqlite.Row | dict[str, object]) -> str:
@@ -591,28 +645,54 @@ async def set_daily_report_group_state(group_id: str, enabled: bool) -> None:
     await set_group_feature(group_id, FEATURE_COLLECTOR, enabled)
 
 
+def aggregate_keyword_retort_usage(keyword_retort: dict[str, object]) -> dict[str, int]:
+    usage = {"per_minute": 0, "per_hour": 0, "per_day": 0}
+    rules = keyword_retort.get("rules")
+    if not isinstance(rules, list):
+        return usage
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        rule_usage = rule.get("usage")
+        if not isinstance(rule_usage, dict):
+            continue
+        for key in usage:
+            usage[key] += int(rule_usage.get(key) or 0)
+    return usage
+
+
 async def group_state(group_id: str) -> dict[str, object]:
+    daily_report = await get_daily_report_group_state(group_id)
+    chime = await get_chime_state(group_id)
+    keyword_retort = await keyword_retort_state(group_id)
     return {
         "group_id": group_id,
         "features": {
             FEATURE_AI_CHAT: await is_group_feature_enabled(group_id, FEATURE_AI_CHAT),
-            FEATURE_DAILY_REPORT: (await get_daily_report_group_state(group_id))["enabled"],
+            FEATURE_DAILY_REPORT: daily_report["enabled"],
             FEATURE_DAILY_REPORT_AUTO: await is_group_feature_enabled(group_id, FEATURE_DAILY_REPORT_AUTO),
             FEATURE_COMPANION: await is_group_feature_enabled(group_id, FEATURE_COMPANION),
-            FEATURE_CHIME: (await get_chime_state(group_id))["enabled"],
+            FEATURE_CHIME: chime["enabled"],
             FEATURE_BOT_TEASE: await is_group_feature_enabled(group_id, FEATURE_BOT_TEASE),
             FEATURE_CONSTANT_RETORT: await is_group_feature_enabled(group_id, FEATURE_CONSTANT_RETORT),
+            FEATURE_KEYWORD_RETORT: (
+                await is_group_feature_enabled(group_id, FEATURE_KEYWORD_RETORT)
+                or await is_group_feature_enabled(group_id, FEATURE_CONSTANT_RETORT)
+            ),
         },
         "limits": {
             FEATURE_BOT_TEASE: await get_group_feature_limits(group_id, FEATURE_BOT_TEASE),
             FEATURE_CONSTANT_RETORT: await get_group_feature_limits(group_id, FEATURE_CONSTANT_RETORT),
+            FEATURE_KEYWORD_RETORT: await get_group_feature_limits(group_id, FEATURE_KEYWORD_RETORT),
         },
         "usage": {
             FEATURE_BOT_TEASE: await get_group_feature_usage(group_id, FEATURE_BOT_TEASE),
             FEATURE_CONSTANT_RETORT: await get_group_feature_usage(group_id, FEATURE_CONSTANT_RETORT),
+            FEATURE_KEYWORD_RETORT: aggregate_keyword_retort_usage(keyword_retort),
         },
+        "keyword_retort": keyword_retort,
         "group_profile": await get_group_profile(group_id),
-        "chime": await get_chime_state(group_id),
+        "chime": chime,
         "members": await list_group_members(group_id),
         "archive": await group_archive_state(group_id),
     }
@@ -647,15 +727,26 @@ async def save_group_state(group_id: str, payload: dict[str, object]) -> dict[st
             await set_group_feature(group_id, FEATURE_COLLECTOR, True)
     if FEATURE_BOT_TEASE in features:
         await set_group_feature(group_id, FEATURE_BOT_TEASE, normalize_bool(features[FEATURE_BOT_TEASE]))
+    if FEATURE_KEYWORD_RETORT in features:
+        keyword_retort_enabled = normalize_bool(features[FEATURE_KEYWORD_RETORT])
+        await set_group_feature(group_id, FEATURE_KEYWORD_RETORT, keyword_retort_enabled)
+        await set_group_feature(group_id, FEATURE_CONSTANT_RETORT, False)
     if FEATURE_CONSTANT_RETORT in features:
-        await set_group_feature(group_id, FEATURE_CONSTANT_RETORT, normalize_bool(features[FEATURE_CONSTANT_RETORT]))
+        if FEATURE_KEYWORD_RETORT not in features:
+            await set_group_feature(group_id, FEATURE_CONSTANT_RETORT, normalize_bool(features[FEATURE_CONSTANT_RETORT]))
     limits = payload.get("limits") if isinstance(payload.get("limits"), dict) else {}
     bot_tease_limits = limits.get(FEATURE_BOT_TEASE) if isinstance(limits, dict) else None
     constant_retort_limits = limits.get(FEATURE_CONSTANT_RETORT) if isinstance(limits, dict) else None
+    keyword_retort_limits = limits.get(FEATURE_KEYWORD_RETORT) if isinstance(limits, dict) else None
     if isinstance(bot_tease_limits, dict):
         await set_group_feature_limits(group_id, FEATURE_BOT_TEASE, normalize_limit_payload(bot_tease_limits))
     if isinstance(constant_retort_limits, dict):
         await set_group_feature_limits(group_id, FEATURE_CONSTANT_RETORT, normalize_limit_payload(constant_retort_limits))
+    if isinstance(keyword_retort_limits, dict):
+        await set_group_feature_limits(group_id, FEATURE_KEYWORD_RETORT, normalize_limit_payload(keyword_retort_limits))
+    keyword_retort = payload.get("keyword_retort") if isinstance(payload.get("keyword_retort"), dict) else {}
+    if keyword_retort:
+        await save_keyword_retort_rules(group_id, keyword_retort.get("rules"))
     group_profile = payload.get("group_profile") if isinstance(payload.get("group_profile"), dict) else {}
     if group_profile:
         await save_group_profile(
@@ -944,7 +1035,7 @@ async def console_state() -> dict[str, object]:
         "selected_group": selected_group,
         "group": await group_state(selected_group) if selected_group else None,
         "knowledge": await knowledge_state(),
-        "version": "v1.2.1",
+        "version": app_version(),
         "route_prefix": ROUTE_PREFIX,
     }
 
@@ -971,9 +1062,42 @@ if (
     async def startup_admin_console() -> None:
         await ensure_console_databases()
 
+    @server_app.middleware("http")
+    async def admin_console_session_middleware(request: Request, call_next):
+        if str(request.scope.get("path", "")).startswith(ROUTE_PREFIX):
+            session = cookie_from_scope(request.scope, ADMIN_SESSION_COOKIE)
+            if valid_admin_session(session):
+                headers = list(request.scope.get("headers", []))
+                if not any(key.lower() == b"authorization" for key, _ in headers):
+                    headers.append(
+                        (
+                            b"authorization",
+                            f"Bearer {admin_token()}".encode("latin-1"),
+                        )
+                    )
+                    request.scope["headers"] = headers
+        return await call_next(request)
+
     @server_app.get(ROUTE_PREFIX, response_class=HTMLResponse)
-    async def admin_console_page(token: str | None = Query(default=None)) -> HTMLResponse:
-        check_token(token=token)
+    async def admin_console_page(
+        request: Request,
+        token: str | None = Query(default=None),
+        authorization: str | None = Header(default=None),
+    ):
+        check_token(token=token, authorization=authorization)
+        if token:
+            response = RedirectResponse(ROUTE_PREFIX, status_code=303)
+            forwarded_proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+            response.set_cookie(
+                ADMIN_SESSION_COOKIE,
+                admin_session_value(),
+                max_age=ADMIN_SESSION_MAX_AGE_SECONDS,
+                httponly=True,
+                secure=forwarded_proto.lower() == "https",
+                samesite="strict",
+                path=ROUTE_PREFIX,
+            )
+            return response
         return HTMLResponse(static_file("index.html").read_text(encoding="utf-8"))
 
     @server_app.get(f"{ROUTE_PREFIX}/static/{{asset_name}}")

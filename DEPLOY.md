@@ -78,6 +78,7 @@ AI_AGENT_MAX_TOOL_CALLS=8
 COMPANION_ADMIN_TOKEN=一串很长的随机管理令牌
 COMPANION_MEMORY_AUTO_ENABLED=1
 COMPANION_SUMMARY_MODEL=deepseek-v4-pro
+COMPANION_SUMMARY_TIMEOUT_SECONDS=90
 
 SUMMARY_MODEL=deepseek-v4-pro
 SUMMARY_API_KEY=你的日报总结密钥，留空则复用 DEEPSEEK_API_KEY
@@ -112,7 +113,9 @@ cd ~/qq-reminder-bot
   plugins/message_collector.py \
   plugins/storage_status.py \
   plugins/media_insights.py \
-  plugins/daily_report.py
+  plugins/daily_report.py \
+  plugins/remote_approval.py \
+  scripts/codex_remote_approval_hook.py
 ```
 
 ## 6. 重启服务
@@ -147,15 +150,50 @@ ExecStart=/home/ubuntu/qq-reminder-bot/.venv/bin/python /home/ubuntu/qq-reminder
 
 然后打开猎宝控制台，在 `群管理 -> 智能陪伴 -> 群友画像管理` 里选择允许记录画像的群友。只有控制台已开启记录的群友消息会进入陪伴画像总结。
 
-## 8. 打开控制台
+## 8. 配置 HTTPS 并打开控制台
 
-固定网址：
+腾讯云安全组先放行入站 TCP 443。服务器使用 Let’s Encrypt 的公网 IP 短期证书，证书约 6 天有效，因此必须保留 Certbot 自动续期任务。
 
-```text
-http://62.234.188.16/hunterbot/admin-console?token=你的管理令牌
+首次安装：
+
+```bash
+sudo snap install --classic certbot
+sudo ln -sf /snap/bin/certbot /usr/local/bin/certbot
+sudo install -d -m 0755 /var/www/letsencrypt/.well-known/acme-challenge
+sudo certbot certonly \
+  --preferred-profile shortlived \
+  --webroot \
+  --webroot-path /var/www/letsencrypt \
+  --ip-address 62.234.188.16 \
+  --cert-name hunterbot-ip \
+  --non-interactive \
+  --agree-tos \
+  --register-unsafely-without-email
 ```
 
-服务器通过 Nginx 把这个地址反代到本机 `127.0.0.1:8080`。配置参考在 `deploy/nginx/hunterbot-admin-console.conf`。
+把 `deploy/nginx/hunterbot-admin-console.conf` 安装到 Nginx，并安装证书续期 hook：
+
+```bash
+sudo cp deploy/nginx/hunterbot-admin-console.conf /etc/nginx/sites-available/hunterbot-admin-console.conf
+sudo install -m 0755 deploy/certbot/reload-nginx.sh /etc/letsencrypt/renewal-hooks/deploy/reload-nginx.sh
+sudo nginx -t
+sudo systemctl reload nginx
+sudo certbot renew --cert-name hunterbot-ip --dry-run --no-random-sleep-on-renew
+```
+
+首次登录网址：
+
+```text
+https://62.234.188.16/hunterbot/admin-console?token=你的管理令牌
+```
+
+验证后会写入安全 Cookie 并跳转到干净网址。把这个干净网址加入收藏夹：
+
+```text
+https://62.234.188.16/hunterbot/admin-console
+```
+
+服务器通过 Nginx 把 HTTPS 请求反代到本机 `127.0.0.1:8080`，80 端口只保留证书验证并跳转到 HTTPS。
 
 控制台包含 `Bot 人设`、`知识库`、`群管理`、`日报`、`智能陪伴`、`群画像`、`群友画像管理` 和 `消息采集记录`。旧 `/hunterbot/companion-admin` 页面和知识库文字提取入口已移除。
 
@@ -181,8 +219,8 @@ ls -lh data/
 浏览器/API：
 
 ```text
-http://62.234.188.16/hunterbot/admin-console?token=你的管理令牌
-http://62.234.188.16/hunterbot/admin-console/api/state?token=你的管理令牌
+https://62.234.188.16/hunterbot/admin-console
+https://62.234.188.16/hunterbot/admin-console/api/state
 ```
 
 ## 10. 回滚

@@ -1,6 +1,6 @@
 # 猎bot
 
-猎bot v2.0.0「猎bot-初具人形」是一个用于学习和自用的 QQ bot，基于 NoneBot2 + OneBot v11。当前版本已经从“命令型提醒 bot”整理成“消息交给 AI agent，再由 agent 调用工具”的雏形，主要支持 AI 对话、联网搜索、提醒工具、常数报时工具、分群消息采集、日报、智能陪伴画像、STS2 知识库和猎宝控制台。
+猎bot正式发布基线为 v2.0.0「猎bot-初具人形」，当前工作树为 v2.0.1-dev。项目是一个用于学习和自用的 QQ bot，基于 NoneBot2 + OneBot v11。当前版本已经从“命令型提醒 bot”整理成“消息交给 AI agent，再由 agent 调用工具”的雏形，主要支持 AI 对话、联网搜索、提醒工具、常数报时工具、分群消息采集、日报、智能陪伴画像、STS2 知识库和猎宝控制台。
 
 猎bot加入新群后默认保持业务功能静默。常规 AI 对话、`ping`、`help` 可直接使用；提醒、消息采集和陪伴画像需要管理员按群开启。AI 对话也可以按群单独关闭。`群功能状态`、采集、日报、存储和媒体识别等管理命令仅管理员可用。
 
@@ -23,6 +23,7 @@
   - `plugins/reminder.py`
   - `plugins/group_reactions.py`
   - `plugins/storage_status.py`
+  - `plugins/remote_approval.py`
   - `plugins/admin_console/`
 - 当前数据流：
   - NoneBot 从 `pyproject.toml` 加载插件，OneBot v11/NapCat 负责 QQ 收发。
@@ -55,7 +56,7 @@
 - `开启群功能 日报` / `关闭群功能 日报`：控制本群消息归档和日报数据来源；`消息采集` 仍作为兼容别名。
 - `开启群功能 陪伴画像` / `关闭群功能 陪伴画像`：控制本群是否启用智能陪伴；具体记录对象由控制台按群选择。
 - `开启群功能 调戏其他bot` / `关闭群功能 调戏其他bot`：控制已标记 bot 发言后的限流短回复。
-- `开启群功能 🎒常数回怼` / `关闭群功能 🎒常数回怼`：控制群聊中检测到数字 `158` 后发送表情包；文本里的 `158` 会直接触发，图片里的阿拉伯数字 `158` 会走视觉识别后触发；管理员私聊发送 `158` 也可触发，用于测试表情包链路。
+- `开启群功能 关键词回怼` / `关闭群功能 关键词回怼`：控制群聊关键词触发回复；控制台可维护每个群的关键词和对应回复库。默认会为群生成一条 `158` 图片回复规则。
 
 ### 提醒和常数报时
 
@@ -63,6 +64,7 @@
 
 - `提醒 09:00 喝水`：创建今天或明天最近一次的提醒。
 - `提醒 10分钟后喝水`：创建相对时间提醒，支持部分中文数字，例如 `提醒 一分钟后吃饭`。
+- `提醒 明天这个时候吃饭` / `提醒 明天下午三点开会` / `提醒 今晚八点吃饭`：创建自然时间提醒；AI agent 调用提醒工具时也复用同一套解析。
 - `提醒 2026-06-20 09:00 喝水`：创建指定日期提醒。
 - `查看提醒`：查看本人未完成提醒。
 - `取消提醒 1`：取消本人指定编号的提醒。
@@ -119,7 +121,7 @@ AI 对话会先判断当前问题是否需要联网搜索：像最新消息、�
 - `媒体识别状态` / `素材识别状态`：查看实验开关、自动识别、图片模型、密钥状态、语音转写和识别记录，仅管理员可用。
 - `扫描媒体识别` / `扫描素材识别`：手动补扫已采集消息里的素材，仅管理员可用。
 - 自动识别开启后，新采集到的图片、表情包、链接、语音、文件、回复、视频、位置、分享卡片、名片、戳一戳、音乐、匿名消息和聊天记录都会进入后台处理。
-- 图片和图片类表情包：可调用 OpenAI 兼容视觉模型，默认示例为 Qwen `qwen-vl-plus`。
+- 图片和图片类表情包：可调用 OpenAI 兼容视觉模型，默认示例为 Qwen `qwen3-vl-flash`。
 - 链接：从普通文本、JSON/XML 卡片和分享卡片中提取 URL，尽量抓取标题、摘要和正文摘录；会拒绝本机、内网和非公网地址。
 - 文件：记录文件名、大小、类型和风险提示；文本、PDF、docx、xlsx、pptx 等常见文档会尽量提取正文摘录。
 - 语音：预留转写流程，开启 `VOICE_TRANSCRIBE_ENABLED=1` 后可调用语音模型转写。
@@ -157,7 +159,8 @@ AI 对话会先判断当前问题是否需要联网搜索：像最新消息、�
 - `Bot 人设`：编辑 bot 人设，保存后写入 `data/bot_persona_prompt.txt`，后续 AI 回复实时读取。
 - `知识库`：现在只维护 `STS2`（杀戮尖塔 2）知识。事实资料按 `card`、`character`、`relic`、`potion`、`enemy`、`elite`、`boss`、`event`、`mechanic`、`keyword`、`power`、`enchantment` 分类；`guide` 只放自建攻略库内容，避免把作者建议和官方/数据事实混在一起。
 - `群管理`：只显示 `AI 对话`、`日报`、`智能陪伴` 和 `🎒常数报时` 四个群功能开关；`日报` 同时控制消息采集和日报数据来源。`日报` 卡片下方有 `自动发送日报` 开关，只有开启 `日报` 后才能操作，用于控制该群是否参加定时自动发送。
-- `智能陪伴附加功能`：某群开启 `智能陪伴` 后，会出现 `调戏其他bot` 和 `🎒常数回怼` 两个开关，并可分别配置每分钟、每小时、每天的触发上限。限制输入框下方会显示当前已使用次数：本分钟、每小时、每天三列和上方输入框居中对齐。`🎒常数回怼` 会检测文本和图片中的阿拉伯数字 `158`，图片识别由 `CONSTANT_RETORT_IMAGE_SCAN_ENABLED` 控制，复用 `IMAGE_VISION_*` 视觉模型配置；回怼图片会以 base64 消息发送，避免 NapCat 无法读取服务器本地文件路径。
+- `关键词回怼`：群管理页可单独开启，管理员可增删关键词、为每个关键词维护多条文字或图片回复；同一关键词命中后会从该回复库随机选择一条发送。每条关键词独立计数，但使用同一组群内每分钟、每小时、每天上限。图片命中只走 `KEYWORD_RETORT_IMAGE_SCAN_*` 配置的 Qwen 视觉模型提取可见文字，再用 OCR 文本匹配关键词；链接地址、URL、文件名都不作为关键词来源。
+- `智能陪伴附加功能`：某群开启 `智能陪伴` 后，会出现 `调戏其他bot` 开关，并可配置每分钟、每小时、每天触发上限。限制输入框下方会显示当前已使用次数：本分钟、每小时、每天三列和上方输入框居中对齐。
 - `群画像`：某群开启 `智能陪伴` 后，可编辑群性质和回复参考，默认不超过 100 字，字数上限可在控制台调整。
 - `群列表头像`：控制台会按群号读取 QQ 群头像，并临时缓存到服务器 `data/admin_console/group_avatars/`，默认 7 天刷新一次；头像拉取失败时只影响头像显示，不影响群管理。
 - `群友画像管理`：当某群开启 `智能陪伴` 后，下方会显示实时群成员标签。标签包含头像、昵称/群名片、QQ 号和群头衔；已开启“允许记录画像”的群友置顶并显示浅绿色标签。左侧选择群友，右侧会突出显示头像、昵称、QQ 号和头衔，并可开启/关闭“允许记录画像”、编辑画像、标记为其他 bot 和维护 bot 关键词。
@@ -230,6 +233,9 @@ AI_WEB_SEARCH_TIMEOUT_SECONDS=15
 AI_WEB_SEARCH_MAX_RESULTS=3
 BOT_PERSONA_PATH=data/bot_persona_prompt.txt
 COMPANION_ADMIN_TOKEN=
+REMOTE_APPROVAL_ENABLED=1
+REMOTE_APPROVAL_USER_ID=
+REMOTE_APPROVAL_API_TOKEN=
 COMPANION_MEMORY_AUTO_ENABLED=1
 COMPANION_MEMORY_INTERVAL_SECONDS=300
 COMPANION_MEMORY_BATCH_USERS=3
@@ -238,19 +244,23 @@ COMPANION_MEMORY_COOLDOWN_MINUTES=15
 COMPANION_RECENT_CONTEXT_LIMIT=8
 COMPANION_MEMORY_LOOKUP_LIMIT=5
 COMPANION_SUMMARY_MODEL=deepseek-v4-pro
+COMPANION_SUMMARY_TIMEOUT_SECONDS=90
 COMPANION_KNOWLEDGE_LOOKUP_LIMIT=3
 COMPANION_KNOWLEDGE_MIN_SCORE=2
 STS2_DATABASE_CARDS_DIR=
 SPIRE_CODEX_ZHS_DIR=
 STS2_GUIDE_TEX_PATHS=
 CONSTANT_RETORT_IMAGE_PATH=data/assets/constant_retort_158.jpg
-CONSTANT_RETORT_IMAGE_SCAN_ENABLED=1
-CONSTANT_RETORT_IMAGE_SCAN_MAX_IMAGES=2
-CONSTANT_RETORT_IMAGE_SCAN_TIMEOUT_SECONDS=12
+KEYWORD_RETORT_IMAGE_SCAN_ENABLED=1
+KEYWORD_RETORT_IMAGE_SCAN_MAX_IMAGES=2
+KEYWORD_RETORT_IMAGE_SCAN_MODEL=qwen3-vl-flash
+KEYWORD_RETORT_IMAGE_SCAN_API_KEY=
+KEYWORD_RETORT_IMAGE_SCAN_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+KEYWORD_RETORT_IMAGE_SCAN_TIMEOUT_SECONDS=12
 MEDIA_INSIGHTS_ENABLED=1
 MEDIA_INSIGHTS_AUTO_ENABLED=1
 IMAGE_VISION_ENABLED=1
-IMAGE_VISION_MODEL=qwen-vl-plus
+IMAGE_VISION_MODEL=qwen3-vl-flash
 IMAGE_VISION_API_KEY=
 IMAGE_VISION_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 LINK_FETCH_TIMEOUT_SECONDS=15
@@ -275,15 +285,75 @@ DAILY_REPORT_STARTUP_GRACE_MINUTES=120
 
 `.env.local` 已经被 `.gitignore` 忽略，不会进入 Git。
 
+## Codex QQ 远程审批
+
+`plugins/remote_approval.py` 提供 Codex 审批请求的 QQ 私聊桥接。它只接收 Codex hook 发来的脱敏摘要，不保存完整命令、密钥、token 或环境变量。每次审批都会生成一次性审批码；审批码被批准、拒绝或退出后立即失效。
+
+服务器 `.env.local` 需要配置：
+
+```text
+REMOTE_APPROVAL_ENABLED=1
+REMOTE_APPROVAL_USER_ID=你的QQ号
+REMOTE_APPROVAL_API_TOKEN=一段足够长的随机令牌
+```
+
+本机 Codex 侧使用 `scripts/codex_remote_approval_hook.py` 作为 `PermissionRequest` hook。推荐先复用现有 SSH 隧道，让本机 `127.0.0.1:8090` 转发到服务器 `127.0.0.1:8080`；也可以把 `CODEX_REMOTE_APPROVAL_URL` 改成公网反代地址。Codex 配置示例：
+
+```toml
+approval_policy = "on-request"
+
+[hooks]
+PermissionRequest = [
+  {
+    matcher = "*",
+    hooks = [
+      {
+        type = "command",
+        command = "py -3 \"D:\\猎bot\\qq-reminder-bot\\scripts\\codex_remote_approval_hook.py\"",
+        statusMessage = "等待 QQ 远程审批"
+      }
+    ]
+  }
+]
+```
+
+本机还需要让 hook 能读到令牌和地址，可以写进本机环境变量，或写进本机仓库的 `.env.local`：
+
+```text
+CODEX_REMOTE_APPROVAL_URL=http://127.0.0.1:8090/hunterbot/remote-approval/api
+CODEX_REMOTE_APPROVAL_TOKEN=与服务器 REMOTE_APPROVAL_API_TOKEN 相同
+```
+
+如果不使用 SSH 隧道，也可以把地址改成服务器 HTTPS 地址：
+
+```text
+CODEX_REMOTE_APPROVAL_URL=https://62.234.188.16/hunterbot/remote-approval/api
+```
+
+QQ 私聊命令：
+
+- `批准 审批码`：允许这次 Codex 审批。
+- `拒绝 审批码`：拒绝这次 Codex 审批。
+- `退出审批 审批码`：退出本次远程审批，Codex 会收到取消结果。
+- `审批状态`：查看当前等待中的审批。
+
 ## 猎宝控制台
 
 管理员可以在服务器上配置 `COMPANION_ADMIN_TOKEN` 后，通过浏览器管理 bot 人设、知识库、群功能开关和控制台已选择记录的群友画像。新控制台地址：
 
-访问地址：
+首次登录地址：
 
 ```text
-http://62.234.188.16/hunterbot/admin-console?token=你的管理令牌
+https://62.234.188.16/hunterbot/admin-console?token=你的管理令牌
 ```
+
+首次验证成功后，控制台会写入 `HttpOnly`、`SameSite=Strict` 的登录 Cookie，并自动跳转到不含令牌的干净地址。之后把下面的地址加入浏览器收藏夹即可：
+
+```text
+https://62.234.188.16/hunterbot/admin-console
+```
+
+登录 Cookie 默认保留 180 天；更换 `COMPANION_ADMIN_TOKEN` 会立即让旧 Cookie 失效。腾讯云安全组必须放行 TCP 443。
 
 控制台是 bot 内置插件 `plugins/admin_console/` 提供的页面和 API，不需要单独部署前端。页面里点击保存时，会向当前访问的 bot 服务发起 API 请求；如果你通过服务器地址或 SSH 隧道访问，修改会直接写入服务器上的运行数据。
 
@@ -307,6 +377,7 @@ http://62.234.188.16/hunterbot/admin-console?token=你的管理令牌
 
 - NapCat：负责登录 QQ，并通过 OneBot v11 连接 NoneBot。
 - NoneBot：运行猎bot的功能代码。
+- Nginx + Let’s Encrypt：提供控制台和远程审批的 HTTPS 入口；公网 IP 证书为短期证书，由 Certbot 自动续期。
 
 从本机连接服务器：
 
@@ -328,7 +399,7 @@ ssh ubuntu@62.234.188.16
 cd ~/qq-reminder-bot
 git pull --ff-only
 .venv/bin/pip install -e .
-.venv/bin/python -m py_compile bot.py plugins/access_control.py plugins/companion_registry.py plugins/companion_memory.py plugins/admin_console/__init__.py plugins/message_archive.py plugins/reminder.py plugins/reminder_service.py plugins/chime_service.py plugins/ai_chat.py plugins/group_reactions.py plugins/message_collector.py plugins/storage_status.py plugins/media_insights.py plugins/daily_report.py
+.venv/bin/python -m py_compile bot.py plugins/access_control.py plugins/companion_registry.py plugins/companion_memory.py plugins/admin_console/__init__.py plugins/message_archive.py plugins/reminder.py plugins/reminder_service.py plugins/chime_service.py plugins/ai_chat.py plugins/group_reactions.py plugins/message_collector.py plugins/storage_status.py plugins/media_insights.py plugins/daily_report.py plugins/remote_approval.py scripts/codex_remote_approval_hook.py
 sudo systemctl restart qq-reminder-bot
 journalctl -u qq-reminder-bot -n 80 --no-pager
 ```
@@ -340,6 +411,7 @@ journalctl -u qq-reminder-bot -n 80 --no-pager
 ```bash
 systemctl is-active qq-reminder-bot
 sudo docker ps --filter name=napcat
+sudo certbot certificates
 ```
 
 更完整的服务器部署、配置、管理页访问和回滚步骤见 `DEPLOY.md`。
@@ -356,16 +428,28 @@ plugins/reminder.py    提醒、查看、取消、常数报时命令入口和定
 plugins/reminder_service.py 提醒解析、创建、查询、取消和到期扫描服务，可供 AI agent 调用
 plugins/chime_service.py 常数报时开关、模式和目标列表服务，可供 AI agent 调用
 plugins/ai_chat.py     AI 对话、联网搜索和工具调用 agent
-plugins/group_reactions.py 群聊附加反应：调戏其他bot、158常数回怼
+plugins/group_reactions.py 群聊附加反应：调戏其他bot、关键词回怼
 plugins/message_archive.py 消息归档写入代码
 plugins/message_collector.py 指定群消息采集代码
 plugins/storage_status.py 存储占用查询代码
 plugins/media_insights.py 媒体识别、链接解析、文件读取、语音转写和素材自动识别代码
 plugins/daily_report.py 日报预览、AI总结、PDF和定时发送代码
+plugins/remote_approval.py Codex 审批请求的 QQ 私聊远程批准插件
+tests/                提醒、报时、审批脱敏和插件配置的最小自动化测试
+.github/workflows/ci.yml GitHub Actions：安装、编译并运行测试
+deploy/nginx/         HTTP 跳转、HTTPS 和反向代理配置
+deploy/certbot/       证书续期后安全重载 Nginx 的 hook
 data/                 SQLite 数据库、生成日报、头像缓存和表情包资源等运行时文件，不提交
 .env.example           配置模板，不包含真实密钥
 pyproject.toml         项目依赖和插件配置
 VERSION.md             版本说明
+```
+
+本地提交前运行：
+
+```powershell
+.\.venv\Scripts\python -m pip install -e ".[dev]"
+.\.venv\Scripts\python -m pytest -q
 ```
 
 ## GitHub 注意事项

@@ -1,5 +1,32 @@
 # 猎bot版本日志
 
+## v2.0.1-dev - Codex QQ 远程审批
+
+发布日期：2026-07-02
+
+### 新增功能
+
+- 新增 `plugins/remote_approval.py`：
+  - 提供 `/hunterbot/remote-approval/api` 远程审批 API，供 Codex `PermissionRequest` hook 提交审批摘要并等待结果。
+  - 每次审批生成一次性审批码，批准、拒绝或退出后立即失效。
+  - 仅允许 `REMOTE_APPROVAL_USER_ID` 指定的 QQ 号通过私聊执行 `批准 审批码`、`拒绝 审批码`、`退出审批 审批码` 和 `审批状态`。
+  - 服务器只保存和发送脱敏摘要，不保存完整命令、密钥、token 或环境变量。
+- 新增 `scripts/codex_remote_approval_hook.py`：
+  - 读取 Codex hook 输入，提取工具名、工作目录、审批原因和命令摘要。
+  - 对 token、密钥、密码、Cookie、长串凭据和用户路径做脱敏。
+  - 提交审批请求后持续等待 QQ 端结果；未批准时不会自动放行。
+- 更新 `.env.example`、README 和 nginx 示例配置，说明远程审批所需的 QQ 号、API 令牌和 Codex hook 配置。
+- 控制台和远程审批新增 HTTPS 部署：
+  - 使用 Let’s Encrypt 公网 IP 短期证书和 Certbot 自动续期。
+  - HTTP 自动跳转 HTTPS，证书续期后自动检查并重载 Nginx。
+  - 控制台首次令牌验证后写入 180 天安全 Cookie，后续可收藏不含令牌的网址直接进入。
+- 控制台版本号改为读取 Python 包版本，不再硬编码旧的 `v1.2.1`。
+- 新增最小测试和 GitHub Actions CI：
+  - 覆盖提醒时间解析、报时模式、远程审批脱敏和插件文件完整性。
+  - CI 在 Python 3.10 上安装项目、编译源码并运行 pytest。
+- 陪伴画像新增独立的 `COMPANION_SUMMARY_TIMEOUT_SECONDS`，避免长批次沿用普通聊天的 30 秒超时。
+- 提醒解析增强，支持 `明天这个时候`、`明天下午三点`、`今晚八点` 和 `明天 09:00` 等更自然的时间表达；命令入口和 AI agent 工具共用同一套解析。
+
 ## v2.0.0 - 猎bot-初具人形
 
 发布日期：2026-07-02
@@ -210,7 +237,7 @@
   - 通过 `MEDIA_INSIGHTS_ENABLED=1` 开启。
   - 通过 `MEDIA_INSIGHTS_AUTO_ENABLED=1` 开启新图片自动识别。
   - 通过 `IMAGE_VISION_ENABLED=1` 控制是否真正调用视觉模型。
-  - 支持 OpenAI 兼容视觉接口，默认示例使用 Qwen `qwen-vl-plus`。
+  - 支持 OpenAI 兼容视觉接口，默认示例使用 Qwen `qwen3-vl-flash`。
   - 图片直接使用 QQ 图片 URL 交给视觉模型，不在服务器本地下载图片。
   - 识别结果写入 `message_insights`，并在 `查看采集` 导出的 txt 中展示。
   - `媒体识别状态` 查看识别开关、模型、密钥状态和识别记录。

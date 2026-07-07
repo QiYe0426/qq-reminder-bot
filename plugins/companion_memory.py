@@ -1205,7 +1205,11 @@ JSON 格式：
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"},
         ),
-        timeout=get_int_env("AI_TIMEOUT_SECONDS", 30, minimum=1),
+        timeout=get_int_env(
+            "COMPANION_SUMMARY_TIMEOUT_SECONDS",
+            get_int_env("AI_TIMEOUT_SECONDS", 30, minimum=1),
+            minimum=1,
+        ),
     )
     content = (response.choices[0].message.content or "").strip()
     parsed = load_json_object(content)

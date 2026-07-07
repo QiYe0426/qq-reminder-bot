@@ -12,11 +12,41 @@ DB_PATH = Path("data/reminders.db")
 TIME_FORMAT = "%Y-%m-%d %H:%M"
 TIME_ONLY_FORMAT = "%H:%M"
 NUMBER_TEXT = r"\d+|[零〇一二两俩三四五六七八九十百千]+"
+DAY_OFFSET = {"今天": 0, "明天": 1, "后天": 2, "大后天": 3}
+REQUEST_PREFIXES = (
+    "帮我提醒一下",
+    "帮我提醒",
+    "提醒我",
+    "帮我",
+    "麻烦你",
+    "麻烦",
+    "请",
+    "我要",
+    "我想",
+    "我需要",
+)
 RELATIVE_TIME_PATTERN = re.compile(
     rf"^(?:(?P<days>{NUMBER_TEXT})\s*天\s*)?"
     rf"(?:(?P<hours>{NUMBER_TEXT})\s*(?:小时|个小时)\s*)?"
     rf"(?:(?P<minutes>{NUMBER_TEXT})\s*分钟\s*)?"
     r"后\s*(?P<content>.+)$"
+)
+SAME_TIME_PATTERN = re.compile(
+    r"^(?P<day>明天|后天|大后天)\s*的?\s*"
+    r"(?:这个时候|这个时间|这个点|此时|现在|同一时间|同样时间)\s*"
+    r"(?P<content>.+)$"
+)
+NATURAL_DATE_TIME_PATTERN = re.compile(
+    rf"^(?P<day>今天|明天|后天|大后天)?\s*"
+    rf"(?P<daypart>凌晨|早上|上午|中午|下午|晚上|傍晚|今晚|明晚)?\s*"
+    rf"(?P<hour>{NUMBER_TEXT})\s*(?:点|时)"
+    rf"(?:(?P<half>半)|(?P<quarter>一刻|三刻)|(?P<minute>{NUMBER_TEXT})\s*分?)?\s*"
+    r"(?P<content>.+)$"
+)
+NATURAL_DATE_CLOCK_PATTERN = re.compile(
+    r"^(?P<day>今天|明天|后天|大后天)\s*"
+    r"(?P<clock>\d{1,2}:\d{2})\s*"
+    r"(?P<content>.+)$"
 )
 
 _db_ready = False
@@ -96,8 +126,65 @@ def parse_number(text: str | None) -> int:
     return total + current
 
 
+def strip_request_prefix(text: str) -> str:
+    normalized = text.strip().strip("，,。；;：:")
+    changed = True
+    while changed:
+        changed = False
+        for prefix in REQUEST_PREFIXES:
+            if normalized.startswith(prefix):
+                normalized = normalized[len(prefix) :].strip().strip("，,。；;：:")
+                changed = True
+                break
+    return normalized
+
+
+def clean_reminder_content(content: str) -> str:
+    normalized = content.strip().strip("，,。；;：:")
+    for prefix in ("提醒我", "叫我", "让我", "我要", "我想", "我需要"):
+        if normalized.startswith(prefix):
+            normalized = normalized[len(prefix) :].strip().strip("，,。；;：:")
+            break
+    return normalized
+
+
+def day_offset(day: str | None, daypart: str | None = None) -> int:
+    if day:
+        return DAY_OFFSET.get(day, 0)
+    if daypart == "明晚":
+        return 1
+    return 0
+
+
+def normalize_hour(hour: int, daypart: str | None) -> int | None:
+    if hour < 0 or hour > 23:
+        return None
+    if daypart in {"下午", "晚上", "傍晚", "今晚", "明晚"} and 1 <= hour <= 11:
+        return hour + 12
+    if daypart == "中午" and 1 <= hour <= 10:
+        return hour + 12
+    if daypart in {"凌晨", "早上", "上午"} and hour == 12:
+        return 0
+    return hour
+
+
+def parse_natural_minute(
+    *, half: str | None, quarter: str | None, minute: str | None
+) -> int | None:
+    if half:
+        return 30
+    if quarter == "一刻":
+        return 15
+    if quarter == "三刻":
+        return 45
+    parsed = parse_number(minute) if minute else 0
+    if parsed < 0 or parsed > 59:
+        return None
+    return parsed
+
+
 def parse_reminder(text: str, *, now: datetime | None = None) -> tuple[datetime, str] | None:
-    text = text.strip()
+    text = strip_request_prefix(text)
     current_time = now or datetime.now()
 
     match = RELATIVE_TIME_PATTERN.match(text)
@@ -105,13 +192,62 @@ def parse_reminder(text: str, *, now: datetime | None = None) -> tuple[datetime,
         days = parse_number(match.group("days"))
         hours = parse_number(match.group("hours"))
         minutes = parse_number(match.group("minutes"))
-        content = match.group("content").strip()
+        content = clean_reminder_content(match.group("content"))
         if content and (days or hours or minutes):
             remind_at = current_time + timedelta(
                 days=days,
                 hours=hours,
                 minutes=minutes,
             )
+            return remind_at, content
+
+    match = SAME_TIME_PATTERN.match(text)
+    if match:
+        content = clean_reminder_content(match.group("content"))
+        if content:
+            remind_at = (current_time + timedelta(days=day_offset(match.group("day")))).replace(
+                second=0,
+                microsecond=0,
+            )
+            return remind_at, content
+
+    match = NATURAL_DATE_CLOCK_PATTERN.match(text)
+    if match:
+        content = clean_reminder_content(match.group("content"))
+        if content:
+            try:
+                parsed_time = datetime.strptime(match.group("clock"), TIME_ONLY_FORMAT).time()
+            except ValueError:
+                parsed_time = None
+            if parsed_time is not None:
+                remind_at = (current_time + timedelta(days=day_offset(match.group("day")))).replace(
+                    hour=parsed_time.hour,
+                    minute=parsed_time.minute,
+                    second=0,
+                    microsecond=0,
+                )
+                return remind_at, content
+
+    match = NATURAL_DATE_TIME_PATTERN.match(text)
+    if match:
+        day = match.group("day")
+        daypart = match.group("daypart")
+        hour = normalize_hour(parse_number(match.group("hour")), daypart)
+        minute = parse_natural_minute(
+            half=match.group("half"),
+            quarter=match.group("quarter"),
+            minute=match.group("minute"),
+        )
+        content = clean_reminder_content(match.group("content"))
+        if hour is not None and minute is not None and content:
+            remind_at = (current_time + timedelta(days=day_offset(day, daypart))).replace(
+                hour=hour,
+                minute=minute,
+                second=0,
+                microsecond=0,
+            )
+            if day is None and daypart != "明晚" and remind_at <= current_time:
+                remind_at += timedelta(days=1)
             return remind_at, content
 
     parts = text.split(maxsplit=2)

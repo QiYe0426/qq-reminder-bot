@@ -428,7 +428,7 @@ AGENT_TOOLS = [
                 "properties": {
                     "text": {
                         "type": "string",
-                        "description": "Reminder text such as '09:00 喝水' or '10分钟后吃饭'.",
+                        "description": "Reminder text such as '09:00 喝水', '10分钟后吃饭', or '明天这个时候吃饭'.",
                     },
                 },
                 "required": ["text"],

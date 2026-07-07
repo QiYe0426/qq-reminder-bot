@@ -21,6 +21,7 @@ FEATURE_COMPANION = "companion"
 FEATURE_AI_CHAT = "ai_chat"
 FEATURE_BOT_TEASE = "bot_tease"
 FEATURE_CONSTANT_RETORT = "constant_retort"
+FEATURE_KEYWORD_RETORT = "keyword_retort"
 FEATURE_DAILY_REPORT_AUTO = "daily_report_auto"
 
 FEATURE_LABELS = {
@@ -30,6 +31,7 @@ FEATURE_LABELS = {
     FEATURE_COMPANION: "陪伴画像",
     FEATURE_BOT_TEASE: "调戏其他bot",
     FEATURE_CONSTANT_RETORT: "🎒常数回怼",
+    FEATURE_KEYWORD_RETORT: "关键词回怼",
 }
 
 FEATURE_DEFAULTS = {
@@ -39,12 +41,14 @@ FEATURE_DEFAULTS = {
     FEATURE_COMPANION: False,
     FEATURE_BOT_TEASE: False,
     FEATURE_CONSTANT_RETORT: False,
+    FEATURE_KEYWORD_RETORT: False,
     FEATURE_DAILY_REPORT_AUTO: True,
 }
 
 FEATURE_LIMIT_DEFAULTS = {
     FEATURE_BOT_TEASE: {"per_minute": 1, "per_hour": 3, "per_day": 6},
     FEATURE_CONSTANT_RETORT: {"per_minute": 5, "per_hour": 10, "per_day": 15},
+    FEATURE_KEYWORD_RETORT: {"per_minute": 5, "per_hour": 10, "per_day": 15},
 }
 
 FEATURE_ALIASES = {
@@ -81,6 +85,10 @@ FEATURE_ALIASES = {
     "🎒常数回怼": FEATURE_CONSTANT_RETORT,
     "158回怼": FEATURE_CONSTANT_RETORT,
     "constant_retort": FEATURE_CONSTANT_RETORT,
+    "关键词回怼": FEATURE_KEYWORD_RETORT,
+    "关键字回怼": FEATURE_KEYWORD_RETORT,
+    "关键词回复": FEATURE_KEYWORD_RETORT,
+    "keyword_retort": FEATURE_KEYWORD_RETORT,
 }
 
 _db_ready = False

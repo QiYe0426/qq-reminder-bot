@@ -48,6 +48,7 @@ const labels = {
   hourly_chime: "🎒常数报时",
   bot_tease: "调戏其他bot",
   constant_retort: "🎒常数回怼",
+  keyword_retort: "关键词回怼",
 };
 
 const $ = (id) => document.getElementById(id);
@@ -569,6 +570,7 @@ function renderGroups() {
 
   featuresPanel.append(title, grid);
   layout.appendChild(featuresPanel);
+  layout.appendChild(renderKeywordRetortPanel());
 
   if (group.features?.companion) {
     layout.appendChild(renderCompanionFeaturePanel());
@@ -600,11 +602,6 @@ function renderCompanionFeaturePanel() {
       "bot_tease",
       "调戏其他bot",
       "仅在已标记为 bot 的群友发言后触发，按限额主动接一句。"
-    ),
-    featureLimitCard(
-      "constant_retort",
-      "🎒常数回怼",
-      "检测消息文本、卡片文本或已展开聊天记录中出现数字 158 时发送表情包。"
     )
   );
 
@@ -662,6 +659,226 @@ function featureLimitCard(key, title, note) {
 
   wrap.append(header, limitGrid, usageGrid);
   return wrap;
+}
+
+function keywordRetortRules() {
+  const stateValue = state.group?.keyword_retort;
+  if (!stateValue || !Array.isArray(stateValue.rules)) {
+    if (state.group) state.group.keyword_retort = { rules: [], image_scan: {} };
+    return state.group?.keyword_retort?.rules || [];
+  }
+  return stateValue.rules;
+}
+
+function syncKeywordRetortDraft() {
+  if (!state.group?.keyword_retort || !document.querySelector(".keyword-retort-rule")) {
+    return keywordRetortRules();
+  }
+  state.group.keyword_retort.rules = readKeywordRetortRules({ includeEmpty: true });
+  return state.group.keyword_retort.rules;
+}
+
+function addKeywordRetortRule() {
+  syncKeywordRetortDraft().push({
+    id: 0,
+    keyword: "",
+    enabled: true,
+    image_match_enabled: true,
+    replies: [{ reply_type: "text", content: "", enabled: true }],
+  });
+  render();
+}
+
+function removeKeywordRetortRule(index) {
+  syncKeywordRetortDraft().splice(index, 1);
+  render();
+}
+
+function addKeywordRetortReply(ruleIndex) {
+  const rule = syncKeywordRetortDraft()[ruleIndex];
+  if (!rule) return;
+  if (!Array.isArray(rule.replies)) rule.replies = [];
+  rule.replies.push({ reply_type: "text", content: "", enabled: true });
+  render();
+}
+
+function removeKeywordRetortReply(ruleIndex, replyIndex) {
+  const rule = syncKeywordRetortDraft()[ruleIndex];
+  if (!rule || !Array.isArray(rule.replies)) return;
+  rule.replies.splice(replyIndex, 1);
+  render();
+}
+
+function renderKeywordRetortPanel() {
+  const panel = document.createElement("div");
+  panel.className = "panel section keyword-retort-panel";
+
+  const heading = document.createElement("div");
+  heading.className = "keyword-retort-heading";
+  const title = document.createElement("h2");
+  title.className = "section-title";
+  title.textContent = "关键词回怼";
+
+  const toggleWrap = document.createElement("label");
+  toggleWrap.className = "keyword-retort-toggle";
+  const toggleText = document.createElement("span");
+  toggleText.textContent = state.group?.features?.keyword_retort ? "已开启" : "已关闭";
+  const toggle = document.createElement("span");
+  toggle.className = "toggle";
+  toggle.innerHTML = `<input id="feature_keyword_retort" type="checkbox" ${state.group?.features?.keyword_retort ? "checked" : ""}><span></span>`;
+  toggle.querySelector("input").onchange = () => saveGroup({ auto: true }).catch((error) => status(error.message, true));
+  toggleWrap.append(toggleText, toggle);
+  heading.append(title, toggleWrap);
+
+  const scan = state.group?.keyword_retort?.image_scan || {};
+  const scanMeta = document.createElement("div");
+  scanMeta.className = "muted keyword-retort-scan";
+  scanMeta.textContent = `图片文字识别：${scan.enabled ? "开启" : "关闭"} / ${scan.model || "未配置"}`;
+
+  const limits = state.group?.limits?.keyword_retort || {};
+  const usage = state.group?.usage?.keyword_retort || {};
+  const limitGrid = document.createElement("div");
+  limitGrid.className = "limit-grid keyword-retort-limits";
+  const limitItems = [
+    ["per_minute", "每分钟", "本分钟"],
+    ["per_hour", "每小时", "本小时"],
+    ["per_day", "每天", "本日"],
+  ];
+  for (const item of limitItems) {
+    const id = `limit_keyword_retort_${item[0]}`;
+    const wrapField = document.createElement("label");
+    wrapField.className = "number-field";
+    wrapField.innerHTML = `<span>${item[1]}</span><input id="${id}" type="number" min="0" max="999" step="1"><small></small>`;
+    const input = wrapField.querySelector("input");
+    input.value = String(Number(limits[item[0]] ?? 0));
+    input.onchange = () => saveGroup({ auto: true }).catch((error) => status(error.message, true));
+    wrapField.querySelector("small").textContent = `${item[2]} ${Number(usage[item[0]] ?? 0)} 次`;
+    limitGrid.appendChild(wrapField);
+  }
+
+  const toolbar = document.createElement("div");
+  toolbar.className = "keyword-retort-toolbar";
+  toolbar.appendChild(button("button", "新增关键词", addKeywordRetortRule));
+
+  const rules = keywordRetortRules();
+  const list = document.createElement("div");
+  list.className = "keyword-retort-rule-list";
+  if (!rules.length) {
+    list.appendChild(empty("暂无关键词规则。"));
+  } else {
+    rules.forEach((rule, index) => {
+      list.appendChild(keywordRetortRuleEditor(rule, index));
+    });
+  }
+
+  panel.append(heading, scanMeta, limitGrid, toolbar, list);
+  return panel;
+}
+
+function keywordRetortRuleEditor(rule, index) {
+  const wrap = document.createElement("div");
+  wrap.className = "keyword-retort-rule";
+  wrap.dataset.ruleId = String(rule.id || 0);
+
+  const header = document.createElement("div");
+  header.className = "keyword-retort-rule-header";
+
+  const keywordField = field({
+    id: `keywordRetortKeyword_${index}`,
+    label: "关键词",
+    value: rule.keyword || "",
+  });
+  keywordField.classList.add("keyword-field");
+  keywordField.querySelector("input").classList.add("retort-keyword");
+
+  const enabled = document.createElement("label");
+  enabled.className = "check-field";
+  enabled.innerHTML = `<input class="retort-enabled" type="checkbox" ${rule.enabled === false ? "" : "checked"}><span>启用</span>`;
+
+  const imageEnabled = document.createElement("label");
+  imageEnabled.className = "check-field";
+  imageEnabled.innerHTML = `<input class="retort-image-enabled" type="checkbox" ${rule.image_match_enabled === false ? "" : "checked"}><span>图片文字</span>`;
+
+  const usage = rule.usage || {};
+  const usageNode = document.createElement("div");
+  usageNode.className = "keyword-retort-rule-usage";
+  usageNode.textContent = `已用 ${Number(usage.per_minute || 0)}/${Number(usage.per_hour || 0)}/${Number(usage.per_day || 0)}`;
+
+  header.append(
+    keywordField,
+    enabled,
+    imageEnabled,
+    usageNode,
+    button("button danger small", "删除", () => removeKeywordRetortRule(index))
+  );
+
+  const replyList = document.createElement("div");
+  replyList.className = "keyword-retort-replies";
+  const replies = Array.isArray(rule.replies) ? rule.replies : [];
+  if (!replies.length) {
+    replyList.appendChild(empty("暂无回复内容。"));
+  } else {
+    replies.forEach((reply, replyIndex) => {
+      replyList.appendChild(keywordRetortReplyEditor(reply, index, replyIndex));
+    });
+  }
+
+  const actions = document.createElement("div");
+  actions.className = "keyword-retort-reply-actions";
+  actions.appendChild(button("button small", "添加回复", () => addKeywordRetortReply(index)));
+
+  wrap.append(header, replyList, actions);
+  return wrap;
+}
+
+function keywordRetortReplyEditor(reply, ruleIndex, replyIndex) {
+  const row = document.createElement("div");
+  row.className = "keyword-retort-reply";
+
+  const enabled = document.createElement("label");
+  enabled.className = "check-field";
+  enabled.innerHTML = `<input class="retort-reply-enabled" type="checkbox" ${reply.enabled === false ? "" : "checked"}><span>启用</span>`;
+
+  const type = document.createElement("select");
+  type.className = "retort-reply-type";
+  for (const item of [["text", "文字"], ["image", "图片"]]) {
+    const option = document.createElement("option");
+    option.value = item[0];
+    option.textContent = item[1];
+    if ((reply.reply_type || "text") === item[0]) option.selected = true;
+    type.appendChild(option);
+  }
+
+  const content = document.createElement("textarea");
+  content.className = "retort-reply-content";
+  content.rows = 2;
+  content.value = reply.content || "";
+
+  row.append(
+    enabled,
+    type,
+    content,
+    button("button danger small", "删除", () => removeKeywordRetortReply(ruleIndex, replyIndex))
+  );
+  return row;
+}
+
+function readKeywordRetortRules(options = {}) {
+  const includeEmpty = Boolean(options.includeEmpty);
+  return [...document.querySelectorAll(".keyword-retort-rule")].map((ruleNode) => {
+    const replies = [...ruleNode.querySelectorAll(".keyword-retort-reply")].map((replyNode) => ({
+      enabled: replyNode.querySelector(".retort-reply-enabled")?.checked ?? true,
+      reply_type: replyNode.querySelector(".retort-reply-type")?.value || "text",
+      content: replyNode.querySelector(".retort-reply-content")?.value || "",
+    })).filter((reply) => includeEmpty || reply.content.trim());
+    return {
+      id: Number.parseInt(ruleNode.dataset.ruleId || "0", 10) || 0,
+      keyword: ruleNode.querySelector(".retort-keyword")?.value || "",
+      enabled: ruleNode.querySelector(".retort-enabled")?.checked ?? true,
+      image_match_enabled: ruleNode.querySelector(".retort-image-enabled")?.checked ?? true,
+      replies,
+    };
+  }).filter((rule) => includeEmpty || rule.keyword.trim());
 }
 
 function renderGroupProfilePanel() {
@@ -1306,7 +1523,7 @@ async function saveGroup(options = {}) {
       companion: $("feature_companion")?.checked ?? false,
       hourly_chime: selectedChimeEnabled(),
       bot_tease: $("feature_bot_tease")?.checked ?? false,
-      constant_retort: $("feature_constant_retort")?.checked ?? false,
+      keyword_retort: $("feature_keyword_retort")?.checked ?? false,
     },
     chime: {
       mode: selectedChimeMode(),
@@ -1317,11 +1534,14 @@ async function saveGroup(options = {}) {
         per_hour: readNumber("limit_bot_tease_per_hour", state.group?.limits?.bot_tease?.per_hour || 3),
         per_day: readNumber("limit_bot_tease_per_day", state.group?.limits?.bot_tease?.per_day || 6),
       },
-      constant_retort: {
-        per_minute: readNumber("limit_constant_retort_per_minute", state.group?.limits?.constant_retort?.per_minute || 5),
-        per_hour: readNumber("limit_constant_retort_per_hour", state.group?.limits?.constant_retort?.per_hour || 10),
-        per_day: readNumber("limit_constant_retort_per_day", state.group?.limits?.constant_retort?.per_day || 15),
+      keyword_retort: {
+        per_minute: readNumber("limit_keyword_retort_per_minute", state.group?.limits?.keyword_retort?.per_minute || 5),
+        per_hour: readNumber("limit_keyword_retort_per_hour", state.group?.limits?.keyword_retort?.per_hour || 10),
+        per_day: readNumber("limit_keyword_retort_per_day", state.group?.limits?.keyword_retort?.per_day || 15),
       },
+    },
+    keyword_retort: {
+      rules: readKeywordRetortRules(),
     },
     group_profile: {
       summary: readInput("groupProfileSummary"),
