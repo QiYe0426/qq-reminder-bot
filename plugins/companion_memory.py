@@ -14,7 +14,7 @@ from nonebot import get_driver, on_fullmatch, on_startswith
 from nonebot.adapters.onebot.v11 import Event, GroupMessageEvent, Message
 from nonebot.log import logger
 
-from plugins.access_control import FEATURE_COMPANION, admin_denial, is_group_feature_enabled
+from plugins.access_control import FEATURE_COLLECTOR, FEATURE_COMPANION, admin_denial, is_group_feature_enabled
 from plugins.companion_registry import (
     DB_PATH,
     is_companion_target_enabled,
@@ -534,6 +534,8 @@ async def save_group_profile(group_id: str | int, summary: object, max_chars: ob
 
 
 async def group_profile_context(group_id: str | int) -> str:
+    if not await is_group_feature_enabled(str(group_id), FEATURE_COLLECTOR):
+        return ""
     if not await is_group_feature_enabled(str(group_id), FEATURE_COMPANION):
         return ""
     profile = await get_group_profile(group_id)
@@ -1333,6 +1335,8 @@ async def write_profile_and_memories(
 
 
 async def summarize_companion_target(group_id: str, user_id: str, *, force: bool = False) -> tuple[bool, str]:
+    if not await is_group_feature_enabled(group_id, FEATURE_COLLECTOR):
+        return False, "本群未开启消息采集，无法更新陪伴画像。"
     if not await is_group_feature_enabled(group_id, FEATURE_COMPANION):
         return False, "本群未开启陪伴画像。"
     if not await is_companion_target_enabled(group_id, user_id):
@@ -1454,6 +1458,8 @@ async def lookup_memories(group_id: str, user_id: str, question: str, limit: int
 async def companion_reply_context(group_id: str | int, user_id: str | int, question: str) -> str:
     group_text = str(group_id)
     user_text = str(user_id)
+    if not await is_group_feature_enabled(group_text, FEATURE_COLLECTOR):
+        return ""
     if not await is_group_feature_enabled(group_text, FEATURE_COMPANION):
         return ""
     if not await is_companion_target_enabled(group_text, user_text):

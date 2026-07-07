@@ -550,6 +550,15 @@ button {
   gap: 10px;
 }
 
+.switch-card.disabled,
+.daily-report-row.disabled {
+  opacity: 0.58;
+}
+
+.switch-card.disabled {
+  cursor: not-allowed;
+}
+
 .daily-report-row {
   display: flex;
   align-items: center;

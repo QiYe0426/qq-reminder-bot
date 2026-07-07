@@ -17,6 +17,7 @@ ADMIN_USER_IDS_FALLBACK_ENVS = ("BOT_OWNER_USER_IDS", "OWNER_USER_IDS")
 
 FEATURE_REMINDER = "reminder"
 FEATURE_COLLECTOR = "collector"
+FEATURE_DAILY_REPORT = "daily_report"
 FEATURE_COMPANION = "companion"
 FEATURE_AI_CHAT = "ai_chat"
 FEATURE_BOT_TEASE = "bot_tease"
@@ -28,6 +29,7 @@ FEATURE_LABELS = {
     FEATURE_AI_CHAT: "AI 对话",
     FEATURE_REMINDER: "提醒",
     FEATURE_COLLECTOR: "消息采集",
+    FEATURE_DAILY_REPORT: "日报",
     FEATURE_COMPANION: "陪伴画像",
     FEATURE_BOT_TEASE: "调戏其他bot",
     FEATURE_CONSTANT_RETORT: "🎒常数回怼",
@@ -38,6 +40,7 @@ FEATURE_DEFAULTS = {
     FEATURE_AI_CHAT: True,
     FEATURE_REMINDER: False,
     FEATURE_COLLECTOR: False,
+    FEATURE_DAILY_REPORT: False,
     FEATURE_COMPANION: False,
     FEATURE_BOT_TEASE: False,
     FEATURE_CONSTANT_RETORT: False,
@@ -66,11 +69,13 @@ FEATURE_ALIASES = {
     "提醒": FEATURE_REMINDER,
     "定时提醒": FEATURE_REMINDER,
     "采集": FEATURE_COLLECTOR,
-    "日报": FEATURE_COLLECTOR,
-    "日报采集": FEATURE_COLLECTOR,
     "消息采集": FEATURE_COLLECTOR,
     "群消息采集": FEATURE_COLLECTOR,
     "群聊采集": FEATURE_COLLECTOR,
+    "日报": FEATURE_DAILY_REPORT,
+    "日报功能": FEATURE_DAILY_REPORT,
+    "群日报": FEATURE_DAILY_REPORT,
+    "日报采集": FEATURE_COLLECTOR,
     "陪伴": FEATURE_COMPANION,
     "陪伴画像": FEATURE_COMPANION,
     "画像": FEATURE_COMPANION,
@@ -124,6 +129,19 @@ def normalize_feature_name(raw_name: str) -> str | None:
     return FEATURE_ALIASES.get(normalized) or FEATURE_ALIASES.get(normalized.lower())
 
 
+async def migrate_daily_report_feature(db: aiosqlite.Connection) -> None:
+    updated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    await db.execute(
+        """
+        INSERT OR IGNORE INTO group_feature_settings (group_id, feature, enabled, updated_at)
+        SELECT group_id, ?, 1, ?
+        FROM group_feature_settings
+        WHERE feature = ? AND enabled = 1
+        """,
+        (FEATURE_DAILY_REPORT, updated_at, FEATURE_COLLECTOR),
+    )
+
+
 async def init_access_db() -> None:
     global _db_ready
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -168,6 +186,7 @@ async def init_access_db() -> None:
             ON group_feature_usage (group_id, feature, created_at)
             """
         )
+        await migrate_daily_report_feature(db)
         await db.commit()
     _db_ready = True
 
@@ -192,6 +211,20 @@ async def set_group_feature(group_id: str, feature: str, enabled: bool) -> None:
             (group_id, feature, 1 if enabled else 0, updated_at),
         )
         await db.commit()
+
+
+async def enforce_group_feature_dependencies(group_id: str) -> None:
+    collector_enabled = await is_group_feature_enabled(group_id, FEATURE_COLLECTOR)
+    daily_report_enabled = await is_group_feature_enabled(group_id, FEATURE_DAILY_REPORT)
+
+    if not collector_enabled:
+        await set_group_feature(group_id, FEATURE_DAILY_REPORT, False)
+        await set_group_feature(group_id, FEATURE_DAILY_REPORT_AUTO, False)
+        await set_group_feature(group_id, FEATURE_COMPANION, False)
+        return
+
+    if not daily_report_enabled:
+        await set_group_feature(group_id, FEATURE_DAILY_REPORT_AUTO, False)
 
 
 async def is_group_feature_enabled(group_id: str, feature: str) -> bool:

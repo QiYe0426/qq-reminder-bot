@@ -9,12 +9,18 @@ from nonebot.log import logger
 from nonebot.params import CommandArg
 
 from plugins.access_control import (
+    FEATURE_COLLECTOR,
+    FEATURE_COMPANION,
+    FEATURE_DAILY_REPORT,
+    FEATURE_DAILY_REPORT_AUTO,
     FEATURE_LABELS,
     FEATURE_REMINDER,
     admin_denial,
+    enforce_group_feature_dependencies,
     group_feature_status,
     init_access_db,
     is_feature_allowed,
+    is_group_feature_enabled,
     normalize_feature_name,
     set_group_feature,
 )
@@ -301,8 +307,19 @@ async def set_current_group_feature(event: MessageEvent, raw_text: str, enabled:
         available_features = "、".join(FEATURE_LABELS.values())
         return f"未知功能。可用功能：{available_features}。"
 
+    group_id = str(event.group_id)
+    if enabled and feature in {FEATURE_DAILY_REPORT, FEATURE_COMPANION}:
+        if not await is_group_feature_enabled(group_id, FEATURE_COLLECTOR):
+            return f"请先开启本群功能：{FEATURE_LABELS[FEATURE_COLLECTOR]}。"
+
     await set_group_feature(str(event.group_id), feature, enabled)
+    await enforce_group_feature_dependencies(group_id)
     action = "开启" if enabled else "关闭"
+    if not enabled and feature == FEATURE_COLLECTOR:
+        return "已关闭本群功能：消息采集。日报、自动发送日报和智能陪伴也已关闭。"
+    if not enabled and feature == FEATURE_DAILY_REPORT:
+        await set_group_feature(group_id, FEATURE_DAILY_REPORT_AUTO, False)
+        return "已关闭本群功能：日报。自动发送日报也已关闭。"
     return f"已{action}本群功能：{FEATURE_LABELS[feature]}。"
 
 
@@ -332,7 +349,8 @@ async def handle_group_feature_status(event: MessageEvent) -> None:
     status = await group_feature_status(str(event.group_id))
     lines = ["本群功能状态："]
     lines.append(f"AI 对话：{'开启' if status.get('ai_chat') else '关闭'}")
-    lines.append(f"日报：{'开启' if status.get('collector') else '关闭'}")
+    lines.append(f"消息采集：{'开启' if status.get('collector') else '关闭'}")
+    lines.append(f"日报：{'开启' if status.get('daily_report') else '关闭'}")
     lines.append(f"智能陪伴：{'开启' if status.get('companion') else '关闭'}")
     lines.append(f"调戏其他bot：{'开启' if status.get('bot_tease') else '关闭'}")
     lines.append(f"🎒常数回怼：{'开启' if status.get('constant_retort') else '关闭'}")

@@ -20,10 +20,12 @@ from nonebot.params import RegexGroup
 from plugins.access_control import (
     DB_PATH as ACCESS_DB_PATH,
     FEATURE_COLLECTOR,
+    FEATURE_DAILY_REPORT,
     FEATURE_DAILY_REPORT_AUTO,
     admin_denial,
     admin_user_ids,
     init_access_db,
+    is_group_feature_enabled,
 )
 from plugins.message_archive import DB_PATH, init_archive_db
 from plugins.message_collector import display_sender, export_file_path, export_file_url, normalize_text, send_text_file
@@ -126,7 +128,15 @@ def report_group_ids() -> list[str]:
 
 
 def automatic_report_group_source() -> str:
-    return "env" if report_group_ids() else "collector"
+    return "env" if report_group_ids() else "console"
+
+
+async def daily_report_unavailable_reason(group_id: str) -> str:
+    if not await is_group_feature_enabled(group_id, FEATURE_COLLECTOR):
+        return "这个群未开启消息采集，无法生成日报。"
+    if not await is_group_feature_enabled(group_id, FEATURE_DAILY_REPORT):
+        return "这个群未开启日报功能。请先在控制台开启消息采集和日报。"
+    return ""
 
 
 async def init_daily_report_run_db() -> None:
@@ -147,37 +157,46 @@ async def init_daily_report_run_db() -> None:
         await db.commit()
 
 
-async def collector_enabled_group_ids() -> list[str]:
+async def daily_report_enabled_group_ids() -> list[str]:
     await init_access_db()
     async with aiosqlite.connect(ACCESS_DB_PATH) as db:
         cursor = await db.execute(
             """
-            SELECT group_id
-            FROM group_feature_settings
-            WHERE feature = ? AND enabled = 1
-            ORDER BY group_id ASC
+            SELECT report.group_id
+            FROM group_feature_settings report
+            JOIN group_feature_settings collector
+              ON collector.group_id = report.group_id
+             AND collector.feature = ?
+             AND collector.enabled = 1
+            WHERE report.feature = ?
+              AND report.enabled = 1
+            ORDER BY report.group_id ASC
             """,
-            (FEATURE_COLLECTOR,),
+            (FEATURE_COLLECTOR, FEATURE_DAILY_REPORT),
         )
         rows = await cursor.fetchall()
     return [str(row[0]) for row in rows]
 
 
-async def collector_auto_report_group_ids() -> list[str]:
+async def daily_report_auto_group_ids() -> list[str]:
     await init_access_db()
     async with aiosqlite.connect(ACCESS_DB_PATH) as db:
         cursor = await db.execute(
             """
-            SELECT collector.group_id
-            FROM group_feature_settings collector
+            SELECT report.group_id
+            FROM group_feature_settings report
+            JOIN group_feature_settings collector
+              ON collector.group_id = report.group_id
+             AND collector.feature = ?
+             AND collector.enabled = 1
             LEFT JOIN group_feature_settings auto
               ON auto.group_id = collector.group_id AND auto.feature = ?
-            WHERE collector.feature = ?
-              AND collector.enabled = 1
+            WHERE report.feature = ?
+              AND report.enabled = 1
               AND COALESCE(auto.enabled, 1) = 1
-            ORDER BY collector.group_id ASC
+            ORDER BY report.group_id ASC
             """,
-            (FEATURE_DAILY_REPORT_AUTO, FEATURE_COLLECTOR),
+            (FEATURE_COLLECTOR, FEATURE_DAILY_REPORT_AUTO, FEATURE_DAILY_REPORT),
         )
         rows = await cursor.fetchall()
     return [str(row[0]) for row in rows]
@@ -186,8 +205,9 @@ async def collector_auto_report_group_ids() -> list[str]:
 async def automatic_report_group_ids() -> list[str]:
     explicit_group_ids = report_group_ids()
     if explicit_group_ids:
-        return explicit_group_ids
-    return await collector_auto_report_group_ids()
+        enabled_group_ids = set(await daily_report_enabled_group_ids())
+        return [group_id for group_id in explicit_group_ids if group_id in enabled_group_ids]
+    return await daily_report_auto_group_ids()
 
 
 def skip_reason_text(reason: str) -> str:
@@ -1202,7 +1222,7 @@ async def scheduled_daily_report_job() -> None:
 async def run_automatic_daily_reports(target_date: date, reason: str) -> None:
     groups = await automatic_report_group_ids()
     if not groups:
-        logger.warning("Daily report skipped: no configured or collector-enabled groups")
+        logger.warning("Daily report skipped: no groups with collector, daily report, and auto-send enabled")
         return
     try:
         bot = get_bot()
@@ -1326,6 +1346,10 @@ async def handle_daily_report_preview(
     except ValueError as exc:
         await daily_report_preview.finish(Message(str(exc)))
 
+    unavailable_reason = await daily_report_unavailable_reason(group_id)
+    if unavailable_reason:
+        await daily_report_preview.finish(Message(unavailable_reason))
+
     group_name = await get_group_name(bot, group_id)
     filename, content = await generate_daily_report_text(group_id, target_date, group_name=group_name)
     try:
@@ -1356,6 +1380,10 @@ async def handle_daily_report(
         group_id = resolve_group_id(event, raw_group_id, "生成日报 昨天 548901561")
     except ValueError as exc:
         await daily_report.finish(Message(str(exc)))
+
+    unavailable_reason = await daily_report_unavailable_reason(group_id)
+    if unavailable_reason:
+        await daily_report.finish(Message(unavailable_reason))
 
     await daily_report.send(Message(f"开始生成群 {group_id} {target_date.strftime('%Y-%m-%d')} 的日报，稍等一下。"))
     try:
@@ -1399,6 +1427,10 @@ async def handle_daily_report_test_send(
         group_id = resolve_group_id(event, raw_group_id, "测试日报 昨天 548901561")
     except ValueError as exc:
         await daily_report_test_send.finish(Message(str(exc)))
+
+    unavailable_reason = await daily_report_unavailable_reason(group_id)
+    if unavailable_reason:
+        await daily_report_test_send.finish(Message(unavailable_reason))
 
     await daily_report_test_send.send(Message(f"开始测试发送 {target_date.strftime('%Y-%m-%d')} 的日报给管理员。"))
     try:

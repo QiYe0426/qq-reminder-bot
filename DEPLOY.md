@@ -90,7 +90,7 @@ DAILY_REPORT_TIMEZONE=Asia/Shanghai
 DAILY_REPORT_STARTUP_GRACE_MINUTES=120
 ```
 
-`DAILY_REPORT_GROUP_IDS` 留空时，自动日报跟随控制台每个群的「自动发送日报」开关；如果这里写了群号，它会变成强制白名单，只给这些群自动生成。
+`DAILY_REPORT_GROUP_IDS` 留空时，自动日报跟随控制台每个群的「自动发送日报」开关；如果这里写了群号，它会变成白名单，但仍要求该群在控制台开启「消息采集」和「日报」。
 
 `BOT_PERSONA_PATH` 默认是 `data/bot_persona_prompt.txt`。控制台保存的人设、知识库、群画像、陪伴画像和运行数据库都在 `data/` 下。
 
@@ -195,7 +195,7 @@ https://62.234.188.16/hunterbot/admin-console
 
 服务器通过 Nginx 把 HTTPS 请求反代到本机 `127.0.0.1:8080`，80 端口只保留证书验证并跳转到 HTTPS。
 
-控制台包含 `Bot 人设`、`知识库`、`群管理`、`日报`、`智能陪伴`、`群画像`、`群友画像管理` 和 `消息采集记录`。旧 `/hunterbot/companion-admin` 页面和知识库文字提取入口已移除。
+控制台包含 `Bot 人设`、`知识库`、`群管理`、`消息采集`、`日报`、`智能陪伴`、`群画像`、`群友画像管理` 和 `消息采集记录`。旧 `/hunterbot/companion-admin` 页面和知识库文字提取入口已移除。
 
 ## 9. 常用验证命令
 

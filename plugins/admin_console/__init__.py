@@ -26,8 +26,10 @@ from plugins.access_control import (
     FEATURE_COLLECTOR,
     FEATURE_COMPANION,
     FEATURE_CONSTANT_RETORT,
+    FEATURE_DAILY_REPORT,
     FEATURE_DAILY_REPORT_AUTO,
     FEATURE_KEYWORD_RETORT,
+    enforce_group_feature_dependencies,
     init_access_db,
     get_group_feature_limits,
     get_group_feature_usage,
@@ -94,7 +96,6 @@ KIND_ORDER = (
     "guide",
 )
 TREE_ORDER = ("STS2",)
-FEATURE_DAILY_REPORT = "daily_report"
 FEATURE_CHIME = "hourly_chime"
 
 try:
@@ -636,13 +637,15 @@ async def set_chime_state(group_id: str, enabled: bool, mode: str = CHIME_MODE_H
 
 async def get_daily_report_group_state(group_id: str) -> dict[str, object]:
     return {
-        "enabled": await is_group_feature_enabled(group_id, FEATURE_COLLECTOR),
-        "source_feature": FEATURE_COLLECTOR,
+        "enabled": await is_group_feature_enabled(group_id, FEATURE_DAILY_REPORT),
+        "source_feature": FEATURE_DAILY_REPORT,
+        "requires": FEATURE_COLLECTOR,
     }
 
 
 async def set_daily_report_group_state(group_id: str, enabled: bool) -> None:
-    await set_group_feature(group_id, FEATURE_COLLECTOR, enabled)
+    collector_enabled = await is_group_feature_enabled(group_id, FEATURE_COLLECTOR)
+    await set_group_feature(group_id, FEATURE_DAILY_REPORT, enabled and collector_enabled)
 
 
 def aggregate_keyword_retort_usage(keyword_retort: dict[str, object]) -> dict[str, int]:
@@ -669,6 +672,7 @@ async def group_state(group_id: str) -> dict[str, object]:
         "group_id": group_id,
         "features": {
             FEATURE_AI_CHAT: await is_group_feature_enabled(group_id, FEATURE_AI_CHAT),
+            FEATURE_COLLECTOR: await is_group_feature_enabled(group_id, FEATURE_COLLECTOR),
             FEATURE_DAILY_REPORT: daily_report["enabled"],
             FEATURE_DAILY_REPORT_AUTO: await is_group_feature_enabled(group_id, FEATURE_DAILY_REPORT_AUTO),
             FEATURE_COMPANION: await is_group_feature_enabled(group_id, FEATURE_COMPANION),
@@ -704,6 +708,8 @@ async def save_group_state(group_id: str, payload: dict[str, object]) -> dict[st
         features = {}
     if FEATURE_AI_CHAT in features:
         await set_group_feature(group_id, FEATURE_AI_CHAT, normalize_bool(features[FEATURE_AI_CHAT]))
+    if FEATURE_COLLECTOR in features:
+        await set_group_feature(group_id, FEATURE_COLLECTOR, normalize_bool(features[FEATURE_COLLECTOR]))
     if FEATURE_DAILY_REPORT in features:
         daily_report_enabled = normalize_bool(features[FEATURE_DAILY_REPORT])
         await set_daily_report_group_state(group_id, daily_report_enabled)
@@ -722,9 +728,8 @@ async def save_group_state(group_id: str, payload: dict[str, object]) -> dict[st
         )
     if FEATURE_COMPANION in features:
         companion_enabled = normalize_bool(features[FEATURE_COMPANION])
-        await set_group_feature(group_id, FEATURE_COMPANION, companion_enabled)
-        if companion_enabled:
-            await set_group_feature(group_id, FEATURE_COLLECTOR, True)
+        collector_enabled = await is_group_feature_enabled(group_id, FEATURE_COLLECTOR)
+        await set_group_feature(group_id, FEATURE_COMPANION, companion_enabled and collector_enabled)
     if FEATURE_BOT_TEASE in features:
         await set_group_feature(group_id, FEATURE_BOT_TEASE, normalize_bool(features[FEATURE_BOT_TEASE]))
     if FEATURE_KEYWORD_RETORT in features:
@@ -758,6 +763,7 @@ async def save_group_state(group_id: str, payload: dict[str, object]) -> dict[st
         chime = payload.get("chime") if isinstance(payload.get("chime"), dict) else {}
         mode = str(chime.get("mode") or CHIME_MODE_HOURLY)
         await set_chime_state(group_id, normalize_bool(features[FEATURE_CHIME]), mode=mode)
+    await enforce_group_feature_dependencies(group_id)
     return await group_state(group_id)
 
 

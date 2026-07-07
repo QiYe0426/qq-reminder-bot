@@ -42,6 +42,7 @@ const labels = {
   guide: "攻略",
   other: "其他",
   ai_chat: "AI 对话",
+  collector: "消息采集",
   daily_report: "日报",
   daily_report_auto: "自动发送日报",
   companion: "智能陪伴",
@@ -561,10 +562,15 @@ function renderGroups() {
 
   const grid = document.createElement("div");
   grid.className = "switch-grid";
+  const collectorEnabled = Boolean(group.features?.collector);
   grid.append(
     switchCard("ai_chat", "AI 对话", "允许群内触发猎宝回复"),
+    switchCard("collector", "消息采集", "保存群聊消息，供日报、智能陪伴和增强上下文使用"),
     dailyReportCard(),
-    switchCard("companion", "智能陪伴", "启用群友画像和记忆"),
+    switchCard("companion", "智能陪伴", "启用群友画像和记忆", {
+      disabled: !collectorEnabled,
+      disabledNote: "需要先开启消息采集",
+    }),
     chimeCard()
   );
 
@@ -916,32 +922,40 @@ function renderGroupProfilePanel() {
   return panel;
 }
 
-function switchCard(key, title, note) {
+function switchCard(key, title, note, options = {}) {
+  const disabled = Boolean(options.disabled);
   const wrap = document.createElement("label");
-  wrap.className = "switch-card";
-  wrap.innerHTML = `<div><div class="switch-title">${title}</div><div class="switch-note">${note}</div></div>`;
+  wrap.className = `switch-card${disabled ? " disabled" : ""}`;
+  const noteText = disabled && options.disabledNote ? `${note}（${options.disabledNote}）` : note;
+  wrap.innerHTML = `<div><div class="switch-title">${title}</div><div class="switch-note">${noteText}</div></div>`;
   const toggle = document.createElement("span");
   toggle.className = "toggle";
-  const checked = state.group?.features?.[key] ? "checked" : "";
-  toggle.innerHTML = `<input id="feature_${key}" type="checkbox" ${checked}><span></span>`;
-  toggle.querySelector("input").onchange = () => saveGroup({ auto: true }).catch((error) => status(error.message, true));
+  const checked = !disabled && state.group?.features?.[key] ? "checked" : "";
+  toggle.innerHTML = `<input id="feature_${key}" type="checkbox" ${checked} ${disabled ? "disabled" : ""}><span></span>`;
+  const input = toggle.querySelector("input");
+  if (!disabled) {
+    input.onchange = () => saveGroup({ auto: true }).catch((error) => status(error.message, true));
+  }
   wrap.appendChild(toggle);
   return wrap;
 }
 
 function dailyReportCard() {
-  const reportEnabled = Boolean(state.group?.features?.daily_report);
-  const autoEnabled = reportEnabled && Boolean(state.group?.features?.daily_report_auto);
+  const collectorEnabled = Boolean(state.group?.features?.collector);
+  const reportEnabled = collectorEnabled && Boolean(state.group?.features?.daily_report);
+  const autoEnabled = collectorEnabled && reportEnabled && Boolean(state.group?.features?.daily_report_auto);
   const wrap = document.createElement("div");
-  wrap.className = "switch-card daily-report-card";
+  wrap.className = `switch-card daily-report-card${collectorEnabled ? "" : " disabled"}`;
 
   const main = document.createElement("label");
-  main.className = "daily-report-row";
-  main.innerHTML = `<div><div class="switch-title">日报</div><div class="switch-note">同时控制消息采集和日报数据</div></div>`;
+  main.className = `daily-report-row${collectorEnabled ? "" : " disabled"}`;
+  main.innerHTML = `<div><div class="switch-title">日报</div><div class="switch-note">基于消息采集生成群聊总结${collectorEnabled ? "" : "（需要先开启消息采集）"}</div></div>`;
   const reportToggle = document.createElement("span");
   reportToggle.className = "toggle";
-  reportToggle.innerHTML = `<input id="feature_daily_report" type="checkbox" ${reportEnabled ? "checked" : ""}><span></span>`;
-  reportToggle.querySelector("input").onchange = () => saveGroup({ auto: true }).catch((error) => status(error.message, true));
+  reportToggle.innerHTML = `<input id="feature_daily_report" type="checkbox" ${reportEnabled ? "checked" : ""} ${collectorEnabled ? "" : "disabled"}><span></span>`;
+  if (collectorEnabled) {
+    reportToggle.querySelector("input").onchange = () => saveGroup({ auto: true }).catch((error) => status(error.message, true));
+  }
   main.appendChild(reportToggle);
 
   const auto = document.createElement("label");
@@ -950,7 +964,9 @@ function dailyReportCard() {
   const autoToggle = document.createElement("span");
   autoToggle.className = "toggle";
   autoToggle.innerHTML = `<input id="feature_daily_report_auto" type="checkbox" ${autoEnabled ? "checked" : ""} ${reportEnabled ? "" : "disabled"}><span></span>`;
-  autoToggle.querySelector("input").onchange = () => saveGroup({ auto: true }).catch((error) => status(error.message, true));
+  if (reportEnabled) {
+    autoToggle.querySelector("input").onchange = () => saveGroup({ auto: true }).catch((error) => status(error.message, true));
+  }
   auto.appendChild(autoToggle);
 
   wrap.append(main, auto);
@@ -1287,7 +1303,7 @@ function renderArchivePanel() {
   summary.className = "archive-summary";
   const enabled = document.createElement("span");
   enabled.className = `status-pill ${archive.enabled ? "on" : "off"}`;
-  enabled.textContent = archive.enabled ? "日报开启" : "日报关闭";
+  enabled.textContent = archive.enabled ? "消息采集开启" : "消息采集关闭";
   const count = document.createElement("span");
   count.className = "stat-pill";
   count.textContent = `已采集 ${Number(archive.message_count || 0)} 条`;
@@ -1515,12 +1531,15 @@ async function saveGroup(options = {}) {
     status("先选择群", true);
     return;
   }
+  const collectorEnabled = $("feature_collector")?.checked ?? false;
+  const dailyReportEnabled = collectorEnabled && ($("feature_daily_report")?.checked ?? false);
   const payload = {
     features: {
       ai_chat: $("feature_ai_chat")?.checked ?? false,
-      daily_report: $("feature_daily_report")?.checked ?? false,
-      daily_report_auto: ($("feature_daily_report")?.checked ?? false) && ($("feature_daily_report_auto")?.checked ?? false),
-      companion: $("feature_companion")?.checked ?? false,
+      collector: collectorEnabled,
+      daily_report: dailyReportEnabled,
+      daily_report_auto: dailyReportEnabled && ($("feature_daily_report_auto")?.checked ?? false),
+      companion: collectorEnabled && ($("feature_companion")?.checked ?? false),
       hourly_chime: selectedChimeEnabled(),
       bot_tease: $("feature_bot_tease")?.checked ?? false,
       keyword_retort: $("feature_keyword_retort")?.checked ?? false,
