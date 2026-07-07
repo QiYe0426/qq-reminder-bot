@@ -2028,10 +2028,10 @@ async def handle_ai_chat(bot: Bot, event: MessageEvent) -> None:
             logger.warning(f"Blocked prompt injection attempt from {event.get_user_id()}: {question[:120]}")
             answer = PROMPT_INJECTION_REPLY
         else:
-            local_context = await build_local_context(question, event)
             if direct_reminder_reply := await try_direct_reminder_reply(question, event):
                 answer = direct_reminder_reply
             elif agent_enabled():
+                local_context = await build_local_context(question, event)
                 try:
                     answer = await ask_ai_with_agent(question, extra_context=local_context, event=event)
                 except Exception:

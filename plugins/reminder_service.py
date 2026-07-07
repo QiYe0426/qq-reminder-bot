@@ -380,6 +380,22 @@ def format_reminder_list(reminders: list[dict[str, object]]) -> str:
     return "\n".join(lines)
 
 
+def escape_cq_text(text: str) -> str:
+    return text.replace("&", "&amp;").replace("[", "&#91;").replace("]", "&#93;")
+
+
+def format_due_reminder_message(reminder: dict[str, object]) -> str:
+    content = escape_cq_text(str(reminder.get("content") or ""))
+    message = f"提醒：{content}"
+    if str(reminder.get("target_type") or "") != "group":
+        return message
+
+    user_id = str(reminder.get("user_id") or "").strip()
+    if not user_id.isdigit():
+        return message
+    return f"[CQ:at,qq={user_id}] {message}"
+
+
 async def list_reminders_result(user_id: str, *, limit: int = 10) -> dict[str, object]:
     reminders = await list_reminders(user_id, limit=limit)
     return {"ok": True, "reminders": reminders, "message": format_reminder_list(reminders)}

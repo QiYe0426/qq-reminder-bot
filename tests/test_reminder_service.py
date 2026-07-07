@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from plugins.reminder_service import parse_number, parse_reminder
+from plugins.reminder_service import format_due_reminder_message, parse_number, parse_reminder
 
 
 def test_parse_chinese_numbers() -> None:
@@ -76,3 +76,41 @@ def test_parse_relative_reminder_with_generic_remind_me_content() -> None:
     parsed = parse_reminder("1分钟后提醒我", now=now)
 
     assert parsed == (datetime(2026, 7, 7, 10, 31), "提醒我")
+
+
+def test_group_due_reminder_mentions_creator() -> None:
+    message = format_due_reminder_message(
+        {
+            "user_id": "10001",
+            "group_id": "20001",
+            "target_type": "group",
+            "content": "喝水",
+        }
+    )
+
+    assert message == "[CQ:at,qq=10001] 提醒：喝水"
+
+
+def test_private_due_reminder_does_not_mention_user() -> None:
+    message = format_due_reminder_message(
+        {
+            "user_id": "10001",
+            "target_type": "private",
+            "content": "喝水",
+        }
+    )
+
+    assert message == "提醒：喝水"
+
+
+def test_due_reminder_escapes_cq_content() -> None:
+    message = format_due_reminder_message(
+        {
+            "user_id": "10001",
+            "group_id": "20001",
+            "target_type": "group",
+            "content": "[CQ:at,qq=all]集合",
+        }
+    )
+
+    assert message == "[CQ:at,qq=10001] 提醒：&#91;CQ:at,qq=all&#93;集合"

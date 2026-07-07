@@ -39,6 +39,7 @@ from plugins.reminder_service import (
     cancel_reminder as cancel_reminder_record,
     create_reminder as create_reminder_record,
     due_reminders,
+    format_due_reminder_message,
     format_reminder_list,
     init_reminder_db,
     list_reminders as list_reminder_records,
@@ -178,7 +179,7 @@ async def send_due_reminders() -> None:
     sent_ids: list[int] = []
 
     for item in reminders:
-        message = f"提醒：{item['content']}"
+        message = format_due_reminder_message(item)
         if item["target_type"] == "group" and item["group_id"]:
             await bot.send_group_msg(group_id=int(str(item["group_id"])), message=message)
         else:
