@@ -130,7 +130,12 @@ def unique_member_candidates(matches: list[tuple[int, GroupMember, str, bool]], 
     return result
 
 
-def find_target_in_content(content: str, members: list[GroupMember]) -> TargetMatch | None:
+def find_target_in_content(
+    content: str,
+    members: list[GroupMember],
+    *,
+    allow_fuzzy_without_action: bool = False,
+) -> TargetMatch | None:
     candidate_text, had_action_prefix = strip_target_action_prefix(content)
     compact_candidate_text = compact_text(candidate_text)
     if not compact_candidate_text or compact_candidate_text in SELF_WORDS or content.startswith(("提醒我", "叫我", "让我")):
@@ -145,7 +150,7 @@ def find_target_in_content(content: str, members: list[GroupMember]) -> TargetMa
                 continue
             if compact_candidate_text.startswith(compact_alias):
                 exact_matches.append((1000 + len(compact_alias), member, candidate_text[: len(alias)], True))
-            elif had_action_prefix and len(compact_candidate_text) >= 2 and compact_alias.startswith(compact_candidate_text[:2]):
+            elif (had_action_prefix or allow_fuzzy_without_action) and len(compact_candidate_text) >= 2 and compact_alias.startswith(compact_candidate_text[:2]):
                 fuzzy_matches.append((100 + len(compact_alias), member, candidate_text[:2], False))
 
     candidates = unique_member_candidates(exact_matches or fuzzy_matches, candidate_text)

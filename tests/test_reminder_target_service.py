@@ -39,6 +39,23 @@ def test_find_target_in_content_fuzzy_member_needs_confirmation() -> None:
     assert match.content == "喝水"
 
 
+def test_find_target_in_content_fuzzy_without_action_when_allowed() -> None:
+    members = [
+        GroupMember(user_id="10001", display_name="小拉草草小匣", aliases=("小拉草草小匣", "10001")),
+    ]
+
+    match = find_target_in_content(
+        "小拉现在抱抱小匣草草小匣",
+        members,
+        allow_fuzzy_without_action=True,
+    )
+
+    assert match is not None
+    assert match.needs_confirmation is True
+    assert match.target.user_id == "10001"
+    assert match.content == "现在抱抱小匣草草小匣"
+
+
 def test_find_target_in_content_self_reminder_returns_none() -> None:
     members = [
         GroupMember(user_id="10001", display_name="小明", aliases=("小明", "10001")),

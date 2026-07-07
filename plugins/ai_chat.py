@@ -53,9 +53,19 @@ from plugins.group_context_service import (
     group_context_result,
     remember_transient_group_message as remember_transient_group_message_record,
 )
-from plugins.reminder_service import cancel_reminder, create_reminder, list_reminders_result, parse_reminder, ReminderScope, ReminderTarget
+from plugins.reminder_service import (
+    ReminderScope,
+    ReminderTarget,
+    cancel_reminder,
+    clean_reminder_content,
+    create_reminder,
+    list_reminders_result,
+    parse_reminder,
+    strip_request_prefix,
+)
 from plugins.reminder_target_service import (
     GroupMember,
+    TARGET_ACTION_PREFIXES,
     TargetMatch,
     find_target_in_content,
     group_member_from_payload,
@@ -603,9 +613,23 @@ class RecentReminderTarget:
     expires_at: datetime
 
 
+@dataclass(frozen=True)
+class PendingReminderSetup:
+    group_id: str
+    creator_user_id: str
+    raw_text: str
+    content: str
+    target: ReminderTarget
+    target_confirmed: bool
+    time_text: str
+    expires_at: datetime
+
+
 pending_reminder_confirmations: dict[tuple[str, str], PendingReminderConfirmation] = {}
 recent_reminder_targets: dict[tuple[str, str], RecentReminderTarget] = {}
+pending_reminder_setups: dict[tuple[str, str], PendingReminderSetup] = {}
 RECENT_REMINDER_TARGET_TTL = timedelta(hours=2)
+PENDING_REMINDER_SETUP_TTL = timedelta(minutes=1)
 
 
 def get_int_env(name: str, default: int) -> int:
@@ -1204,6 +1228,13 @@ def clear_expired_recent_reminder_targets(now: datetime | None = None) -> None:
             recent_reminder_targets.pop(key, None)
 
 
+def clear_expired_pending_reminder_setups(now: datetime | None = None) -> None:
+    current_time = now or datetime.now()
+    for key, pending in list(pending_reminder_setups.items()):
+        if pending.expires_at <= current_time:
+            pending_reminder_setups.pop(key, None)
+
+
 def remember_recent_reminder_target(event: MessageEvent, target: ReminderTarget) -> None:
     if not isinstance(event, GroupMessageEvent):
         return
@@ -1235,6 +1266,37 @@ def pending_reminder_confirmation(event: GroupMessageEvent) -> PendingReminderCo
     if pending:
         pending_reminder_confirmations.pop(reminder_confirmation_key(event), None)
     return None
+
+
+def pending_reminder_setup(event: GroupMessageEvent) -> PendingReminderSetup | None:
+    clear_expired_pending_reminder_setups()
+    pending = pending_reminder_setups.get(reminder_confirmation_key(event))
+    if pending and pending.expires_at > datetime.now():
+        return pending
+    if pending:
+        pending_reminder_setups.pop(reminder_confirmation_key(event), None)
+    return None
+
+
+def set_pending_reminder_setup(
+    event: GroupMessageEvent,
+    *,
+    raw_text: str,
+    content: str,
+    target: ReminderTarget,
+    target_confirmed: bool,
+    time_text: str = "",
+) -> None:
+    pending_reminder_setups[reminder_confirmation_key(event)] = PendingReminderSetup(
+        group_id=str(event.group_id),
+        creator_user_id=str(event.user_id),
+        raw_text=raw_text,
+        content=content,
+        target=target,
+        target_confirmed=target_confirmed,
+        time_text=time_text,
+        expires_at=datetime.now() + PENDING_REMINDER_SETUP_TTL,
+    )
 
 
 def set_pending_reminder_confirmation(
@@ -1324,7 +1386,57 @@ async def direct_group_target_match(
             )
 
     members = await group_members(bot, event.group_id)
-    return find_target_in_content(content, members)
+    return find_target_in_content(content, members, allow_fuzzy_without_action=True)
+
+
+def reminder_intent_without_time_text(question: str) -> str:
+    text = strip_request_prefix(question).strip().strip("，,。；;：:")
+    if any(text.startswith(prefix) for prefix in TARGET_ACTION_PREFIXES):
+        return text
+    return ""
+
+
+def reminder_time_completion_text(time_text: str, content: str) -> str:
+    return f"{time_text.strip()} {content.strip()}".strip()
+
+
+def reminder_time_completion_is_valid(time_text: str, content: str) -> bool:
+    if not time_text.strip():
+        return False
+    return parse_reminder(reminder_time_completion_text(time_text, content)) is not None
+
+
+async def missing_time_group_reminder_match(
+    question: str,
+    event: GroupMessageEvent,
+    bot: Bot,
+) -> TargetMatch | None:
+    intent_text = reminder_intent_without_time_text(question)
+    if not intent_text:
+        return None
+
+    at_targets = mentioned_group_targets(event, bot)
+    if at_targets:
+        content = clean_reminder_content(intent_text)
+        return TargetMatch(
+            target=await hydrate_group_reminder_target(bot, event, at_targets[0]),
+            content=content,
+            needs_confirmation=False,
+        )
+
+    members = await group_members(bot, event.group_id)
+    target_match = find_target_in_content(intent_text, members, allow_fuzzy_without_action=True)
+    if target_match is not None:
+        return target_match
+
+    content = clean_reminder_content(intent_text)
+    if content and intent_text.startswith(("提醒我", "叫我", "让我")):
+        return TargetMatch(
+            target=ReminderTarget(user_id=str(event.user_id), display_name=group_sender_name(event)),
+            content=content,
+            needs_confirmation=False,
+        )
+    return None
 
 
 async def create_targeted_reminder_reply(
@@ -1400,6 +1512,94 @@ async def handle_pending_reminder_confirmation(bot: Bot, event: GroupMessageEven
         f"我还在确认：你想提醒的是 {pending.target.display_name or pending.target.user_id} 对吗？"
         "回答“对”或“不对”就行，也可以直接 @某人。"
     )
+
+
+async def create_pending_reminder_setup_reply(
+    event: GroupMessageEvent,
+    pending: PendingReminderSetup,
+    *,
+    target: ReminderTarget | None = None,
+    time_text: str | None = None,
+) -> str:
+    target = target or pending.target
+    time_text = (time_text if time_text is not None else pending.time_text).strip()
+    raw_text = reminder_time_completion_text(time_text, pending.content)
+    return await create_targeted_reminder_reply(
+        event,
+        raw_text=raw_text,
+        target=target,
+        content=pending.content,
+    )
+
+
+async def handle_pending_reminder_setup(bot: Bot, event: GroupMessageEvent) -> str | None:
+    pending = pending_reminder_setup(event)
+    if pending is None:
+        return None
+
+    text = event.get_plaintext().strip()
+    at_targets = mentioned_group_targets(event, bot)
+    key = reminder_confirmation_key(event)
+
+    if at_targets:
+        target = await hydrate_group_reminder_target(bot, event, at_targets[0])
+        if pending.time_text:
+            pending_reminder_setups.pop(key, None)
+            return await create_pending_reminder_setup_reply(event, pending, target=target)
+        set_pending_reminder_setup(
+            event,
+            raw_text=pending.raw_text,
+            content=pending.content,
+            target=target,
+            target_confirmed=True,
+            time_text="",
+        )
+        target_name = target.display_name or target.user_id
+        return f"好，提醒对象改成 {target_name}。再告诉我什么时候提醒，比如“一分钟后”或“明早9点”。"
+
+    normalized = normalize_text(text).strip("。.!！")
+    yes_words = {"对", "是", "是的", "对的", "没错", "确定", "ok", "okay", "yes", "y"}
+    no_words = {"不对", "不是", "否", "不", "no", "n"}
+    if normalized in yes_words:
+        if pending.time_text:
+            pending_reminder_setups.pop(key, None)
+            return await create_pending_reminder_setup_reply(event, pending)
+        set_pending_reminder_setup(
+            event,
+            raw_text=pending.raw_text,
+            content=pending.content,
+            target=pending.target,
+            target_confirmed=True,
+            time_text="",
+        )
+        return "对象确认了。再告诉我什么时候提醒，比如“一分钟后”或“明早9点”。"
+
+    if normalized in no_words:
+        pending_reminder_setups.pop(key, None)
+        return "好，那这条提醒我先取消。你可以重新 @某人 让我提醒。"
+
+    if reminder_time_completion_is_valid(text, pending.content):
+        if pending.target_confirmed:
+            pending_reminder_setups.pop(key, None)
+            return await create_pending_reminder_setup_reply(event, pending, time_text=text)
+        set_pending_reminder_setup(
+            event,
+            raw_text=pending.raw_text,
+            content=pending.content,
+            target=pending.target,
+            target_confirmed=False,
+            time_text=text,
+        )
+        target_name = pending.target.display_name or pending.target.user_id
+        return f"时间收到。你想提醒的是 {target_name} 对吗？回答“对”或“不对”就行，也可以直接 @某人。"
+
+    if group_mentions_bot(event, bot):
+        return None
+
+    target_name = pending.target.display_name or pending.target.user_id
+    if pending.target_confirmed:
+        return f"我还在等提醒时间：要什么时候提醒 {target_name}？比如“一分钟后”或“明早9点”。"
+    return f"我还在确认：你想提醒的是 {target_name} 对吗？回答“对”或“不对”，也可以直接 @某人。"
 
 
 def remember_transient_group_message(event: GroupMessageEvent) -> None:
@@ -1744,6 +1944,29 @@ def direct_tool_reply(name: str, tool_result: dict[str, object]) -> str:
 
 async def try_direct_reminder_reply(question: str, event: MessageEvent, bot: Bot) -> str:
     if parse_reminder(question) is None:
+        if isinstance(event, GroupMessageEvent):
+            missing_time_match = await missing_time_group_reminder_match(question, event, bot)
+            if missing_time_match is not None:
+                target_confirmed = not missing_time_match.needs_confirmation
+                set_pending_reminder_setup(
+                    event,
+                    raw_text=question,
+                    content=missing_time_match.content,
+                    target=missing_time_match.target,
+                    target_confirmed=target_confirmed,
+                )
+                target_name = missing_time_match.target.display_name or missing_time_match.target.user_id
+                if target_confirmed:
+                    return (
+                        f"好，我知道要提醒 {target_name}：{missing_time_match.content}。"
+                        "再告诉我什么时候提醒，比如“一分钟后”或“明早9点”。"
+                    )
+                return (
+                    f"我先确认一下：你想提醒的是 {target_name} 对吗？"
+                    "回答“对”或“不对”，也可以直接 @某人；时间可以直接说“一分钟后”。"
+                )
+            if reminder_intent_without_time_text(question):
+                return "我没认出要提醒谁。你可以直接 @某人，再告诉我什么时候提醒，比如“一分钟后”。"
         return ""
 
     if isinstance(event, GroupMessageEvent):
@@ -2272,6 +2495,8 @@ async def handle_ai_chat(bot: Bot, event: MessageEvent) -> None:
         remember_transient_group_message(event)
         if not await is_group_feature_enabled(str(event.group_id), FEATURE_AI_CHAT):
             return
+        if pending_setup_reply := await handle_pending_reminder_setup(bot, event):
+            await ai_chat.finish(Message(pending_setup_reply))
         if pending_reply := await handle_pending_reminder_confirmation(bot, event):
             await ai_chat.finish(Message(pending_reply))
         if not group_mentions_bot(event, bot):
