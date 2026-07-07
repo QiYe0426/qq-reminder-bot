@@ -31,7 +31,7 @@ def test_release_version_is_consistent() -> None:
     with (ROOT / "pyproject.toml").open("rb") as handle:
         config = tomllib.load(handle)
 
-    assert config["project"]["version"] == "2.2.1"
+    assert config["project"]["version"] == "2.2.2"
     assert "## v2.2.0" in (ROOT / "VERSION.md").read_text(encoding="utf-8")
 
 

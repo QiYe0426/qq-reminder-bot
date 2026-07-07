@@ -28,6 +28,30 @@ def test_parse_relative_reminder() -> None:
     assert parsed == (datetime(2026, 7, 8, 13, 0), "吃饭")
 
 
+def test_parse_action_relative_reminder() -> None:
+    now = datetime(2026, 7, 7, 10, 30)
+
+    parsed = parse_reminder("提醒5分钟后睡觉", now=now)
+
+    assert parsed == (datetime(2026, 7, 7, 10, 35), "睡觉")
+
+
+def test_parse_target_before_relative_reminder() -> None:
+    now = datetime(2026, 7, 7, 10, 30)
+
+    parsed = parse_reminder("提醒匣子5分钟后睡觉", now=now)
+
+    assert parsed == (datetime(2026, 7, 7, 10, 35), "提醒匣子睡觉")
+
+
+def test_parse_self_target_before_relative_reminder() -> None:
+    now = datetime(2026, 7, 7, 10, 30)
+
+    parsed = parse_reminder("提醒我5分钟后睡觉", now=now)
+
+    assert parsed == (datetime(2026, 7, 7, 10, 35), "睡觉")
+
+
 def test_parse_time_only_rolls_to_tomorrow() -> None:
     now = datetime(2026, 7, 7, 10, 30)
 

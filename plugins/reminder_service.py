@@ -35,6 +35,21 @@ RELATIVE_TIME_PATTERN = re.compile(
     rf"(?:(?P<minutes>{NUMBER_TEXT})\s*分钟\s*)?"
     r"后\s*(?P<content>.+)$"
 )
+ACTION_RELATIVE_TIME_PATTERN = re.compile(
+    rf"^(?P<action>提醒|叫|让|喊|通知|告诉)\s*"
+    rf"(?:(?P<days>{NUMBER_TEXT})\s*天\s*)?"
+    rf"(?:(?P<hours>{NUMBER_TEXT})\s*(?:小时|个小时)\s*)?"
+    rf"(?:(?P<minutes>{NUMBER_TEXT})\s*分钟\s*)?"
+    r"后\s*(?P<content>.+)$"
+)
+TARGET_BEFORE_RELATIVE_TIME_PATTERN = re.compile(
+    rf"^(?P<action>提醒|叫|让|喊|通知|告诉)\s*"
+    rf"(?P<target>.+?)\s*"
+    rf"(?:(?P<days>{NUMBER_TEXT})\s*天\s*)?"
+    rf"(?:(?P<hours>{NUMBER_TEXT})\s*(?:小时|个小时)\s*)?"
+    rf"(?:(?P<minutes>{NUMBER_TEXT})\s*分钟\s*)?"
+    r"后\s*(?P<content>.+)$"
+)
 SAME_TIME_PATTERN = re.compile(
     r"^(?P<day>明天|后天|大后天)\s*的?\s*"
     r"(?:这个时候|这个时间|这个点|此时|现在|同一时间|同样时间)\s*"
@@ -168,6 +183,24 @@ def clean_reminder_content(content: str) -> str:
     return normalized
 
 
+def reminder_delta_from_match(match: re.Match[str]) -> tuple[int, int, int]:
+    return (
+        parse_number(match.group("days")),
+        parse_number(match.group("hours")),
+        parse_number(match.group("minutes")),
+    )
+
+
+def target_before_time_content(action: str, target: str, content: str) -> str:
+    target_text = target.strip().strip("，,。；;：:")
+    if target_text.endswith("在"):
+        target_text = target_text[:-1].strip().strip("，,。；;：:")
+    body = content.strip().strip("，,。；;：:")
+    if target_text in {"我", "自己", "本人", "我自己"}:
+        return clean_reminder_content(f"{action}{target_text}{body}")
+    return f"{action}{target_text}{body}".strip()
+
+
 def day_offset(day: str | None, daypart: str | None = None) -> int:
     if day:
         return DAY_OFFSET.get(day, 0)
@@ -209,9 +242,7 @@ def parse_reminder(text: str, *, now: datetime | None = None) -> tuple[datetime,
 
     match = RELATIVE_TIME_PATTERN.match(text)
     if match:
-        days = parse_number(match.group("days"))
-        hours = parse_number(match.group("hours"))
-        minutes = parse_number(match.group("minutes"))
+        days, hours, minutes = reminder_delta_from_match(match)
         content = clean_reminder_content(match.group("content"))
         if content and (days or hours or minutes):
             remind_at = current_time + timedelta(
@@ -219,6 +250,26 @@ def parse_reminder(text: str, *, now: datetime | None = None) -> tuple[datetime,
                 hours=hours,
                 minutes=minutes,
             )
+            return remind_at, content
+
+    match = ACTION_RELATIVE_TIME_PATTERN.match(text)
+    if match:
+        days, hours, minutes = reminder_delta_from_match(match)
+        content = clean_reminder_content(match.group("content"))
+        if content and (days or hours or minutes):
+            remind_at = current_time + timedelta(days=days, hours=hours, minutes=minutes)
+            return remind_at, content
+
+    match = TARGET_BEFORE_RELATIVE_TIME_PATTERN.match(text)
+    if match:
+        days, hours, minutes = reminder_delta_from_match(match)
+        content = target_before_time_content(
+            match.group("action"),
+            match.group("target"),
+            match.group("content"),
+        )
+        if content and (days or hours or minutes):
+            remind_at = current_time + timedelta(days=days, hours=hours, minutes=minutes)
             return remind_at, content
 
     match = SAME_TIME_PATTERN.match(text)
