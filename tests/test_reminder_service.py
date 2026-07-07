@@ -68,3 +68,11 @@ def test_parse_natural_day_clock() -> None:
 
 def test_parse_invalid_reminder_returns_none() -> None:
     assert parse_reminder("以后提醒我") is None
+
+
+def test_parse_relative_reminder_with_generic_remind_me_content() -> None:
+    now = datetime(2026, 7, 7, 10, 30)
+
+    parsed = parse_reminder("1分钟后提醒我", now=now)
+
+    assert parsed == (datetime(2026, 7, 7, 10, 31), "提醒我")

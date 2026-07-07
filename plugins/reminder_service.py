@@ -143,7 +143,8 @@ def clean_reminder_content(content: str) -> str:
     normalized = content.strip().strip("，,。；;：:")
     for prefix in ("提醒我", "叫我", "让我", "我要", "我想", "我需要"):
         if normalized.startswith(prefix):
-            normalized = normalized[len(prefix) :].strip().strip("，,。；;：:")
+            stripped = normalized[len(prefix) :].strip().strip("，,。；;：:")
+            normalized = stripped or normalized
             break
     return normalized
 

@@ -3,6 +3,7 @@ import asyncio
 from plugins import reminder_service
 from plugins.agent_tools import (
     get_agent_tool_definitions,
+    get_agent_tool,
     has_agent_tool,
     merge_agent_tool_definitions,
     run_registered_agent_tool,
@@ -22,6 +23,7 @@ def test_reminder_tools_are_registered() -> None:
     assert has_agent_tool("list_reminders")
     assert has_agent_tool("cancel_reminder")
     assert {"create_reminder", "list_reminders", "cancel_reminder"} <= names
+    assert get_agent_tool("create_reminder").requires_feature == "ai_chat"
 
 
 def test_registered_tool_definitions_replace_same_name_base_definition() -> None:

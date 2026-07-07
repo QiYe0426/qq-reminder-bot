@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-from nonebot.adapters.onebot.v11 import MessageEvent
-
-from plugins.access_control import FEATURE_REMINDER, is_feature_allowed
+from plugins.access_control import FEATURE_AI_CHAT
 from plugins.reminder_service import (
     ReminderScope,
     cancel_reminder,
@@ -37,17 +35,6 @@ def _tool_definition(
     }
 
 
-async def _ensure_reminder_feature(context: AgentToolContext) -> AgentToolResult | None:
-    event = context.get("_event")
-    if isinstance(event, MessageEvent) and not await is_feature_allowed(event, FEATURE_REMINDER):
-        return {
-            "ok": False,
-            "error": "feature_disabled",
-            "message": "当前会话还没有开启提醒功能。",
-        }
-    return None
-
-
 async def create_reminder_tool(args: dict[str, object], context: AgentToolContext) -> AgentToolResult:
     scope = context.get("_scope")
     if not isinstance(scope, ReminderScope):
@@ -56,8 +43,6 @@ async def create_reminder_tool(args: dict[str, object], context: AgentToolContex
             "error": "missing_event",
             "message": "缺少当前会话上下文。",
         }
-    if denial := await _ensure_reminder_feature(context):
-        return denial
     return await create_reminder(scope, str(args.get("text") or ""))
 
 
@@ -69,8 +54,6 @@ async def list_reminders_tool(args: dict[str, object], context: AgentToolContext
             "error": "missing_user",
             "message": "缺少当前用户。",
         }
-    if denial := await _ensure_reminder_feature(context):
-        return denial
     limit = args.get("limit")
     limit_value = int(limit) if isinstance(limit, (int, float, str)) and str(limit).isdigit() else 10
     return await list_reminders_result(user_id, limit=limit_value)
@@ -84,8 +67,6 @@ async def cancel_reminder_tool(args: dict[str, object], context: AgentToolContex
             "error": "missing_user",
             "message": "缺少当前用户。",
         }
-    if denial := await _ensure_reminder_feature(context):
-        return denial
     reminder_id = args.get("reminder_id")
     if not isinstance(reminder_id, (int, float, str)) or not str(reminder_id).isdigit():
         return {
@@ -100,7 +81,7 @@ REMINDER_TOOLS = [
     AgentTool(
         name="create_reminder",
         category="reminder",
-        requires_feature=FEATURE_REMINDER,
+        requires_feature=FEATURE_AI_CHAT,
         definition=_tool_definition(
             name="create_reminder",
             description="Create a reminder for the current user in the current chat. Use the same reminder text a human would send after '提醒'.",
@@ -117,7 +98,7 @@ REMINDER_TOOLS = [
     AgentTool(
         name="list_reminders",
         category="reminder",
-        requires_feature=FEATURE_REMINDER,
+        requires_feature=FEATURE_AI_CHAT,
         definition=_tool_definition(
             name="list_reminders",
             description="List the current user's unfinished reminders.",
@@ -133,7 +114,7 @@ REMINDER_TOOLS = [
     AgentTool(
         name="cancel_reminder",
         category="reminder",
-        requires_feature=FEATURE_REMINDER,
+        requires_feature=FEATURE_AI_CHAT,
         definition=_tool_definition(
             name="cancel_reminder",
             description="Cancel one unfinished reminder by id for the current user.",

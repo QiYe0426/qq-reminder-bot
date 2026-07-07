@@ -40,7 +40,7 @@ from plugins.companion_memory import (
     group_profile_context,
     knowledge_reply_context,
 )
-from plugins.reminder_service import cancel_reminder, create_reminder, list_reminders_result, ReminderScope
+from plugins.reminder_service import cancel_reminder, create_reminder, list_reminders_result, parse_reminder, ReminderScope
 from plugins.message_archive import recent_group_messages, render_recent_message_context, save_ai_reply
 
 
@@ -548,6 +548,7 @@ AGENT_TOOLS = [
     },
 ]
 AGENT_TOOLS = merge_agent_tool_definitions(AGENT_TOOLS, get_agent_tool_definitions())
+DIRECT_REPLY_AGENT_TOOLS = {"create_reminder", "list_reminders", "cancel_reminder"}
 
 ai_chat = on_message(priority=20, block=False)
 duckduckgo_disabled_until = 0.0
@@ -1474,6 +1475,23 @@ def format_sources_for_reply(sources: object) -> str:
     return "\n\n来源：\n" + "\n".join(f"- {item}" for item in formatted)
 
 
+def direct_tool_reply(name: str, tool_result: dict[str, object]) -> str:
+    if name not in DIRECT_REPLY_AGENT_TOOLS:
+        return ""
+    return str(tool_result.get("message") or "").strip()
+
+
+async def try_direct_reminder_reply(question: str, event: MessageEvent) -> str:
+    if parse_reminder(question) is None:
+        return ""
+    tool_result = await run_agent_tool(
+        "create_reminder",
+        {"text": question},
+        current_tool_context(event),
+    )
+    return direct_tool_reply("create_reminder", tool_result)
+
+
 async def ask_ai_with_agent(question: str, *, extra_context: str = "", event: MessageEvent) -> str:
     max_reply_length = get_int_env("AI_MAX_REPLY_LENGTH", DEFAULT_MAX_REPLY_LENGTH)
     max_tool_calls = get_int_env("AI_AGENT_MAX_TOOL_CALLS", DEFAULT_AGENT_MAX_TOOL_CALLS)
@@ -1535,6 +1553,8 @@ async def ask_ai_with_agent(question: str, *, extra_context: str = "", event: Me
                 return shorten_text(message_text + format_sources_for_reply(args.get("sources")), max_reply_length)
 
             tool_result = await run_agent_tool(name, args, tool_context)
+            if direct_reply := direct_tool_reply(name, tool_result):
+                return shorten_text(direct_reply, max_reply_length)
             messages.append(
                 {
                     "role": "tool",
@@ -2009,7 +2029,9 @@ async def handle_ai_chat(bot: Bot, event: MessageEvent) -> None:
             answer = PROMPT_INJECTION_REPLY
         else:
             local_context = await build_local_context(question, event)
-            if agent_enabled():
+            if direct_reminder_reply := await try_direct_reminder_reply(question, event):
+                answer = direct_reminder_reply
+            elif agent_enabled():
                 try:
                     answer = await ask_ai_with_agent(question, extra_context=local_context, event=event)
                 except Exception:
