@@ -25,7 +25,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 py-modules = ["bot"]
-packages = ["plugins", "plugins.admin_console"]
+packages = ["plugins", "plugins.admin_console", "plugins.agent_tools"]
 
 [tool.setuptools.package-data]
 "plugins.admin_console" = ["static/*.html", "static/*.css", "static/*.js"]

@@ -20,6 +20,7 @@
   - `plugins/media_insights.py`
   - `plugins/daily_report.py`
   - `plugins/ai_chat.py`
+  - `plugins/agent_tools/`
   - `plugins/reminder.py`
   - `plugins/group_reactions.py`
   - `plugins/storage_status.py`
@@ -29,6 +30,7 @@
   - NoneBot 从 `pyproject.toml` 加载插件，OneBot v11/NapCat 负责 QQ 收发。
   - 普通用户消息先经过 `ai_chat` 判断是否触发猎宝；触发后构造本地上下文，再交给 AI agent。
   - AI agent 可调用受控工具：`web_search`、`fetch_url`、`create_reminder`、`list_reminders`、`cancel_reminder`、`get_chime`、`set_chime` 和 `respond`。
+  - `plugins/agent_tools/` 是 2.1 起新增的工具注册层；提醒工具已先迁入注册表，后续 STS2、日报、画像和控制台能力会继续按同一模式迁入。
   - 命令入口仍由 `reminder.py`、`daily_report.py`、`message_collector.py` 等插件保留；提醒和常数报时的核心逻辑已下沉到 `reminder_service.py` / `chime_service.py`，方便 AI 调用。
   - 群消息先进入归档库 `message_archive`，再由 `message_collector` / `media_insights` 做采集和素材识别。
   - `daily_report` 读取数据库生成日报，`companion_memory` 读取采集消息生成画像，`admin_console` 写入控制台配置。
@@ -430,6 +432,7 @@ plugins/reminder.py    提醒、查看、取消、常数报时命令入口和定
 plugins/reminder_service.py 提醒解析、创建、查询、取消和到期扫描服务，可供 AI agent 调用
 plugins/chime_service.py 常数报时开关、模式和目标列表服务，可供 AI agent 调用
 plugins/ai_chat.py     AI 对话、联网搜索和工具调用 agent
+plugins/agent_tools/   AI agent 的受控工具注册表；当前先承接提醒工具，后续继续迁入知识库、日报和画像工具
 plugins/group_reactions.py 群聊附加反应：调戏其他bot、关键词回怼
 plugins/message_archive.py 消息归档写入代码
 plugins/message_collector.py 指定群消息采集代码

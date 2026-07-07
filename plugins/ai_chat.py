@@ -23,6 +23,12 @@ from nonebot.adapters.onebot.v11 import Bot, GroupMessageEvent, Message, Message
 from nonebot.log import logger
 
 from plugins.access_control import FEATURE_AI_CHAT, FEATURE_COLLECTOR, FEATURE_REMINDER, admin_denial, is_feature_allowed, is_group_feature_enabled
+from plugins.agent_tools import (
+    get_agent_tool_definitions,
+    has_agent_tool,
+    merge_agent_tool_definitions,
+    run_registered_agent_tool,
+)
 from plugins.chime_service import (
     CHIME_MODE_HOURLY,
     get_chime_state,
@@ -541,6 +547,7 @@ AGENT_TOOLS = [
         },
     },
 ]
+AGENT_TOOLS = merge_agent_tool_definitions(AGENT_TOOLS, get_agent_tool_definitions())
 
 ai_chat = on_message(priority=20, block=False)
 duckduckgo_disabled_until = 0.0
@@ -1363,6 +1370,9 @@ async def run_agent_tool(name: str, args: dict[str, object], context: dict[str, 
         url = str(args.get("url") or "")
         result = await fetch_url_for_agent(url)
         return result
+
+    if has_agent_tool(name):
+        return await run_registered_agent_tool(name, args, context)
 
     if name == "create_reminder":
         scope = context.get("_scope")
