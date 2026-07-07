@@ -1,8 +1,8 @@
 # 猎bot
 
-猎bot正式发布基线为 v2.0.0「猎bot-初具人形」，当前工作树为 v2.0.1。项目是一个用于学习和自用的 QQ bot，基于 NoneBot2 + OneBot v11。当前版本已经从“命令型提醒 bot”整理成“消息交给 AI agent，再由 agent 调用工具”的雏形，主要支持 AI 对话、联网搜索、提醒工具、常数报时工具、分群消息采集、日报、智能陪伴画像、STS2 知识库和猎宝控制台。
+猎bot正式发布基线为 v2.0.0「猎bot-初具人形」，当前工作树为 v2.1.0。项目是一个用于学习和自用的 QQ bot，基于 NoneBot2 + OneBot v11。当前版本已经从“命令型提醒 bot”整理成“消息交给 AI agent，再由 agent 调用工具”的雏形，主要支持 AI 对话、联网搜索、提醒工具、常数报时工具、分群消息采集、日报、智能陪伴画像、STS2 知识库、群上下文工具和猎宝控制台。
 
-猎bot加入新群后默认保持业务功能静默。常规 AI 对话、`ping`、`help` 可直接使用；提醒、消息采集、日报和陪伴画像需要管理员按群开启。AI 对话独立于消息采集，也可以按群单独关闭。`群功能状态`、采集、日报、存储和媒体识别等管理命令仅管理员可用。
+猎bot加入新群后默认保持业务功能静默。常规 AI 对话、AI 对话里的自然语言提醒、`ping`、`help` 可直接使用；传统 `提醒 ...` 命令、消息采集、日报和陪伴画像需要管理员按群开启。AI 对话独立于消息采集，也可以按群单独关闭。`群功能状态`、采集、日报、存储和媒体识别等管理命令仅管理员可用。
 
 如果你是接手这份仓库的 AI，请先完整读本文件。仓库后续只保留这一份说明入口。
 
@@ -29,8 +29,8 @@
 - 当前数据流：
   - NoneBot 从 `pyproject.toml` 加载插件，OneBot v11/NapCat 负责 QQ 收发。
   - 普通用户消息先经过 `ai_chat` 判断是否触发猎宝；触发后构造本地上下文，再交给 AI agent。
-  - AI agent 可调用受控工具：`web_search`、`fetch_url`、`create_reminder`、`list_reminders`、`cancel_reminder`、`get_chime`、`set_chime` 和 `respond`。
-  - `plugins/agent_tools/` 是 2.1 起新增的工具注册层；提醒工具已先迁入注册表，且在 AI 对话开启时常开，不再单独要求 `提醒` 功能开关；后续 STS2、日报、画像和控制台能力会继续按同一模式迁入。
+  - AI agent 可调用受控工具：`web_search`、`fetch_url`、`create_reminder`、`list_reminders`、`cancel_reminder`、`search_sts2_knowledge`、`get_group_context`、`get_chime`、`set_chime` 和 `respond`。
+  - `plugins/agent_tools/` 是 2.1 起新增的工具注册层；提醒、STS2 知识库和群上下文工具已迁入注册表，并跟随 `AI 对话` 开关可用。后续日报、画像和控制台能力会继续按同一模式迁入。
   - 命令入口仍由 `reminder.py`、`daily_report.py`、`message_collector.py` 等插件保留；提醒和常数报时的核心逻辑已下沉到 `reminder_service.py` / `chime_service.py`，方便 AI 调用。
   - 群消息先进入归档库 `message_archive`，再由 `message_collector` / `media_insights` 做采集和素材识别。
   - `daily_report` 读取数据库生成日报，`companion_memory` 读取采集消息生成画像，`admin_console` 写入控制台配置。
@@ -91,7 +91,9 @@ AI 对话默认开启提示词注入防护。群友消息如果伪装成系统�
 AI 对话默认走受控 agent。用户发给猎宝的自然语言会先进入 `plugins/ai_chat.py`，由 agent 判断是否需要调用工具，再组织最终回复。当前工具包括：
 
 - `web_search` / `fetch_url`：联网搜索和读取公开网页。
-- `create_reminder` / `list_reminders` / `cancel_reminder`：创建、查看和取消本人提醒；群聊里仍遵守本群 `提醒` 开关。
+- `create_reminder` / `list_reminders` / `cancel_reminder`：创建、查看和取消本人提醒；AI 对话里的自然语言提醒跟随 `AI 对话` 开关常开，传统 `提醒 ...` 命令仍遵守本群 `提醒` 开关。
+- `search_sts2_knowledge`：按需检索本地 STS2 知识库，适合卡牌、遗物、角色、敌人、Boss、事件、关键词、机制和攻略问题。
+- `get_group_context`：按需读取当前群最近上下文；开启 `消息采集` 时查归档库，未开启时只查进程内临时上下文。
 - `get_chime` / `set_chime`：查看或设置当前私聊/群聊的 🎒常数报时；设置仍需要管理员权限。
 - `respond`：结束工具调用并给用户最终答复。
 
@@ -105,7 +107,7 @@ AI 对话会先判断当前问题是否需要联网搜索：像最新消息、�
 - 攻略库只放自建攻略：当前内置源文件是 `knowledge_sources/sts2_guides/main_1.tex`，由 `D:\QQdownload\main (1).tex` 复制而来，导入时会按 LaTeX 章节切块为 `STS2/guide` 条目，并标注为“作者攻略/软知识”。
 - 控制台 `重建 STS2 知识库` 会清空旧 `STS1` / `STS2` 条目后重建；非 STS 分类的手写知识不会被清理。
 - 命令行可在项目目录执行 `python sts_knowledge_seed.py` 重建同一套知识库。可用 `STS2_GUIDE_TEX_PATHS` 指定额外 tex 攻略源，多个路径用分号或竖线分隔。
-- 知识库回答时仍通过轻量相关性匹配进入模型上下文；事实条目和攻略条目会同时参与检索，但攻略内容会标明来源性质，避免把建议说成硬规则。
+- 知识库采用混合方案：AI 对话仍会把少量相关知识轻量预加载进上下文；Agent 也可以在需要更精准查卡、查遗物或追问时主动调用 `search_sts2_knowledge`。事实条目和攻略条目会同时参与检索，但攻略内容会标明来源性质，避免把建议说成硬规则。
 
 ### 消息采集、日报数据和导出
 
@@ -431,8 +433,10 @@ plugins/admin_console/ 猎宝控制台插件，提供人设、知识库、群管
 plugins/reminder.py    提醒、查看、取消、常数报时命令入口和定时调度
 plugins/reminder_service.py 提醒解析、创建、查询、取消和到期扫描服务，可供 AI agent 调用
 plugins/chime_service.py 常数报时开关、模式和目标列表服务，可供 AI agent 调用
+plugins/knowledge_service.py STS2/知识库检索服务，供轻量上下文和 AI agent 工具复用
+plugins/group_context_service.py 群上下文服务，统一处理采集库上下文和未采集时的临时上下文
 plugins/ai_chat.py     AI 对话、联网搜索和工具调用 agent
-plugins/agent_tools/   AI agent 的受控工具注册表；当前先承接提醒工具，提醒工具跟随 AI 对话常开，后续继续迁入知识库、日报和画像工具
+plugins/agent_tools/   AI agent 的受控工具注册表；当前承接提醒、STS2 知识库和群上下文工具，后续继续迁入日报和画像工具
 plugins/group_reactions.py 群聊附加反应：调戏其他bot、关键词回怼
 plugins/message_archive.py 消息归档写入代码
 plugins/message_collector.py 指定群消息采集代码

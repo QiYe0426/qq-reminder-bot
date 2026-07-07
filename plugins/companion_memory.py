@@ -14,6 +14,7 @@ from nonebot import get_driver, on_fullmatch, on_startswith
 from nonebot.adapters.onebot.v11 import Event, GroupMessageEvent, Message
 from nonebot.log import logger
 
+from plugins import knowledge_service as knowledge_lookup_service
 from plugins.access_control import FEATURE_COLLECTOR, FEATURE_COMPANION, admin_denial, is_group_feature_enabled
 from plugins.companion_registry import (
     DB_PATH,
@@ -887,30 +888,7 @@ async def lookup_knowledge(question: str) -> list[aiosqlite.Row]:
 
 
 async def knowledge_reply_context(question: str) -> str:
-    rows = await lookup_knowledge(question)
-    if not rows:
-        return ""
-
-    sections = []
-    for row in rows:
-        title = str(row["title"] or "").strip()
-        category = str(row["category"] or "").strip()
-        content = str(row["content"] or "").strip()
-        header = f"- {title}"
-        if category:
-            header += f"（{category}）"
-        sections.append(f"{header}\n{content}")
-
-    context = "\n\n".join(sections)
-    if len(context) > MAX_KNOWLEDGE_CONTEXT_CHARS:
-        context = context[:MAX_KNOWLEDGE_CONTEXT_CHARS].rstrip() + "\n..."
-
-    return (
-        "以下是本地知识库中与当前问题相关的内容。"
-        "只有当内容确实相关时才使用；如果知识库和用户问题不匹配，就忽略它。"
-        "不要编造知识库没有提供的细节。\n\n"
-        f"{context}"
-    )
+    return await knowledge_lookup_service.knowledge_reply_context(question)
 
 
 def profile_to_text(profile: aiosqlite.Row | None) -> str:

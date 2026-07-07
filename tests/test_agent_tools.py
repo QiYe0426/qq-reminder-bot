@@ -1,6 +1,10 @@
 import asyncio
+from datetime import datetime
 
-from plugins import reminder_service
+import aiosqlite
+
+from plugins import knowledge_service, reminder_service
+from plugins.agent_tools import group_context_tools
 from plugins.agent_tools import (
     get_agent_tool_definitions,
     get_agent_tool,
@@ -8,6 +12,7 @@ from plugins.agent_tools import (
     merge_agent_tool_definitions,
     run_registered_agent_tool,
 )
+from plugins.group_context_service import remember_transient_group_message
 from plugins.reminder_service import ReminderScope
 
 
@@ -22,8 +27,12 @@ def test_reminder_tools_are_registered() -> None:
     assert has_agent_tool("create_reminder")
     assert has_agent_tool("list_reminders")
     assert has_agent_tool("cancel_reminder")
-    assert {"create_reminder", "list_reminders", "cancel_reminder"} <= names
+    assert has_agent_tool("search_sts2_knowledge")
+    assert has_agent_tool("get_group_context")
+    assert {"create_reminder", "list_reminders", "cancel_reminder", "search_sts2_knowledge", "get_group_context"} <= names
     assert get_agent_tool("create_reminder").requires_feature == "ai_chat"
+    assert get_agent_tool("search_sts2_knowledge").requires_feature == "ai_chat"
+    assert get_agent_tool("get_group_context").requires_group is True
 
 
 def test_registered_tool_definitions_replace_same_name_base_definition() -> None:
@@ -87,3 +96,67 @@ def test_create_reminder_tool_requires_conversation_scope() -> None:
 
     assert result["ok"] is False
     assert result["error"] == "missing_event"
+
+
+def test_search_sts2_knowledge_through_agent_registry(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(knowledge_service, "DB_PATH", tmp_path / "companion_memory.db")
+    monkeypatch.setattr(knowledge_service, "_knowledge_db_ready", False)
+
+    async def run() -> dict[str, object]:
+        await knowledge_service.ensure_knowledge_db()
+        timestamp = datetime(2026, 7, 7, 10, 30).strftime("%Y-%m-%d %H:%M:%S")
+        async with aiosqlite.connect(knowledge_service.DB_PATH) as db:
+            await db.execute(
+                """
+                INSERT INTO companion_knowledge_items
+                    (title, content, keywords, category, enabled, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "巨像",
+                    "巨像是一张 STS2 测试卡牌。",
+                    '["巨像"]',
+                    "STS2/card",
+                    1,
+                    timestamp,
+                    timestamp,
+                ),
+            )
+            await db.commit()
+        return await run_registered_agent_tool("search_sts2_knowledge", {"query": "巨像"}, {})
+
+    result = asyncio.run(run())
+
+    assert result["ok"] is True
+    assert result["count"] == 1
+    assert result["items"][0]["title"] == "巨像"
+
+
+def test_get_group_context_through_agent_registry(monkeypatch) -> None:
+    async def collector_disabled(group_id: str, feature: str) -> bool:
+        return False
+
+    monkeypatch.setattr(group_context_tools, "is_group_feature_enabled", collector_disabled)
+    group_id = "agent-tool-transient-group"
+    remember_transient_group_message(
+        group_id=group_id,
+        message_id="m1",
+        user_id="10001",
+        sender_name="群友A",
+        plain_text="刚刚说过要喝水",
+        segment_types="text",
+        created_at="2026-07-07 10:00:00",
+    )
+
+    result = asyncio.run(
+        run_registered_agent_tool(
+            "get_group_context",
+            {"keyword": "喝水", "limit": 5},
+            {"_target_type": "group", "_target_id": group_id},
+        )
+    )
+
+    assert result["ok"] is True
+    assert result["source"] == "transient"
+    assert result["count"] == 1
+    assert "喝水" in result["context"]

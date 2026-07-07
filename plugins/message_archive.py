@@ -375,6 +375,64 @@ async def recent_group_messages(
     return result
 
 
+def escape_like_pattern(text: str) -> str:
+    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+async def search_group_messages(
+    group_id: str | int,
+    keyword: str,
+    *,
+    limit: int = 20,
+    exclude_message_id: str | int | None = None,
+) -> list[dict[str, str]]:
+    await init_archive_db()
+    cleaned_keyword = " ".join((keyword or "").split()).strip()
+    if not cleaned_keyword:
+        return await recent_group_messages(
+            group_id,
+            limit=limit,
+            exclude_message_id=exclude_message_id,
+        )
+
+    safe_limit = max(1, min(int(limit or 20), 50))
+    params: list[object] = [str(group_id), f"%{escape_like_pattern(cleaned_keyword)}%"]
+    extra_where = ""
+    if exclude_message_id is not None and str(exclude_message_id):
+        extra_where = "AND COALESCE(message_id, '') != ?"
+        params.append(str(exclude_message_id))
+    params.append(safe_limit)
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            f"""
+            SELECT message_id, user_id, sender_name, plain_text, segment_types, created_at
+            FROM collected_messages
+            WHERE group_id = ?
+              AND COALESCE(plain_text, '') LIKE ? ESCAPE '\\'
+              {extra_where}
+            ORDER BY created_at DESC, id DESC
+            LIMIT ?
+            """,
+            tuple(params),
+        )
+        rows = await cursor.fetchall()
+
+    result: list[dict[str, str]] = []
+    for row in reversed(rows):
+        result.append(
+            {
+                "message_id": str(row["message_id"] or ""),
+                "user_id": str(row["user_id"] or ""),
+                "sender_name": str(row["sender_name"] or row["user_id"] or ""),
+                "plain_text": str(row["plain_text"] or ""),
+                "segment_types": str(row["segment_types"] or ""),
+                "created_at": str(row["created_at"] or ""),
+            }
+        )
+    return result
+
+
 def render_recent_message_context(messages: list[dict[str, str]], *, title: str) -> str:
     lines: list[str] = []
     for item in messages:

@@ -11,10 +11,14 @@ from .registry import (
     register_tools,
     run_registered_agent_tool,
 )
+from .group_context_tools import GROUP_CONTEXT_TOOLS
+from .knowledge_tools import KNOWLEDGE_TOOLS
 from .reminder_tools import REMINDER_TOOLS
 
 
 register_tools(REMINDER_TOOLS)
+register_tools(KNOWLEDGE_TOOLS)
+register_tools(GROUP_CONTEXT_TOOLS)
 
 
 __all__ = [
