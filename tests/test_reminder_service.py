@@ -145,5 +145,26 @@ def test_targeted_group_reminder_mentions_target_user(tmp_path, monkeypatch) -> 
     assert created["ok"] is True
     assert created["target_user_id"] == "10002"
     assert created["target_display_name"] == "小明"
+    assert created["message"] == "已创建提醒 #1：2099-01-01 09:00，提醒 小明：喝水"
     assert reminders[0]["target_user_id"] == "10002"
     assert format_due_reminder_message(reminders[0]) == "[CQ:at,qq=10002] 提醒：喝水"
+
+
+def test_created_reminder_feedback_escapes_cq_without_mentioning_target(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(reminder_service, "DB_PATH", tmp_path / "reminders.db")
+    monkeypatch.setattr(reminder_service, "_db_ready", False)
+
+    async def run() -> dict[str, object]:
+        return await create_reminder(
+            ReminderScope(user_id="10001", target_type="group", group_id="20001"),
+            "2099-01-01 09:00 提醒小明集合",
+            target=ReminderTarget(user_id="10002", display_name="[CQ:at,qq=10002]小明"),
+            content_override="[CQ:at,qq=all]集合",
+        )
+
+    created = asyncio.run(run())
+
+    assert created["message"] == (
+        "已创建提醒 #1：2099-01-01 09:00，提醒 &#91;CQ:at,qq=10002&#93;小明："
+        "&#91;CQ:at,qq=all&#93;集合"
+    )

@@ -1223,6 +1223,19 @@ async def group_members(bot: Bot, group_id: int | str) -> list[GroupMember]:
     return members
 
 
+async def hydrate_group_reminder_target(
+    bot: Bot,
+    event: GroupMessageEvent,
+    target: ReminderTarget,
+) -> ReminderTarget:
+    if target.display_name:
+        return target
+    for member in await group_members(bot, event.group_id):
+        if member.user_id == target.user_id:
+            return ReminderTarget(user_id=target.user_id, display_name=member.display_name)
+    return target
+
+
 async def direct_group_target_match(
     question: str,
     event: GroupMessageEvent,
@@ -1235,7 +1248,11 @@ async def direct_group_target_match(
     _, content = parsed
     at_targets = mentioned_group_targets(event, bot)
     if at_targets:
-        return TargetMatch(target=at_targets[0], content=content, needs_confirmation=False)
+        return TargetMatch(
+            target=await hydrate_group_reminder_target(bot, event, at_targets[0]),
+            content=content,
+            needs_confirmation=False,
+        )
 
     members = await group_members(bot, event.group_id)
     return find_target_in_content(content, members)
@@ -1270,7 +1287,7 @@ async def handle_pending_reminder_confirmation(bot: Bot, event: GroupMessageEven
         return await create_targeted_reminder_reply(
             event,
             raw_text=pending.raw_text,
-            target=at_targets[0],
+            target=await hydrate_group_reminder_target(bot, event, at_targets[0]),
             content=pending.content,
         )
 

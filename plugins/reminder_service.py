@@ -313,6 +313,25 @@ def normalize_reminder_target(scope: ReminderScope, target: ReminderTarget | Non
     return ReminderTarget(user_id=str(scope.user_id), display_name="")
 
 
+def escape_cq_text(text: str) -> str:
+    return text.replace("&", "&amp;").replace("[", "&#91;").replace("]", "&#93;")
+
+
+def format_created_reminder_message(
+    *,
+    reminder_id: int,
+    remind_at_text: str,
+    content: str,
+    scope: ReminderScope,
+    target: ReminderTarget,
+) -> str:
+    safe_content = escape_cq_text(content)
+    if scope.target_type == "group" and target.user_id != scope.user_id:
+        target_name = escape_cq_text(target.display_name or f"QQ {target.user_id}")
+        return f"已创建提醒 #{reminder_id}：{remind_at_text}，提醒 {target_name}：{safe_content}"
+    return f"已创建提醒 #{reminder_id}：{remind_at_text} {safe_content}"
+
+
 async def create_reminder(
     scope: ReminderScope,
     raw_text: str,
@@ -359,20 +378,23 @@ async def create_reminder(
         await db.commit()
         reminder_id = int(cursor.lastrowid or 0)
 
-    target_name = normalized_target.display_name or normalized_target.user_id
-    target_message = ""
-    if normalized.target_type == "group" and normalized_target.user_id != normalized.user_id:
-        target_message = f" 提醒{target_name}"
+    remind_at_text = remind_at.strftime(TIME_FORMAT)
     return {
         "ok": True,
         "id": reminder_id,
-        "remind_at": remind_at.strftime(TIME_FORMAT),
+        "remind_at": remind_at_text,
         "content": content,
         "target_type": normalized.target_type,
         "group_id": normalized.group_id or "",
         "target_user_id": normalized_target.user_id,
         "target_display_name": normalized_target.display_name,
-        "message": f"已创建提醒 #{reminder_id}：{remind_at.strftime(TIME_FORMAT)}{target_message} {content}",
+        "message": format_created_reminder_message(
+            reminder_id=reminder_id,
+            remind_at_text=remind_at_text,
+            content=content,
+            scope=normalized,
+            target=normalized_target,
+        ),
     }
 
 
@@ -422,10 +444,6 @@ def format_reminder_list(reminders: list[dict[str, object]]) -> str:
         )
         lines.append(f"#{item['id']} {item['remind_at']}{target_text} {item['content']}")
     return "\n".join(lines)
-
-
-def escape_cq_text(text: str) -> str:
-    return text.replace("&", "&amp;").replace("[", "&#91;").replace("]", "&#93;")
 
 
 def format_due_reminder_message(reminder: dict[str, object]) -> str:
