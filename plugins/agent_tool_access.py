@@ -42,6 +42,7 @@ REGISTERED_TOOL_LABELS = {
     "get_group_status": "查看群状态",
     "get_group_profile": "查看群画像",
     "get_member_profile": "查看群友画像",
+    "set_group_features": "调整群功能",
 }
 
 BUILTIN_CAPABILITIES = [

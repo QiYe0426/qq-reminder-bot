@@ -7,6 +7,8 @@ from plugins.reminder_service import ReminderTarget
 
 
 TARGET_ACTION_PREFIXES = ("提醒", "叫", "让", "喊", "通知", "告诉")
+TARGET_PRONOUNS = ("那个人", "这个人", "她", "他", "它", "ta")
+CONTENT_FILLER_PREFIXES = ("一下", "去", "要", "做")
 SELF_WORDS = {"我", "自己", "本人", "我自己"}
 
 
@@ -41,6 +43,49 @@ def strip_target_action_prefix(content: str) -> tuple[str, bool]:
     return normalized, False
 
 
+def strip_content_filler_prefixes(content: str) -> str:
+    normalized = content.strip().strip("，,。；;：:")
+    changed = True
+    while changed:
+        changed = False
+        for prefix in CONTENT_FILLER_PREFIXES:
+            if normalized.startswith(prefix):
+                normalized = normalized[len(prefix) :].strip().strip("，,。；;：:")
+                changed = True
+                break
+    return normalized
+
+
+def strip_target_pronoun(content: str) -> tuple[str, bool]:
+    """Remove a leading reminder target pronoun from content.
+
+    Examples:
+    - 提醒她喝水 -> 喝水
+    - 叫 ta 一下喝水 -> 喝水
+    - 那个人去睡觉 -> 睡觉
+    """
+
+    candidate_text, _ = strip_target_action_prefix(content)
+    candidate_text = strip_content_filler_prefixes(candidate_text)
+    compact_candidate = compact_text(candidate_text)
+    if not compact_candidate:
+        return candidate_text, False
+
+    for pronoun in sorted(TARGET_PRONOUNS, key=len, reverse=True):
+        compact_pronoun = compact_text(pronoun)
+        if not compact_candidate.startswith(compact_pronoun):
+            continue
+
+        if pronoun.isascii():
+            remainder = candidate_text[len(pronoun) :]
+        else:
+            remainder = candidate_text[len(pronoun) :]
+        remainder = strip_content_filler_prefixes(remainder)
+        return remainder or candidate_text, bool(remainder)
+
+    return candidate_text, False
+
+
 def group_member_from_payload(payload: dict[str, object]) -> GroupMember | None:
     user_id = clean_text(payload.get("user_id"))
     if not user_id:
@@ -59,9 +104,7 @@ def group_member_from_payload(payload: dict[str, object]) -> GroupMember | None:
 
 def content_without_prefix(prefix: str, content: str) -> str:
     stripped = content[len(prefix) :].strip().strip("，,。；;：:")
-    if stripped.startswith(("去", "要", "做", "一下")):
-        stripped = stripped[1:].strip().strip("，,。；;：:")
-    return stripped
+    return strip_content_filler_prefixes(stripped)
 
 
 def unique_member_candidates(matches: list[tuple[int, GroupMember, str, bool]], content: str) -> list[TargetMatch]:

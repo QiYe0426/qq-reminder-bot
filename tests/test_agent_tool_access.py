@@ -23,7 +23,8 @@ def test_agent_tool_capabilities_include_admin_and_core_tools() -> None:
 
     assert tools["respond"]["configurable"] is False
     assert tools["generate_daily_report"]["requires_admin"] is True
-    assert tools["get_member_profile"]["requires_group"] is True
+    assert tools["get_member_profile"]["requires_group"] is False
+    assert tools["set_group_features"]["requires_admin"] is True
     assert tools["web_search"]["category"] == "web"
 
 
@@ -58,6 +59,27 @@ def test_admin_agent_tools_require_admin_context(tmp_path, monkeypatch) -> None:
         allowed = await is_agent_tool_allowed(
             "get_group_status",
             {"_target_type": "group", "_target_id": "1001", "_is_admin": True},
+        )
+        return denied, allowed
+
+    denied, allowed = asyncio.run(run())
+
+    assert denied[0] is False
+    assert "管理员" in denied[1]
+    assert allowed == (True, "")
+
+
+def test_admin_agent_tools_are_allowed_in_private_for_admin(tmp_path, monkeypatch) -> None:
+    reset_access_db(tmp_path, monkeypatch)
+
+    async def run() -> tuple[tuple[bool, str], tuple[bool, str]]:
+        denied = await is_agent_tool_allowed(
+            "set_group_features",
+            {"_target_type": "private", "_target_id": "1261957634", "_is_admin": False},
+        )
+        allowed = await is_agent_tool_allowed(
+            "set_group_features",
+            {"_target_type": "private", "_target_id": "1261957634", "_is_admin": True},
         )
         return denied, allowed
 

@@ -4,6 +4,7 @@ from datetime import datetime
 import aiosqlite
 
 from plugins import knowledge_service, reminder_service
+from plugins import access_control
 from plugins.agent_tools.admin_tools import mentioned_user_ids
 from plugins.agent_tools import group_context_tools
 from plugins.agent_tools import (
@@ -15,6 +16,7 @@ from plugins.agent_tools import (
 )
 from plugins.group_context_service import remember_transient_group_message
 from plugins.reminder_service import ReminderScope
+from plugins.access_control import FEATURE_COLLECTOR, FEATURE_DAILY_REPORT, is_group_feature_enabled
 
 
 class FakeSegment:
@@ -58,12 +60,14 @@ def test_reminder_tools_are_registered() -> None:
         "get_group_status",
         "get_group_profile",
         "get_member_profile",
+        "set_group_features",
     } <= names
     assert get_agent_tool("create_reminder").requires_feature == "ai_chat"
     assert get_agent_tool("search_sts2_knowledge").requires_feature == "ai_chat"
     assert get_agent_tool("get_group_context").requires_group is True
     assert get_agent_tool("generate_daily_report").requires_admin is True
-    assert get_agent_tool("get_member_profile").requires_group is True
+    assert get_agent_tool("get_member_profile").requires_group is False
+    assert get_agent_tool("set_group_features").requires_admin is True
 
 
 def test_member_profile_tool_can_read_non_bot_mentions() -> None:
@@ -195,3 +199,40 @@ def test_get_group_context_through_agent_registry(monkeypatch) -> None:
     assert result["source"] == "transient"
     assert result["count"] == 1
     assert "喝水" in result["context"]
+
+
+def test_admin_set_group_features_through_agent_registry(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(access_control, "DB_PATH", tmp_path / "bot_settings.db")
+    monkeypatch.setattr(access_control, "_db_ready", False)
+
+    async def run() -> tuple[dict[str, object], bool, bool]:
+        result = await run_registered_agent_tool(
+            "set_group_features",
+            {"group_id": "722290838", "collector": True, "daily_report": True},
+            {"_target_type": "private", "_user_id": "1261957634", "_is_admin": True},
+        )
+        collector = await is_group_feature_enabled("722290838", FEATURE_COLLECTOR)
+        daily_report = await is_group_feature_enabled("722290838", FEATURE_DAILY_REPORT)
+        return result, collector, daily_report
+
+    result, collector, daily_report = asyncio.run(run())
+
+    assert result["ok"] is True
+    assert collector is True
+    assert daily_report is True
+
+
+def test_admin_set_group_features_rejects_missing_dependency(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(access_control, "DB_PATH", tmp_path / "bot_settings.db")
+    monkeypatch.setattr(access_control, "_db_ready", False)
+
+    result = asyncio.run(
+        run_registered_agent_tool(
+            "set_group_features",
+            {"group_id": "722290838", "daily_report": True},
+            {"_target_type": "private", "_user_id": "1261957634", "_is_admin": True},
+        )
+    )
+
+    assert result["ok"] is False
+    assert result["error"] == "dependency_failed"

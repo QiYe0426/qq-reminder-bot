@@ -36,6 +36,22 @@ def test_parse_time_only_rolls_to_tomorrow() -> None:
     assert parsed == (datetime(2026, 7, 8, 9, 0), "喝水")
 
 
+def test_parse_time_only_without_space() -> None:
+    now = datetime(2026, 7, 7, 10, 30)
+
+    parsed = parse_reminder("12:00提醒匣子睡觉", now=now)
+
+    assert parsed == (datetime(2026, 7, 7, 12, 0), "提醒匣子睡觉")
+
+
+def test_parse_followup_discourse_prefix() -> None:
+    now = datetime(2026, 7, 7, 10, 30)
+
+    parsed = parse_reminder("再在凌晨1点提醒她睡觉", now=now)
+
+    assert parsed == (datetime(2026, 7, 8, 1, 0), "她睡觉")
+
+
 def test_parse_tomorrow_same_time_with_request_prefix() -> None:
     now = datetime(2026, 7, 7, 10, 30, 45)
 

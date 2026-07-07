@@ -59,6 +59,7 @@ from plugins.reminder_target_service import (
     TargetMatch,
     find_target_in_content,
     group_member_from_payload,
+    strip_target_pronoun,
 )
 from plugins.message_archive import save_ai_reply
 
@@ -118,9 +119,10 @@ AGENT_SYSTEM_INSTRUCTIONS = (
     "如果用户要提醒群里的别人但对象不明确，应先确认对象；用户也可以通过 @某人 明确指定。"
     "如果用户询问杀戮尖塔2/STS2 的卡牌、遗物、角色、敌人、Boss、事件、关键词、机制或攻略，优先使用 search_sts2_knowledge；涉及卡牌强度、抓率和版本变化时，要同时参考107攻略和108相对107差异。"
     "如果用户要你回忆、查找、总结当前群刚才或最近聊过什么，使用 get_group_context；需要关键词时传 keyword，不需要时查最近消息。"
-    "如果管理员询问当前群状态、功能开关、消息采集数量或 Agent 工具权限，使用 get_group_status。"
-    "如果管理员询问昨日总结、昨天日报、群日报或指定日期总结，使用 generate_daily_report；未指定日期时按昨天处理。"
-    "如果管理员询问当前群画像，使用 get_group_profile；如果管理员询问某个群友/某人的画像，使用 get_member_profile。"
+    "如果管理员询问当前群或指定群的状态、功能开关、消息采集数量、日报生成状态或 Agent 工具权限，使用 get_group_status；私聊里必须带 group_id。"
+    "如果管理员询问昨日总结、昨天日报、群日报或指定日期总结，使用 generate_daily_report；未指定日期时按昨天处理；私聊里必须带 group_id。"
+    "如果管理员要开启、关闭或调整某群功能，使用 set_group_features；私聊里必须带 group_id，并遵守日报/陪伴依赖消息采集。"
+    "如果管理员询问当前群或指定群画像，使用 get_group_profile；如果管理员询问某个群友/某人的画像，使用 get_member_profile；私聊里必须带 group_id。"
     "这些管理类工具只能给管理员使用；普通用户请求时不要猜测内部数据，应说明需要管理员权限。"
     "如果用户要查看或设置当前会话的常数报时，使用 get_chime 或 set_chime。"
     "设置常数报时前要遵守现有权限和群功能开关。"
@@ -593,7 +595,17 @@ class PendingReminderConfirmation:
     expires_at: datetime
 
 
+@dataclass(frozen=True)
+class RecentReminderTarget:
+    group_id: str
+    creator_user_id: str
+    target: ReminderTarget
+    expires_at: datetime
+
+
 pending_reminder_confirmations: dict[tuple[str, str], PendingReminderConfirmation] = {}
+recent_reminder_targets: dict[tuple[str, str], RecentReminderTarget] = {}
+RECENT_REMINDER_TARGET_TTL = timedelta(hours=2)
 
 
 def get_int_env(name: str, default: int) -> int:
@@ -1174,11 +1186,45 @@ def reminder_confirmation_key(event: GroupMessageEvent) -> tuple[str, str]:
     return str(event.group_id), str(event.user_id)
 
 
+def recent_reminder_target_key(event: GroupMessageEvent) -> tuple[str, str]:
+    return str(event.group_id), str(event.user_id)
+
+
 def clear_expired_pending_reminder_confirmations(now: datetime | None = None) -> None:
     current_time = now or datetime.now()
     for key, pending in list(pending_reminder_confirmations.items()):
         if pending.expires_at <= current_time:
             pending_reminder_confirmations.pop(key, None)
+
+
+def clear_expired_recent_reminder_targets(now: datetime | None = None) -> None:
+    current_time = now or datetime.now()
+    for key, recent in list(recent_reminder_targets.items()):
+        if recent.expires_at <= current_time:
+            recent_reminder_targets.pop(key, None)
+
+
+def remember_recent_reminder_target(event: MessageEvent, target: ReminderTarget) -> None:
+    if not isinstance(event, GroupMessageEvent):
+        return
+    if not target.user_id or str(target.user_id) == str(event.user_id):
+        return
+    recent_reminder_targets[recent_reminder_target_key(event)] = RecentReminderTarget(
+        group_id=str(event.group_id),
+        creator_user_id=str(event.user_id),
+        target=target,
+        expires_at=datetime.now() + RECENT_REMINDER_TARGET_TTL,
+    )
+
+
+def recent_reminder_target(event: GroupMessageEvent) -> ReminderTarget | None:
+    clear_expired_recent_reminder_targets()
+    recent = recent_reminder_targets.get(recent_reminder_target_key(event))
+    if recent and recent.expires_at > datetime.now():
+        return recent.target
+    if recent:
+        recent_reminder_targets.pop(recent_reminder_target_key(event), None)
+    return None
 
 
 def pending_reminder_confirmation(event: GroupMessageEvent) -> PendingReminderConfirmation | None:
@@ -1267,6 +1313,16 @@ async def direct_group_target_match(
             needs_confirmation=False,
         )
 
+    recent_target = recent_reminder_target(event)
+    if recent_target is not None:
+        pronoun_content, has_pronoun = strip_target_pronoun(content)
+        if has_pronoun:
+            return TargetMatch(
+                target=recent_target,
+                content=pronoun_content,
+                needs_confirmation=False,
+            )
+
     members = await group_members(bot, event.group_id)
     return find_target_in_content(content, members)
 
@@ -1284,6 +1340,8 @@ async def create_targeted_reminder_reply(
         target=target,
         content_override=content,
     )
+    if result.get("ok"):
+        remember_recent_reminder_target(event, target)
     return str(result.get("message") or "")
 
 

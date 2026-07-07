@@ -1,8 +1,8 @@
 # 猎bot
 
-猎bot正式发布基线为 v2.0.0「猎bot-初具人形」，当前工作树为 v2.2.0。项目是一个用于学习和自用的 QQ bot，基于 NoneBot2 + OneBot v11。当前版本已经从“命令型提醒 bot”整理成“消息交给 AI agent，再由 agent 调用工具”的雏形，主要支持 AI 对话、联网搜索、提醒工具、常数报时工具、分群消息采集、日报、智能陪伴画像、STS2 知识库、群上下文工具、日报/画像/群状态 Agent 工具和猎宝控制台。
+猎bot正式发布基线为 v2.0.0「猎bot-初具人形」，当前工作树为 v2.2.1。项目是一个用于学习和自用的 QQ bot，基于 NoneBot2 + OneBot v11。当前版本已经从“命令型提醒 bot”整理成“消息交给 AI agent，再由 agent 调用工具”的雏形，主要支持 AI 对话、联网搜索、提醒工具、常数报时工具、分群消息采集、日报、智能陪伴画像、STS2 知识库、群上下文工具、日报/画像/群状态/群功能管理 Agent 工具和猎宝控制台。
 
-猎bot加入新群后默认保持业务功能静默。常规 AI 对话、AI 对话里的自然语言提醒、`ping`、`help` 可直接使用；传统 `提醒 ...` 命令、消息采集、日报和陪伴画像需要管理员按群开启。AI 对话独立于消息采集，也可以按群单独关闭。`群功能状态`、采集、日报、存储、媒体识别、日报 Agent 工具、画像 Agent 工具和群状态 Agent 工具等管理能力仅管理员可用，并可在控制台按群配置允许哪些 Agent 工具。
+猎bot加入新群后默认保持业务功能静默。常规 AI 对话、AI 对话里的自然语言提醒、`ping`、`help` 可直接使用；传统 `提醒 ...` 命令、消息采集、日报和陪伴画像需要管理员按群开启。AI 对话独立于消息采集，也可以按群单独关闭。`群功能状态`、采集、日报、存储、媒体识别、日报 Agent 工具、画像 Agent 工具、群状态 Agent 工具和群功能管理 Agent 工具等管理能力仅管理员可用，并可在控制台按群配置允许哪些 Agent 工具。管理员也可以私聊猎宝，带群号查看某群状态/日报/画像或调整某群功能。
 
 如果你是接手这份仓库的 AI，请先完整读本文件。仓库后续只保留这一份说明入口。
 
@@ -29,8 +29,8 @@
 - 当前数据流：
   - NoneBot 从 `pyproject.toml` 加载插件，OneBot v11/NapCat 负责 QQ 收发。
   - 普通用户消息先经过 `ai_chat` 判断是否触发猎宝；触发后构造本地上下文，再交给 AI agent。
-  - AI agent 可调用受控工具：`web_search`、`fetch_url`、`create_reminder`、`list_reminders`、`cancel_reminder`、`search_sts2_knowledge`、`get_group_context`、`get_chime`、`set_chime` 和 `respond`。
-  - `plugins/agent_tools/` 是 2.1 起新增的工具注册层；提醒、STS2 知识库和群上下文工具已迁入注册表，并跟随 `AI 对话` 开关可用。后续日报、画像和控制台能力会继续按同一模式迁入。
+  - AI agent 可调用受控工具：`web_search`、`fetch_url`、`create_reminder`、`list_reminders`、`cancel_reminder`、`search_sts2_knowledge`、`get_group_context`、`generate_daily_report`、`get_group_status`、`get_group_profile`、`get_member_profile`、`set_group_features`、`get_chime`、`set_chime` 和 `respond`。
+  - `plugins/agent_tools/` 是 2.1 起新增的工具注册层；提醒、STS2 知识库、群上下文、日报、画像、群状态和群功能管理工具已迁入注册表，并跟随权限、功能依赖和控制台 Agent 工具开关动态过滤。
   - 命令入口仍由 `reminder.py`、`daily_report.py`、`message_collector.py` 等插件保留；提醒和常数报时的核心逻辑已下沉到 `reminder_service.py` / `chime_service.py`，方便 AI 调用。
   - 群消息先进入归档库 `message_archive`，再由 `message_collector` / `media_insights` 做采集和素材识别。
   - `daily_report` 读取数据库生成日报，`companion_memory` 读取采集消息生成画像，`admin_console` 写入控制台配置。
@@ -69,7 +69,7 @@
 - `提醒 10分钟后喝水`：创建相对时间提醒，支持部分中文数字，例如 `提醒 一分钟后吃饭`。
 - `提醒 明天这个时候吃饭` / `提醒 明天下午三点开会` / `提醒 今晚八点吃饭`：创建自然时间提醒；AI agent 调用提醒工具时也复用同一套解析。
 - `提醒 2026-06-20 09:00 喝水`：创建指定日期提醒。
-- 群聊 `@猎bot 10分钟后提醒小明喝水`：如果能明确匹配当前群昵称/群名片，会到点 `@小明`；如果不确定，会询问“你想提醒的是 xxx 对吗”。发起人在 1 分钟内可直接回复 `对` / `不对` 或直接 `@某人`，确认或取消后临时状态立即失效。
+- 群聊 `@猎bot 10分钟后提醒小明喝水`：如果能明确匹配当前群昵称/群名片，会到点 `@小明`；如果不确定，会询问“你想提醒的是 xxx 对吗”。发起人在 1 分钟内可直接回复 `对` / `不对` 或直接 `@某人`，确认或取消后临时状态立即失效。成功创建“提醒别人”后，同一群同一发起人的短期上下文会记住最近提醒对象，下一条 `再在凌晨1点提醒她睡觉` / `提醒 ta 喝水` 这类指代会复用该对象。
 - 群聊 `@猎bot 10分钟后提醒 @小明 喝水`：直接提醒被 @ 的人。
 - `查看提醒`：查看本人未完成提醒。
 - `取消提醒 1`：取消本人指定编号的提醒。
@@ -96,6 +96,10 @@ AI 对话默认走受控 agent。用户发给猎宝的自然语言会先进入 `
 - `create_reminder` / `list_reminders` / `cancel_reminder`：创建、查看和取消本人提醒；AI 对话里的自然语言提醒跟随 `AI 对话` 开关常开，传统 `提醒 ...` 命令仍遵守本群 `提醒` 开关。
 - `search_sts2_knowledge`：按需检索本地 STS2 知识库，适合卡牌、遗物、角色、敌人、Boss、事件、关键词、机制和攻略问题。
 - `get_group_context`：按需读取当前群最近上下文；开启 `消息采集` 时查归档库，未开启时只查进程内临时上下文。
+- `generate_daily_report`：管理员生成或查看指定群的日报/昨日总结；私聊里需要提供群号，生成开始和失败原因会有明确反馈。
+- `get_group_status`：管理员查看当前群或指定群的功能开关、采集数量、日报运行状态、群画像和 Agent 工具权限。
+- `get_group_profile` / `get_member_profile`：管理员查看当前群或指定群的群画像、群友画像。
+- `set_group_features`：管理员开启、关闭或调整指定群功能；私聊里需要明确群号。
 - `get_chime` / `set_chime`：查看或设置当前私聊/群聊的 🎒常数报时；设置仍需要管理员权限。
 - `respond`：结束工具调用并给用户最终答复。
 
@@ -438,7 +442,7 @@ plugins/chime_service.py 常数报时开关、模式和目标列表服务，可�
 plugins/knowledge_service.py STS2/知识库检索服务，供轻量上下文和 AI agent 工具复用
 plugins/group_context_service.py 群上下文服务，统一处理采集库上下文和未采集时的临时上下文
 plugins/ai_chat.py     AI 对话、联网搜索和工具调用 agent
-plugins/agent_tools/   AI agent 的受控工具注册表；当前承接提醒、STS2 知识库和群上下文工具，后续继续迁入日报和画像工具
+plugins/agent_tools/   AI agent 的受控工具注册表；当前承接提醒、STS2 知识库、群上下文、日报、画像、群状态和群功能管理工具
 plugins/group_reactions.py 群聊附加反应：调戏其他bot、关键词回怼
 plugins/message_archive.py 消息归档写入代码
 plugins/message_collector.py 指定群消息采集代码

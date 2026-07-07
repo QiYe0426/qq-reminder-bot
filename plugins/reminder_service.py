@@ -14,6 +14,10 @@ TIME_ONLY_FORMAT = "%H:%M"
 NUMBER_TEXT = r"\d+|[零〇一二两俩三四五六七八九十百千]+"
 DAY_OFFSET = {"今天": 0, "明天": 1, "后天": 2, "大后天": 3}
 REQUEST_PREFIXES = (
+    "再在",
+    "再",
+    "然后",
+    "顺便",
     "帮我提醒一下",
     "帮我提醒",
     "提醒我",
@@ -47,6 +51,9 @@ NATURAL_DATE_CLOCK_PATTERN = re.compile(
     r"^(?P<day>今天|明天|后天|大后天)\s*"
     r"(?P<clock>\d{1,2}:\d{2})\s*"
     r"(?P<content>.+)$"
+)
+CLOCK_WITHOUT_SPACE_PATTERN = re.compile(
+    r"^(?P<clock>\d{1,2}:\d{2})\s*(?P<content>.+)$"
 )
 
 _db_ready = False
@@ -276,11 +283,14 @@ def parse_reminder(text: str, *, now: datetime | None = None) -> tuple[datetime,
             else:
                 return remind_at, content
 
-    time_parts = text.split(maxsplit=1)
-    if len(time_parts) != 2:
-        return None
-
-    raw_time, content = time_parts[0], time_parts[1].strip()
+    match = CLOCK_WITHOUT_SPACE_PATTERN.match(text)
+    if match:
+        raw_time, content = match.group("clock"), match.group("content").strip()
+    else:
+        time_parts = text.split(maxsplit=1)
+        if len(time_parts) != 2:
+            return None
+        raw_time, content = time_parts[0], time_parts[1].strip()
     if not content:
         return None
 

@@ -4,15 +4,24 @@ from datetime import date, timedelta
 from typing import Any
 
 import aiosqlite
+from nonebot.log import logger
 
 from plugins.access_control import (
+    DB_PATH as ACCESS_DB_PATH,
     FEATURE_AI_CHAT,
+    FEATURE_BOT_TEASE,
     FEATURE_COLLECTOR,
     FEATURE_COMPANION,
+    FEATURE_CONSTANT_RETORT,
     FEATURE_DAILY_REPORT,
     FEATURE_DAILY_REPORT_AUTO,
+    FEATURE_KEYWORD_RETORT,
     FEATURE_LABELS,
+    enforce_group_feature_dependencies,
     is_group_feature_enabled,
+    normalize_feature_name,
+    set_group_feature,
+    set_group_feature_limits,
 )
 from plugins.message_archive import DB_PATH as ARCHIVE_DB_PATH
 
@@ -21,6 +30,16 @@ from .registry import AgentTool, AgentToolContext, AgentToolResult
 
 MAX_TOOL_REPORT_CHARS = 6000
 MAX_PROFILE_MEMORIES = 8
+ADMIN_CONFIGURABLE_FEATURES = [
+    FEATURE_AI_CHAT,
+    FEATURE_COLLECTOR,
+    FEATURE_DAILY_REPORT,
+    FEATURE_DAILY_REPORT_AUTO,
+    FEATURE_COMPANION,
+    FEATURE_BOT_TEASE,
+    FEATURE_CONSTANT_RETORT,
+    FEATURE_KEYWORD_RETORT,
+]
 
 
 def _tool_definition(
@@ -51,6 +70,19 @@ def current_group_id(context: AgentToolContext) -> str:
     if str(context.get("_target_type") or "") != "group":
         return ""
     return str(context.get("_target_id") or "").strip()
+
+
+def group_id_arg(args: dict[str, object]) -> str:
+    group_id = str(args.get("group_id") or args.get("target_group_id") or "").strip()
+    return group_id if group_id.isdigit() else ""
+
+
+def target_group_id(args: dict[str, object], context: AgentToolContext) -> str:
+    return group_id_arg(args) or current_group_id(context)
+
+
+def missing_group_message() -> str:
+    return "请提供要操作的群号，例如 group_id=722290838。"
 
 
 def truncate_text(text: str, limit: int = MAX_TOOL_REPORT_CHARS) -> tuple[str, bool]:
@@ -111,6 +143,26 @@ async def group_archive_summary(group_id: str) -> dict[str, object]:
     }
 
 
+async def latest_daily_report_runs(group_id: str, limit: int = 5) -> list[dict[str, object]]:
+    from plugins.daily_report import init_daily_report_run_db
+
+    await init_daily_report_run_db()
+    async with aiosqlite.connect(ACCESS_DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            """
+            SELECT group_id, target_date, status, error, updated_at
+            FROM daily_report_runs
+            WHERE group_id = ?
+            ORDER BY target_date DESC, updated_at DESC
+            LIMIT ?
+            """,
+            (group_id, max(1, min(int(limit or 5), 20))),
+        )
+        rows = await cursor.fetchall()
+    return [row_to_dict(row) or {} for row in rows]
+
+
 async def feature_state(group_id: str) -> dict[str, object]:
     feature_names = [
         FEATURE_AI_CHAT,
@@ -129,9 +181,9 @@ async def feature_state(group_id: str) -> dict[str, object]:
 
 
 async def get_group_status_tool(args: dict[str, object], context: AgentToolContext) -> AgentToolResult:
-    group_id = current_group_id(context)
+    group_id = target_group_id(args, context)
     if not group_id:
-        return {"ok": False, "error": "not_group_chat", "message": "群状态只能在群聊中查看。"}
+        return {"ok": False, "error": "missing_group_id", "message": missing_group_message()}
 
     from plugins.agent_tool_access import group_agent_tool_state
     from plugins.companion_memory import get_group_profile
@@ -146,7 +198,8 @@ async def get_group_status_tool(args: dict[str, object], context: AgentToolConte
         "companion_target_count": await companion_target_count(group_id),
         "group_profile": group_profile,
         "agent_tools": await group_agent_tool_state(group_id),
-        "message": "已读取当前群状态。",
+        "daily_report_runs": await latest_daily_report_runs(group_id),
+        "message": f"已读取群 {group_id} 状态。",
     }
 
 
@@ -158,12 +211,33 @@ def normalize_report_date_arg(value: object) -> date:
     return parse_report_date(str(value))
 
 
-async def generate_daily_report_tool(args: dict[str, object], context: AgentToolContext) -> AgentToolResult:
-    group_id = current_group_id(context)
-    if not group_id:
-        return {"ok": False, "error": "not_group_chat", "message": "日报只能在群聊中生成。"}
+async def send_tool_progress(context: AgentToolContext, message: str) -> None:
+    try:
+        from nonebot import get_bot
 
-    from plugins.daily_report import daily_report_unavailable_reason, generate_ai_daily_report_markdown, report_chat_body
+        bot = get_bot()
+        if current_group_id(context):
+            await bot.send_group_msg(group_id=int(current_group_id(context)), message=message)
+            return
+
+        user_id = str(context.get("_user_id") or "").strip()
+        if user_id.isdigit():
+            await bot.send_private_msg(user_id=int(user_id), message=message)
+    except Exception:
+        logger.exception("Failed to send agent tool progress message")
+
+
+async def generate_daily_report_tool(args: dict[str, object], context: AgentToolContext) -> AgentToolResult:
+    group_id = target_group_id(args, context)
+    if not group_id:
+        return {"ok": False, "error": "missing_group_id", "message": missing_group_message()}
+
+    from plugins.daily_report import (
+        daily_report_unavailable_reason,
+        generate_ai_daily_report_markdown,
+        mark_daily_report_run,
+        report_chat_body,
+    )
 
     try:
         target_date = normalize_report_date_arg(args.get("date"))
@@ -172,6 +246,7 @@ async def generate_daily_report_tool(args: dict[str, object], context: AgentTool
 
     unavailable_reason = await daily_report_unavailable_reason(group_id)
     if unavailable_reason:
+        await mark_daily_report_run(group_id, target_date, "failed", unavailable_reason)
         return {"ok": False, "error": "feature_unavailable", "message": unavailable_reason}
 
     max_chars_arg = args.get("max_chars")
@@ -181,15 +256,25 @@ async def generate_daily_report_tool(args: dict[str, object], context: AgentTool
         max_chars = MAX_TOOL_REPORT_CHARS
     max_chars = min(max(max_chars, 800), MAX_TOOL_REPORT_CHARS)
 
+    await mark_daily_report_run(group_id, target_date, "running")
+    await send_tool_progress(
+        context,
+        f"开始生成群 {group_id} {target_date.isoformat()} 的日报，可能要等几十秒。",
+    )
+
     try:
         filename, markdown, preview = await generate_ai_daily_report_markdown(group_id, target_date)
     except Exception as exc:
+        error_text = repr(exc)
+        await mark_daily_report_run(group_id, target_date, "failed", error_text)
+        await send_tool_progress(context, f"日报生成失败：{error_text[:500]}")
         return {
             "ok": False,
             "error": "generation_failed",
             "message": f"日报生成失败：{exc}",
         }
 
+    await mark_daily_report_run(group_id, target_date, "sent")
     chat_text = report_chat_body(markdown)
     truncated_report, truncated = truncate_text(chat_text, max_chars)
     return {
@@ -205,9 +290,9 @@ async def generate_daily_report_tool(args: dict[str, object], context: AgentTool
 
 
 async def get_group_profile_tool(args: dict[str, object], context: AgentToolContext) -> AgentToolResult:
-    group_id = current_group_id(context)
+    group_id = target_group_id(args, context)
     if not group_id:
-        return {"ok": False, "error": "not_group_chat", "message": "群画像只能在群聊中查看。"}
+        return {"ok": False, "error": "missing_group_id", "message": missing_group_message()}
 
     from plugins.companion_memory import get_group_profile
 
@@ -316,9 +401,9 @@ def row_to_dict(row: aiosqlite.Row | None) -> dict[str, Any] | None:
 
 
 async def get_member_profile_tool(args: dict[str, object], context: AgentToolContext) -> AgentToolResult:
-    group_id = current_group_id(context)
+    group_id = target_group_id(args, context)
     if not group_id:
-        return {"ok": False, "error": "not_group_chat", "message": "群友画像只能在群聊中查看。"}
+        return {"ok": False, "error": "missing_group_id", "message": missing_group_message()}
 
     from plugins.companion_memory import get_profile, lookup_memories, profile_to_text
 
@@ -373,17 +458,116 @@ async def get_member_profile_tool(args: dict[str, object], context: AgentToolCon
     }
 
 
+def requested_feature_updates(args: dict[str, object]) -> dict[str, bool]:
+    updates: dict[str, bool] = {}
+    for feature in ADMIN_CONFIGURABLE_FEATURES:
+        if feature in args and isinstance(args[feature], bool):
+            updates[feature] = bool(args[feature])
+    aliases = args.get("features")
+    if isinstance(aliases, dict):
+        for raw_name, value in aliases.items():
+            feature = normalize_feature_name(str(raw_name)) or str(raw_name).strip()
+            if feature in ADMIN_CONFIGURABLE_FEATURES and isinstance(value, bool):
+                updates[feature] = bool(value)
+    return updates
+
+
+async def apply_feature_limit_updates(group_id: str, args: dict[str, object]) -> list[dict[str, object]]:
+    raw_limits = args.get("limits")
+    if not isinstance(raw_limits, dict):
+        return []
+
+    updated: list[dict[str, object]] = []
+    for raw_feature, values in raw_limits.items():
+        feature = normalize_feature_name(str(raw_feature)) or str(raw_feature).strip()
+        if feature not in {FEATURE_BOT_TEASE, FEATURE_CONSTANT_RETORT, FEATURE_KEYWORD_RETORT}:
+            continue
+        if not isinstance(values, dict):
+            continue
+        await set_group_feature_limits(group_id, feature, values)
+        updated.append({"feature": feature, "label": FEATURE_LABELS.get(feature, feature)})
+    return updated
+
+
+async def set_group_features_tool(args: dict[str, object], context: AgentToolContext) -> AgentToolResult:
+    group_id = target_group_id(args, context)
+    if not group_id:
+        return {"ok": False, "error": "missing_group_id", "message": missing_group_message()}
+
+    updates = requested_feature_updates(args)
+    has_limit_updates = isinstance(args.get("limits"), dict)
+    if not updates and not has_limit_updates:
+        return {
+            "ok": False,
+            "error": "missing_changes",
+            "message": "请说明要开启/关闭哪些功能，或提供 limits 调整限流。",
+        }
+
+    current = {feature: await is_group_feature_enabled(group_id, feature) for feature in ADMIN_CONFIGURABLE_FEATURES}
+    desired = {**current, **updates}
+    if desired.get(FEATURE_DAILY_REPORT) and not desired.get(FEATURE_COLLECTOR):
+        return {
+            "ok": False,
+            "error": "dependency_failed",
+            "message": "日报依赖消息采集。请同时开启消息采集，或先开启消息采集后再开启日报。",
+        }
+    if desired.get(FEATURE_COMPANION) and not desired.get(FEATURE_COLLECTOR):
+        return {
+            "ok": False,
+            "error": "dependency_failed",
+            "message": "陪伴画像依赖消息采集。请同时开启消息采集，或先开启消息采集后再开启陪伴画像。",
+        }
+    if desired.get(FEATURE_DAILY_REPORT_AUTO) and not desired.get(FEATURE_DAILY_REPORT):
+        return {
+            "ok": False,
+            "error": "dependency_failed",
+            "message": "自动发送日报依赖日报功能。请同时开启日报，或先开启日报后再开启自动发送日报。",
+        }
+
+    for feature in ADMIN_CONFIGURABLE_FEATURES:
+        if feature in updates:
+            await set_group_feature(group_id, feature, updates[feature])
+    await enforce_group_feature_dependencies(group_id)
+    limit_updates = await apply_feature_limit_updates(group_id, args)
+    if not updates and not limit_updates:
+        return {
+            "ok": False,
+            "error": "missing_changes",
+            "message": "没有识别到可调整的限流功能。",
+        }
+
+    return {
+        "ok": True,
+        "group_id": group_id,
+        "updated_features": [
+            {
+                "feature": feature,
+                "label": FEATURE_LABELS.get(feature, feature),
+                "enabled": enabled,
+            }
+            for feature, enabled in updates.items()
+        ],
+        "updated_limits": limit_updates,
+        "features": await feature_state(group_id),
+        "message": f"已更新群 {group_id} 的功能配置。",
+    }
+
+
 ADMIN_TOOLS = [
     AgentTool(
         name="get_group_status",
         category="admin",
         requires_feature=FEATURE_AI_CHAT,
         requires_admin=True,
-        requires_group=True,
         definition=_tool_definition(
             name="get_group_status",
-            description="Get operational status for the current QQ group, including feature switches, message archive stats, companion targets, group profile, and Agent tool permissions. Admin only.",
-            properties={},
+            description="Get operational status for a QQ group, including feature switches, message archive stats, daily report runs, companion targets, group profile, and Agent tool permissions. Admin only. In private chat, group_id is required.",
+            properties={
+                "group_id": {
+                    "type": "string",
+                    "description": "QQ group id. Required in private chat; optional in a group chat.",
+                }
+            },
         ),
         handler=get_group_status_tool,
     ),
@@ -392,11 +576,14 @@ ADMIN_TOOLS = [
         category="daily_report",
         requires_feature=FEATURE_DAILY_REPORT,
         requires_admin=True,
-        requires_group=True,
         definition=_tool_definition(
             name="generate_daily_report",
-            description="Generate or read the daily report / yesterday summary for the current QQ group. Admin only. Default date is yesterday.",
+            description="Generate or read the daily report / yesterday summary for a QQ group. Admin only. Default date is yesterday. In private chat, group_id is required. Sends progress feedback before generation and records failed/running/sent status.",
             properties={
+                "group_id": {
+                    "type": "string",
+                    "description": "QQ group id. Required in private chat; optional in a group chat.",
+                },
                 "date": {
                     "type": "string",
                     "description": "Report date: 昨天, 今天, 前天, or YYYY-MM-DD. Defaults to 昨天.",
@@ -414,11 +601,15 @@ ADMIN_TOOLS = [
         category="profile",
         requires_feature=FEATURE_COMPANION,
         requires_admin=True,
-        requires_group=True,
         definition=_tool_definition(
             name="get_group_profile",
-            description="Get the current group's companion/group profile. Admin only.",
-            properties={},
+            description="Get a QQ group's companion/group profile. Admin only. In private chat, group_id is required.",
+            properties={
+                "group_id": {
+                    "type": "string",
+                    "description": "QQ group id. Required in private chat; optional in a group chat.",
+                }
+            },
         ),
         handler=get_group_profile_tool,
     ),
@@ -427,11 +618,14 @@ ADMIN_TOOLS = [
         category="profile",
         requires_feature=FEATURE_COMPANION,
         requires_admin=True,
-        requires_group=True,
         definition=_tool_definition(
             name="get_member_profile",
-            description="Get a group member's companion profile by QQ user id or exact display-name keyword. Admin only.",
+            description="Get a group member's companion profile by QQ user id or exact display-name keyword. Admin only. In private chat, group_id is required.",
             properties={
+                "group_id": {
+                    "type": "string",
+                    "description": "QQ group id. Required in private chat; optional in a group chat.",
+                },
                 "user_id": {
                     "type": "string",
                     "description": "QQ user id. Prefer this when known.",
@@ -447,5 +641,47 @@ ADMIN_TOOLS = [
             },
         ),
         handler=get_member_profile_tool,
+    ),
+    AgentTool(
+        name="set_group_features",
+        category="admin",
+        requires_admin=True,
+        definition=_tool_definition(
+            name="set_group_features",
+            description="Open, close, or adjust feature switches for a QQ group. Admin only. In private chat, group_id is required. Daily report and companion depend on collector; daily_report_auto depends on daily_report.",
+            properties={
+                "group_id": {
+                    "type": "string",
+                    "description": "QQ group id. Required in private chat; optional in a group chat.",
+                },
+                FEATURE_AI_CHAT: {"type": "boolean", "description": "AI 对话开关。"},
+                FEATURE_COLLECTOR: {"type": "boolean", "description": "消息采集开关。"},
+                FEATURE_DAILY_REPORT: {"type": "boolean", "description": "日报生成开关。"},
+                FEATURE_DAILY_REPORT_AUTO: {"type": "boolean", "description": "自动发送日报开关。"},
+                FEATURE_COMPANION: {"type": "boolean", "description": "陪伴画像开关。"},
+                FEATURE_BOT_TEASE: {"type": "boolean", "description": "调戏其他 bot 开关。"},
+                FEATURE_CONSTANT_RETORT: {"type": "boolean", "description": "常数回怼开关。"},
+                FEATURE_KEYWORD_RETORT: {"type": "boolean", "description": "关键词回怼开关。"},
+                "features": {
+                    "type": "object",
+                    "description": "Feature aliases to boolean values, for example {'日报': true}.",
+                    "additionalProperties": {"type": "boolean"},
+                },
+                "limits": {
+                    "type": "object",
+                    "description": "Optional rate limits by feature, e.g. {'关键词回怼': {'per_minute': 5, 'per_hour': 20, 'per_day': 50}}.",
+                    "additionalProperties": {
+                        "type": "object",
+                        "properties": {
+                            "per_minute": {"type": "integer"},
+                            "per_hour": {"type": "integer"},
+                            "per_day": {"type": "integer"},
+                        },
+                        "additionalProperties": False,
+                    },
+                },
+            },
+        ),
+        handler=set_group_features_tool,
     ),
 ]

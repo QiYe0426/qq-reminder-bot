@@ -1,4 +1,9 @@
-from plugins.reminder_target_service import GroupMember, find_target_in_content, strip_target_action_prefix
+from plugins.reminder_target_service import (
+    GroupMember,
+    find_target_in_content,
+    strip_target_action_prefix,
+    strip_target_pronoun,
+)
 
 
 def test_strip_target_action_prefix() -> None:
@@ -40,3 +45,10 @@ def test_find_target_in_content_self_reminder_returns_none() -> None:
     ]
 
     assert find_target_in_content("提醒我", members) is None
+
+
+def test_strip_target_pronoun_for_recent_target() -> None:
+    assert strip_target_pronoun("提醒她喝水") == ("喝水", True)
+    assert strip_target_pronoun("叫 ta 一下吃药") == ("吃药", True)
+    assert strip_target_pronoun("提醒那个人去睡觉") == ("睡觉", True)
+    assert strip_target_pronoun("提醒小明喝水") == ("小明喝水", False)
