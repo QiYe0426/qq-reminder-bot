@@ -1,6 +1,16 @@
 from datetime import datetime
+import asyncio
 
-from plugins.reminder_service import format_due_reminder_message, parse_number, parse_reminder
+from plugins import reminder_service
+from plugins.reminder_service import (
+    ReminderScope,
+    ReminderTarget,
+    create_reminder,
+    due_reminders,
+    format_due_reminder_message,
+    parse_number,
+    parse_reminder,
+)
 
 
 def test_parse_chinese_numbers() -> None:
@@ -114,3 +124,26 @@ def test_due_reminder_escapes_cq_content() -> None:
     )
 
     assert message == "[CQ:at,qq=10001] 提醒：&#91;CQ:at,qq=all&#93;集合"
+
+
+def test_targeted_group_reminder_mentions_target_user(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(reminder_service, "DB_PATH", tmp_path / "reminders.db")
+    monkeypatch.setattr(reminder_service, "_db_ready", False)
+
+    async def run() -> tuple[dict[str, object], list[dict[str, object]]]:
+        created = await create_reminder(
+            ReminderScope(user_id="10001", target_type="group", group_id="20001"),
+            "2099-01-01 09:00 提醒小明喝水",
+            target=ReminderTarget(user_id="10002", display_name="小明"),
+            content_override="喝水",
+        )
+        reminders = await due_reminders(now=datetime(2099, 1, 1, 9, 0))
+        return created, reminders
+
+    created, reminders = asyncio.run(run())
+
+    assert created["ok"] is True
+    assert created["target_user_id"] == "10002"
+    assert created["target_display_name"] == "小明"
+    assert reminders[0]["target_user_id"] == "10002"
+    assert format_due_reminder_message(reminders[0]) == "[CQ:at,qq=10002] 提醒：喝水"

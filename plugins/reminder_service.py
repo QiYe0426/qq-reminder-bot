@@ -59,6 +59,12 @@ class ReminderScope:
     group_id: str | None = None
 
 
+@dataclass(frozen=True)
+class ReminderTarget:
+    user_id: str
+    display_name: str = ""
+
+
 async def init_reminder_db() -> None:
     global _db_ready
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -77,6 +83,12 @@ async def init_reminder_db() -> None:
             )
             """
         )
+        cursor = await db.execute("PRAGMA table_info(reminders)")
+        columns = {str(row[1]) for row in await cursor.fetchall()}
+        if "target_user_id" not in columns:
+            await db.execute("ALTER TABLE reminders ADD COLUMN target_user_id TEXT")
+        if "target_display_name" not in columns:
+            await db.execute("ALTER TABLE reminders ADD COLUMN target_display_name TEXT")
         await db.commit()
     _db_ready = True
 
@@ -141,7 +153,7 @@ def strip_request_prefix(text: str) -> str:
 
 def clean_reminder_content(content: str) -> str:
     normalized = content.strip().strip("，,。；;：:")
-    for prefix in ("提醒我", "叫我", "让我", "我要", "我想", "我需要"):
+    for prefix in ("提醒我", "叫我", "让我", "我要", "我想", "我需要", "提醒", "叫", "喊", "通知", "告诉"):
         if normalized.startswith(prefix):
             stripped = normalized[len(prefix) :].strip().strip("，,。；;：:")
             normalized = stripped or normalized
@@ -295,7 +307,19 @@ def normalize_scope(scope: ReminderScope) -> ReminderScope:
     return ReminderScope(user_id=str(scope.user_id), target_type=target_type, group_id=group_id)
 
 
-async def create_reminder(scope: ReminderScope, raw_text: str) -> dict[str, object]:
+def normalize_reminder_target(scope: ReminderScope, target: ReminderTarget | None = None) -> ReminderTarget:
+    if target and str(target.user_id).strip():
+        return ReminderTarget(user_id=str(target.user_id).strip(), display_name=str(target.display_name or "").strip())
+    return ReminderTarget(user_id=str(scope.user_id), display_name="")
+
+
+async def create_reminder(
+    scope: ReminderScope,
+    raw_text: str,
+    *,
+    target: ReminderTarget | None = None,
+    content_override: str | None = None,
+) -> dict[str, object]:
     await ensure_reminder_db()
     parsed = parse_reminder(raw_text)
     if parsed is None:
@@ -306,17 +330,20 @@ async def create_reminder(scope: ReminderScope, raw_text: str) -> dict[str, obje
         }
 
     remind_at, content = parsed
+    if content_override is not None:
+        content = content_override.strip().strip("，,。；;：:") or content
     if remind_at <= datetime.now():
         return {"ok": False, "error": "past_time", "message": "提醒时间需要晚于现在。"}
 
     normalized = normalize_scope(scope)
+    normalized_target = normalize_reminder_target(normalized, target)
     created_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     async with aiosqlite.connect(DB_PATH) as db:
         cursor = await db.execute(
             """
             INSERT INTO reminders
-                (user_id, group_id, target_type, remind_at, content, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+                (user_id, group_id, target_type, remind_at, content, created_at, target_user_id, target_display_name)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 normalized.user_id,
@@ -325,11 +352,17 @@ async def create_reminder(scope: ReminderScope, raw_text: str) -> dict[str, obje
                 remind_at.strftime(TIME_FORMAT),
                 content,
                 created_at,
+                normalized_target.user_id,
+                normalized_target.display_name,
             ),
         )
         await db.commit()
         reminder_id = int(cursor.lastrowid or 0)
 
+    target_name = normalized_target.display_name or normalized_target.user_id
+    target_message = ""
+    if normalized.target_type == "group" and normalized_target.user_id != normalized.user_id:
+        target_message = f" 提醒{target_name}"
     return {
         "ok": True,
         "id": reminder_id,
@@ -337,7 +370,9 @@ async def create_reminder(scope: ReminderScope, raw_text: str) -> dict[str, obje
         "content": content,
         "target_type": normalized.target_type,
         "group_id": normalized.group_id or "",
-        "message": f"已创建提醒 #{reminder_id}：{remind_at.strftime(TIME_FORMAT)} {content}",
+        "target_user_id": normalized_target.user_id,
+        "target_display_name": normalized_target.display_name,
+        "message": f"已创建提醒 #{reminder_id}：{remind_at.strftime(TIME_FORMAT)}{target_message} {content}",
     }
 
 
@@ -348,7 +383,7 @@ async def list_reminders(user_id: str, *, limit: int = 10) -> list[dict[str, obj
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
             """
-            SELECT id, remind_at, content, target_type, group_id
+            SELECT id, user_id, remind_at, content, target_type, group_id, COALESCE(target_user_id, user_id) AS target_user_id, COALESCE(target_display_name, '') AS target_display_name
             FROM reminders
             WHERE done = 0 AND user_id = ?
             ORDER BY remind_at ASC
@@ -361,10 +396,13 @@ async def list_reminders(user_id: str, *, limit: int = 10) -> list[dict[str, obj
     return [
         {
             "id": int(row["id"] or 0),
+            "user_id": str(row["user_id"] or ""),
             "remind_at": str(row["remind_at"] or ""),
             "content": str(row["content"] or ""),
             "target_type": str(row["target_type"] or ""),
             "group_id": str(row["group_id"] or ""),
+            "target_user_id": str(row["target_user_id"] or ""),
+            "target_display_name": str(row["target_display_name"] or ""),
         }
         for row in rows
     ]
@@ -376,7 +414,13 @@ def format_reminder_list(reminders: list[dict[str, object]]) -> str:
 
     lines = ["未完成提醒："]
     for item in reminders:
-        lines.append(f"#{item['id']} {item['remind_at']} {item['content']}")
+        target = str(item.get("target_display_name") or item.get("target_user_id") or "").strip()
+        target_text = (
+            f" 提醒{target}"
+            if target and str(item.get("target_user_id") or "") != str(item.get("user_id") or "")
+            else ""
+        )
+        lines.append(f"#{item['id']} {item['remind_at']}{target_text} {item['content']}")
     return "\n".join(lines)
 
 
@@ -390,7 +434,7 @@ def format_due_reminder_message(reminder: dict[str, object]) -> str:
     if str(reminder.get("target_type") or "") != "group":
         return message
 
-    user_id = str(reminder.get("user_id") or "").strip()
+    user_id = str(reminder.get("target_user_id") or reminder.get("user_id") or "").strip()
     if not user_id.isdigit():
         return message
     return f"[CQ:at,qq={user_id}] {message}"
@@ -432,7 +476,7 @@ async def due_reminders(*, now: datetime | None = None) -> list[dict[str, object
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
             """
-            SELECT id, user_id, group_id, target_type, content
+            SELECT id, user_id, group_id, target_type, content, COALESCE(target_user_id, user_id) AS target_user_id, COALESCE(target_display_name, '') AS target_display_name
             FROM reminders
             WHERE done = 0 AND remind_at <= ?
             ORDER BY remind_at ASC
@@ -448,6 +492,8 @@ async def due_reminders(*, now: datetime | None = None) -> list[dict[str, object
             "group_id": str(row["group_id"] or ""),
             "target_type": str(row["target_type"] or ""),
             "content": str(row["content"] or ""),
+            "target_user_id": str(row["target_user_id"] or row["user_id"] or ""),
+            "target_display_name": str(row["target_display_name"] or ""),
         }
         for row in rows
     ]

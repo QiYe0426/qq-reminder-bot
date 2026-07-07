@@ -53,7 +53,8 @@ KNOWLEDGE_TOOLS = [
             name="search_sts2_knowledge",
             description=(
                 "Search the local Slay the Spire 2 / STS2 knowledge base. "
-                "Use this for questions about STS2 cards, relics, characters, enemies, bosses, events, keywords, mechanics, or guides."
+                "Use this for questions about STS2 cards, relics, characters, enemies, bosses, events, keywords, mechanics, or guides. "
+                "For card strength, pick rate, drafting advice, or version changes, look for both 107 guide entries and 108-vs-107 version-diff entries."
             ),
             properties={
                 "query": {

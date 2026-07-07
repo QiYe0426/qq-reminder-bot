@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import difflib
 import json
 import os
 import re
@@ -24,6 +25,11 @@ DEFAULT_CODEX_DIRS = (
     REPO_ROOT.parent / "research-github" / "sts2_sources" / "spire-codex" / "data" / "zhs",
 )
 DEFAULT_GUIDE_DIR = REPO_ROOT / "knowledge_sources" / "sts2_guides"
+DEFAULT_GUIDE_107_PATH = DEFAULT_GUIDE_DIR / "main_1.tex"
+DEFAULT_GUIDE_108_PATH = DEFAULT_GUIDE_DIR / "main_108.tex"
+GUIDE_DIFF_SOURCE_FILENAMES = {"main_108.tex"}
+GUIDE_107_VERSION = "v0.10.0 based on public-beta v0.107.1"
+GUIDE_108_VERSION = "v0.10.0 based on public-beta v0.108"
 
 TREE_ORDER = ("STS2",)
 KIND_ORDER = (
@@ -726,7 +732,7 @@ def guide_paths() -> list[Path]:
             if path.exists() and path.is_file() and path.suffix.lower() == ".tex":
                 paths.append(path)
     if DEFAULT_GUIDE_DIR.exists():
-        paths.extend(sorted(DEFAULT_GUIDE_DIR.glob("*.tex")))
+        paths.extend(path for path in sorted(DEFAULT_GUIDE_DIR.glob("*.tex")) if not is_guide_diff_source(path))
     unique: list[Path] = []
     seen: set[str] = set()
     for path in paths:
@@ -735,6 +741,10 @@ def guide_paths() -> list[Path]:
             unique.append(path)
             seen.add(resolved)
     return unique
+
+
+def is_guide_diff_source(path: Path) -> bool:
+    return path.name in GUIDE_DIFF_SOURCE_FILENAMES
 
 
 def build_sts2_guide_items() -> list[dict[str, object]]:
@@ -790,6 +800,118 @@ def build_sts2_guide_items() -> list[dict[str, object]]:
     return items
 
 
+def guide_sections(path: Path) -> list[dict[str, str]]:
+    raw = path.read_text(encoding="utf-8", errors="ignore")
+    headings = iter_latex_headings(raw)
+    if not headings:
+        headings = [{"level": 1, "title": path.stem, "body_start": 0, "end": len(raw)}]
+
+    sections: list[dict[str, str]] = []
+    for heading in headings:
+        title = clean_text(heading.get("title")) or path.stem
+        if title in {"目录"}:
+            continue
+        body = raw[int(heading["body_start"]) : int(heading["end"])]
+        body_text = latex_to_plain(body)
+        if len(body_text) < 40:
+            continue
+        sections.append({"title": title, "content": body_text})
+    return sections
+
+
+def guide_section_key(title: str, index: int) -> str:
+    return f"{index}:{compact_name(title)}"
+
+
+def guide_section_map(path: Path) -> dict[str, dict[str, str]]:
+    return {
+        guide_section_key(section["title"], index): section
+        for index, section in enumerate(guide_sections(path), start=1)
+    }
+
+
+def changed_text_diff(old_text: str, new_text: str, *, max_chars: int = 6000) -> str:
+    diff_lines = list(
+        difflib.unified_diff(
+            old_text.splitlines(),
+            new_text.splitlines(),
+            fromfile="107版本",
+            tofile="108版本",
+            lineterm="",
+        )
+    )
+    diff_text = clean_content("\n".join(diff_lines))
+    if len(diff_text) > max_chars:
+        diff_text = diff_text[:max_chars].rstrip() + "\n..."
+    return diff_text
+
+
+def build_sts2_guide_version_diff_items(
+    old_path: Path = DEFAULT_GUIDE_107_PATH,
+    new_path: Path = DEFAULT_GUIDE_108_PATH,
+) -> list[dict[str, object]]:
+    if not old_path.exists() or not new_path.exists():
+        return []
+
+    old_sections = guide_section_map(old_path)
+    new_sections = guide_section_map(new_path)
+    doc_title = "硫指导：力求面面俱到的 Slay the Spire II 攻略"
+    items: list[dict[str, object]] = []
+
+    for key, new_section in new_sections.items():
+        old_section = old_sections.get(key)
+        if old_section is None:
+            continue
+        old_text = clean_content(old_section["content"])
+        new_text = clean_content(new_section["content"])
+        if old_text == new_text:
+            continue
+
+        title = clean_text(new_section["title"])
+        diff_text = changed_text_diff(old_text, new_text)
+        content = make_content(
+            "来源: 自建攻略库版本差异",
+            "分类: STS2 guide version-diff",
+            f"源文件107: {old_path.as_posix()}",
+            f"源文件108: {new_path.as_posix()}",
+            "作者: 二硫键",
+            "编审: Rosaya / zzz",
+            f"旧版本: {GUIDE_107_VERSION}",
+            f"新版本: {GUIDE_108_VERSION}",
+            "知识性质: 作者攻略/软知识的版本差异，用于解释同一卡牌或思路在不同版本评价变化。",
+            f"章节: {title}",
+            "107版本原文片段:",
+            old_text,
+            "108版本原文片段:",
+            new_text,
+            "文本差异:",
+            diff_text,
+        )
+        chunks = split_long_text(content, max_chars=9000)
+        for index, chunk in enumerate(chunks, start=1):
+            suffix = f"（{index}）" if len(chunks) > 1 else ""
+            items.append(
+                {
+                    "title": f"{doc_title} / 108相对107差异 / {title}{suffix}",
+                    "content": chunk,
+                    "keywords": unique_keywords(
+                        title,
+                        doc_title,
+                        "二硫键",
+                        "108版本",
+                        "107版本",
+                        "版本差异",
+                        "抓率",
+                        "强度变化",
+                        "攻略",
+                    ),
+                    "category": "STS2/guide/version-diff",
+                    "enabled": True,
+                }
+            )
+    return items
+
+
 def build_seed_items() -> list[dict[str, object]]:
     items: list[dict[str, object]] = []
     items.extend(build_sts2_card_items())
@@ -804,6 +926,7 @@ def build_seed_items() -> list[dict[str, object]]:
     items.extend(build_sts2_term_items("enchantments.json", "enchantment", "附魔"))
     items.extend(build_sts2_mechanic_constant_items())
     items.extend(build_sts2_guide_items())
+    items.extend(build_sts2_guide_version_diff_items())
     return items
 
 
