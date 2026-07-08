@@ -56,14 +56,25 @@ def deploy():
     """执行部署：git pull + restart service"""
     logger.info("Starting deployment...")
 
-    # git pull
-    result = subprocess.run(
-        ["git", "pull", "--ff-only"],
-        cwd=REPO_DIR,
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
+    # git pull（带重试，服务器到 GitHub 网络不稳定）
+    
+    def git_pull_with_retry(max_retries=3):
+        last_error = None
+        for attempt in range(max_retries):
+            try:
+                return subprocess.run(
+                    ["git", "pull", "--ff-only"],
+                    cwd=REPO_DIR,
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                )
+            except subprocess.TimeoutExpired as e:
+                last_error = e
+                logger.warning(f"git pull attempt {attempt + 1}/{max_retries} timed out, retrying...")
+        raise last_error  # 所有重试都失败
+    
+    result = git_pull_with_retry()
     stdout = result.stdout.strip()
     stderr = result.stderr.strip()
 
