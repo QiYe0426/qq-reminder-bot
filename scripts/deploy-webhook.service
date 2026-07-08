@@ -1,0 +1,15 @@
+[Unit]
+Description=GitHub Webhook Auto-Deploy Receiver
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/qq-reminder-bot
+ExecStart=/home/ubuntu/qq-reminder-bot/.venv/bin/python /home/ubuntu/qq-reminder-bot/scripts/deploy_webhook.py
+Restart=always
+RestartSec=5
+EnvironmentFile=/home/ubuntu/qq-reminder-bot/.env.webhook
+
+[Install]
+WantedBy=multi-user.target
