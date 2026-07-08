@@ -29,6 +29,7 @@ from plugins.access_control import (
 )
 from plugins.message_archive import DB_PATH, init_archive_db
 from plugins.message_collector import display_sender, export_file_path, export_file_url, normalize_text, send_text_file
+from plugins.daily_report_fallback import fallback_chunk_summary, fallback_final_report
 from plugins.daily_report_visual import (
     build_visual_data,
     render_daily_report_image,
@@ -45,15 +46,19 @@ SUMMARY_BASE_URL_ENV = "SUMMARY_BASE_URL"
 SUMMARY_TIMEOUT_SECONDS_ENV = "SUMMARY_TIMEOUT_SECONDS"
 SUMMARY_CHUNK_MESSAGES_ENV = "SUMMARY_CHUNK_MESSAGES"
 SUMMARY_MAX_INPUT_CHARS_ENV = "SUMMARY_MAX_INPUT_CHARS"
+SUMMARY_RETRY_ATTEMPTS_ENV = "SUMMARY_RETRY_ATTEMPTS"
+SUMMARY_RETRY_BACKOFF_SECONDS_ENV = "SUMMARY_RETRY_BACKOFF_SECONDS"
 DAILY_REPORT_ENABLED_ENV = "DAILY_REPORT_ENABLED"
 DAILY_REPORT_GROUP_IDS_ENV = "DAILY_REPORT_GROUP_IDS"
 DAILY_REPORT_SEND_TIME_ENV = "DAILY_REPORT_SEND_TIME"
 DAILY_REPORT_TIMEZONE_ENV = "DAILY_REPORT_TIMEZONE"
 DAILY_REPORT_STARTUP_GRACE_MINUTES_ENV = "DAILY_REPORT_STARTUP_GRACE_MINUTES"
 DEFAULT_SUMMARY_MODEL = "deepseek-v4-pro"
-DEFAULT_SUMMARY_TIMEOUT_SECONDS = 90
+DEFAULT_SUMMARY_TIMEOUT_SECONDS = 180
 DEFAULT_SUMMARY_CHUNK_MESSAGES = 80
 DEFAULT_SUMMARY_MAX_INPUT_CHARS = 24000
+DEFAULT_SUMMARY_RETRY_ATTEMPTS = 2
+DEFAULT_SUMMARY_RETRY_BACKOFF_SECONDS = 3
 DEFAULT_STARTUP_GRACE_MINUTES = 120
 RUNNING_REPORT_STALE_MINUTES = 180
 REPORT_CHAT_CHUNK_CHARS = 1200
@@ -316,6 +321,19 @@ def summary_base_url() -> str | None:
 
 def summary_timeout_seconds() -> int:
     return get_int_env(SUMMARY_TIMEOUT_SECONDS_ENV, DEFAULT_SUMMARY_TIMEOUT_SECONDS, minimum=5)
+
+
+def summary_retry_attempts() -> int:
+    return get_int_env(SUMMARY_RETRY_ATTEMPTS_ENV, DEFAULT_SUMMARY_RETRY_ATTEMPTS, minimum=1, maximum=5)
+
+
+def summary_retry_backoff_seconds() -> int:
+    return get_int_env(
+        SUMMARY_RETRY_BACKOFF_SECONDS_ENV,
+        DEFAULT_SUMMARY_RETRY_BACKOFF_SECONDS,
+        minimum=0,
+        maximum=60,
+    )
 
 
 def summary_chunk_messages() -> int:
@@ -753,17 +771,34 @@ async def call_summary_ai(messages: list[dict[str, str]]) -> str:
 
     base_url = summary_base_url()
     client = AsyncOpenAI(api_key=api_key, base_url=base_url) if base_url else AsyncOpenAI(api_key=api_key)
-    response = await asyncio.wait_for(
-        client.chat.completions.create(
-            model=summary_model(),
-            messages=messages,
-        ),
-        timeout=summary_timeout_seconds(),
-    )
-    content = (response.choices[0].message.content or "").strip()
-    if not content:
-        raise RuntimeError("empty summary response")
-    return content
+    attempts = summary_retry_attempts()
+    timeout_seconds = summary_timeout_seconds()
+    last_exc: BaseException | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            response = await asyncio.wait_for(
+                client.chat.completions.create(
+                    model=summary_model(),
+                    messages=messages,
+                ),
+                timeout=timeout_seconds,
+            )
+            content = (response.choices[0].message.content or "").strip()
+            if not content:
+                raise RuntimeError("empty summary response")
+            return content
+        except Exception as exc:
+            last_exc = exc
+            if attempt >= attempts:
+                break
+            logger.warning(
+                f"Summary AI call failed on attempt {attempt}/{attempts}: {type(exc).__name__}: {exc!s}; retrying"
+            )
+            backoff_seconds = summary_retry_backoff_seconds()
+            if backoff_seconds:
+                await asyncio.sleep(backoff_seconds)
+    assert last_exc is not None
+    raise last_exc
 
 
 async def summarize_chunk(chunk_text: str, index: int, total: int) -> str:
@@ -1047,14 +1082,28 @@ async def generate_ai_daily_report_markdown(
     stats_text = build_report_stats_text(rows, insights_by_message_id)
     chunk_summaries: list[str] = []
     for index, chunk in enumerate(chunks, start=1):
-        chunk_summaries.append(await summarize_chunk(chunk, index, len(chunks)))
+        try:
+            chunk_summaries.append(await summarize_chunk(chunk, index, len(chunks)))
+        except Exception as exc:
+            logger.exception(f"Daily report chunk summary failed: group={group_id}, date={target_date}, chunk={index}/{len(chunks)}")
+            chunk_summaries.append(fallback_chunk_summary(chunk, index, len(chunks), exc))
 
-    final_summary = await synthesize_final_report(
-        group_id=group_id,
-        target_date=target_date,
-        stats_text=stats_text,
-        chunk_summaries=chunk_summaries,
-    )
+    try:
+        final_summary = await synthesize_final_report(
+            group_id=group_id,
+            target_date=target_date,
+            stats_text=stats_text,
+            chunk_summaries=chunk_summaries,
+        )
+    except Exception as exc:
+        logger.exception(f"Daily report final synthesis failed; using fallback report: group={group_id}, date={target_date}")
+        final_summary = fallback_final_report(
+            group_id=group_id,
+            target_date=target_date,
+            stats_text=stats_text,
+            chunk_summaries=chunk_summaries,
+            error=exc,
+        )
     content = "\n\n".join(
         [
             final_summary,
