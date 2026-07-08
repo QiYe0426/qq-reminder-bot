@@ -425,6 +425,78 @@ def report_file_path(filename: str) -> Path:
     return (REPORT_DIR / Path(filename).name).resolve()
 
 
+REPORT_FILE_EXTENSIONS = (".md", ".png", ".pdf")
+
+
+def _report_file_is_ready(filename: str) -> bool:
+    path = report_file_path(filename)
+    try:
+        return path.is_file() and path.stat().st_size > 0
+    except OSError:
+        return False
+
+
+def _report_candidate_mtime(stem: str) -> float:
+    mtimes: list[float] = []
+    for extension in REPORT_FILE_EXTENSIONS:
+        path = report_file_path(f"{stem}{extension}")
+        try:
+            if path.is_file() and path.stat().st_size > 0:
+                mtimes.append(path.stat().st_mtime)
+        except OSError:
+            continue
+    return max(mtimes, default=0.0)
+
+
+def find_existing_daily_report_files(
+    group_id: str,
+    target_date: date,
+    group_name: str | None = None,
+) -> tuple[str, str, str, str] | None:
+    """Return existing non-empty report files for the same group/date.
+
+    The exact filename contains the current group name, but group names can change
+    and historical one-off repair scripts may have used ``群{group_id}``.
+    Therefore we first prefer the exact current filename, then fall back to any
+    same-date file ending with ``_{group_id}``.
+    """
+
+    exact_base = report_filename_base(target_date, group_name or f"群{group_id}", group_id)
+    date_part = display_report_date(target_date)
+    stems = {exact_base}
+    try:
+        REPORT_DIR.mkdir(parents=True, exist_ok=True)
+        for path in REPORT_DIR.glob(f"{date_part}*_{group_id}.*"):
+            if path.is_file() and path.suffix.lower() in REPORT_FILE_EXTENSIONS:
+                stems.add(path.stem)
+    except OSError:
+        logger.exception("Failed to scan existing daily report files")
+        return None
+
+    def candidate_score(stem: str) -> tuple[bool, bool, bool, bool, float]:
+        has_image = _report_file_is_ready(f"{stem}.png")
+        has_pdf = _report_file_is_ready(f"{stem}.pdf")
+        has_markdown = _report_file_is_ready(f"{stem}.md")
+        return (stem == exact_base, has_image, has_pdf, has_markdown, _report_candidate_mtime(stem))
+
+    for stem in sorted(stems, key=candidate_score, reverse=True):
+        image_filename = f"{stem}.png" if _report_file_is_ready(f"{stem}.png") else ""
+        pdf_filename = f"{stem}.pdf" if _report_file_is_ready(f"{stem}.pdf") else ""
+        if not image_filename and not pdf_filename:
+            continue
+        markdown_filename = f"{stem}.md" if _report_file_is_ready(f"{stem}.md") else ""
+        markdown_content = ""
+        if markdown_filename:
+            try:
+                markdown_content = report_file_path(markdown_filename).read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                logger.exception("Failed to read existing daily report markdown")
+                markdown_filename = ""
+                markdown_content = ""
+        return markdown_filename, markdown_content, pdf_filename, image_filename
+    return None
+
+
 async def send_existing_file(bot: Bot, event: Event, source_path: Path, filename: str) -> None:
     export_path = export_file_path(filename)
     export_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1286,11 +1358,17 @@ async def send_daily_report_to_admins(
     group_name: str | None = None,
 ) -> str:
     group_name = group_name or await get_group_name(bot, group_id)
-    markdown_filename, markdown_content, pdf_filename, image_filename = await generate_daily_report_files(
-        group_id,
-        target_date,
-        group_name=group_name,
-    )
+    reused_existing = False
+    existing_files = find_existing_daily_report_files(group_id, target_date, group_name=group_name)
+    if existing_files:
+        markdown_filename, markdown_content, pdf_filename, image_filename = existing_files
+        reused_existing = True
+    else:
+        markdown_filename, markdown_content, pdf_filename, image_filename = await generate_daily_report_files(
+            group_id,
+            target_date,
+            group_name=group_name,
+        )
     admin_ids = sorted(admin_user_ids())
     if not admin_ids:
         logger.warning("Daily report skipped: no admins configured")
@@ -1316,7 +1394,7 @@ async def send_daily_report_to_admins(
                 "send_private_msg",
                 user_id=int(admin_id),
                 message=(
-                    f"群 {group_id} {target_date.strftime('%Y-%m-%d')} 日报已生成。"
+                    f"群 {group_id} {target_date.strftime('%Y-%m-%d')} 日报已{'找到并发送' if reused_existing else '生成'}。"
                     f"长图：{image_filename or '未生成'}；PDF 留档：{pdf_filename or '未生成'}"
                 ),
             )
@@ -1498,14 +1576,21 @@ async def handle_daily_report(
     if unavailable_reason:
         await daily_report.finish(Message(unavailable_reason))
 
-    await daily_report.send(Message(f"开始生成群 {group_id} {target_date.strftime('%Y-%m-%d')} 的日报，稍等一下。"))
+    reused_existing = False
     try:
         group_name = await get_group_name(bot, group_id)
-        markdown_filename, markdown_content, pdf_filename, image_filename = await generate_daily_report_files(
-            group_id,
-            target_date,
-            group_name=group_name,
-        )
+        existing_files = find_existing_daily_report_files(group_id, target_date, group_name=group_name)
+        if existing_files:
+            markdown_filename, markdown_content, pdf_filename, image_filename = existing_files
+            reused_existing = True
+            await daily_report.send(Message(f"找到群 {group_id} {target_date.strftime('%Y-%m-%d')} 已生成的日报，直接发送，不重新调用 AI。"))
+        else:
+            await daily_report.send(Message(f"开始生成群 {group_id} {target_date.strftime('%Y-%m-%d')} 的日报，稍等一下。"))
+            markdown_filename, markdown_content, pdf_filename, image_filename = await generate_daily_report_files(
+                group_id,
+                target_date,
+                group_name=group_name,
+            )
     except Exception as exc:
         logger.exception("Failed to generate daily report")
         await daily_report.finish(Message(f"日报生成失败：{exc}"))
@@ -1529,7 +1614,8 @@ async def handle_daily_report(
                 await daily_report.finish(Message(f"日报长图已发送，但 PDF 发送失败：{pdf_filename}。请检查 NapCat 是否支持文件上传。"))
             await daily_report.finish(Message(f"日报已生成但 PDF 发送失败：{pdf_filename}。请检查 NapCat 是否支持文件上传。"))
 
-    await daily_report.finish(Message(f"日报已生成：长图 {image_filename or '未生成'}；PDF 留档 {pdf_filename or '未生成'}"))
+    result_prefix = "日报已发送（复用已生成文件）" if reused_existing else "日报已生成"
+    await daily_report.finish(Message(f"{result_prefix}：长图 {image_filename or '未生成'}；PDF 留档 {pdf_filename or '未生成'}"))
 
 
 @daily_report_test_send.handle()

@@ -234,6 +234,7 @@ async def generate_daily_report_tool(args: dict[str, object], context: AgentTool
 
     from plugins.daily_report import (
         daily_report_unavailable_reason,
+        find_existing_daily_report_files,
         generate_ai_daily_report_markdown,
         mark_daily_report_run,
         report_chat_body,
@@ -255,6 +256,31 @@ async def generate_daily_report_tool(args: dict[str, object], context: AgentTool
     except (TypeError, ValueError):
         max_chars = MAX_TOOL_REPORT_CHARS
     max_chars = min(max(max_chars, 800), MAX_TOOL_REPORT_CHARS)
+
+    existing_files = find_existing_daily_report_files(group_id, target_date)
+    if existing_files:
+        filename, markdown, pdf_filename, image_filename = existing_files
+        if markdown:
+            await mark_daily_report_run(group_id, target_date, "sent")
+            await send_tool_progress(
+                context,
+                f"找到群 {group_id} {target_date.isoformat()} 已生成的日报，直接读取，不重新调用 AI。",
+            )
+            chat_text = report_chat_body(markdown)
+            truncated_report, truncated = truncate_text(chat_text, max_chars)
+            return {
+                "ok": True,
+                "group_id": group_id,
+                "date": target_date.isoformat(),
+                "filename": filename,
+                "image_filename": image_filename,
+                "pdf_filename": pdf_filename,
+                "report": truncated_report,
+                "truncated": truncated,
+                "preview_chars": len(markdown),
+                "reused_existing": True,
+                "message": f"已读取 {target_date.isoformat()} 的已生成日报。",
+            }
 
     await mark_daily_report_run(group_id, target_date, "running")
     await send_tool_progress(
@@ -285,6 +311,7 @@ async def generate_daily_report_tool(args: dict[str, object], context: AgentTool
         "report": truncated_report,
         "truncated": truncated,
         "preview_chars": len(preview),
+        "reused_existing": False,
         "message": f"已生成 {target_date.isoformat()} 的日报。",
     }
 
