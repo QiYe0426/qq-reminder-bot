@@ -13,7 +13,7 @@ import aiosqlite
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from dotenv import load_dotenv
 from nonebot import get_bot, get_driver, on_regex
-from nonebot.adapters.onebot.v11 import Bot, Event, GroupMessageEvent, Message, PrivateMessageEvent
+from nonebot.adapters.onebot.v11 import Bot, Event, GroupMessageEvent, Message, MessageSegment, PrivateMessageEvent
 from nonebot.log import logger
 from nonebot.params import RegexGroup
 
@@ -29,6 +29,11 @@ from plugins.access_control import (
 )
 from plugins.message_archive import DB_PATH, init_archive_db
 from plugins.message_collector import display_sender, export_file_path, export_file_url, normalize_text, send_text_file
+from plugins.daily_report_visual import (
+    build_visual_data,
+    render_daily_report_image,
+    write_daily_report_pdf_from_image,
+)
 
 
 load_dotenv(".env.local")
@@ -419,6 +424,41 @@ async def send_existing_file(bot: Bot, event: Event, source_path: Path, filename
         await bot.call_api("upload_private_file", user_id=int(event.get_user_id()), file=file_value, name=filename)
     except Exception:
         await bot.call_api("upload_private_file", user_id=int(event.get_user_id()), file=str(export_path), name=filename)
+
+
+async def send_report_image(bot: Bot, event: Event, source_path: Path, filename: str) -> None:
+    export_path = export_file_path(filename)
+    export_path.parent.mkdir(parents=True, exist_ok=True)
+    export_path.write_bytes(source_path.read_bytes())
+    file_value = export_file_url(filename)
+
+    if isinstance(event, GroupMessageEvent):
+        try:
+            await bot.call_api(
+                "send_group_msg",
+                group_id=event.group_id,
+                message=Message(MessageSegment.image(file=file_value)),
+            )
+        except Exception:
+            await bot.call_api(
+                "send_group_msg",
+                group_id=event.group_id,
+                message=Message(MessageSegment.image(file=str(export_path))),
+            )
+        return
+
+    try:
+        await bot.call_api(
+            "send_private_msg",
+            user_id=int(event.get_user_id()),
+            message=Message(MessageSegment.image(file=file_value)),
+        )
+    except Exception:
+        await bot.call_api(
+            "send_private_msg",
+            user_id=int(event.get_user_id()),
+            message=Message(MessageSegment.image(file=str(export_path))),
+        )
 
 
 def compact_line(text: str, limit: int = 220) -> str:
@@ -1133,7 +1173,7 @@ async def generate_daily_report_files(
     group_id: str,
     target_date: date,
     group_name: str | None = None,
-) -> tuple[str, str, str]:
+) -> tuple[str, str, str, str]:
     markdown_filename, markdown_content, _preview_content = await generate_ai_daily_report_markdown(
         group_id,
         target_date,
@@ -1142,14 +1182,32 @@ async def generate_daily_report_files(
     markdown_path = report_file_path(markdown_filename)
     markdown_path.write_text(markdown_content, encoding="utf-8")
 
+    image_filename = markdown_filename.removesuffix(".md") + ".png"
+    image_path = report_file_path(image_filename)
     pdf_filename = markdown_filename.removesuffix(".md") + ".pdf"
     pdf_path = report_file_path(pdf_filename)
+
     try:
-        write_pdf_report(report_pdf_body(markdown_content), pdf_path)
-        return markdown_filename, markdown_content, pdf_filename
+        rows, insights_by_message_id = await fetch_report_rows(group_id, target_date)
+        visual_data = build_visual_data(
+            group_id=group_id,
+            target_date=target_date,
+            group_name=group_name,
+            markdown_content=markdown_content,
+            rows=rows,
+            insights_by_message_id=insights_by_message_id,
+        )
+        render_daily_report_image(visual_data, image_path)
+        write_daily_report_pdf_from_image(image_path, pdf_path)
+        return markdown_filename, markdown_content, pdf_filename, image_filename
     except Exception:
-        logger.exception("Failed to generate PDF report")
-        return markdown_filename, markdown_content, ""
+        logger.exception("Failed to generate visual daily report")
+        try:
+            write_pdf_report(report_pdf_body(markdown_content), pdf_path)
+            return markdown_filename, markdown_content, pdf_filename, ""
+        except Exception:
+            logger.exception("Failed to generate fallback PDF report")
+            return markdown_filename, markdown_content, "", ""
 
 
 class PrivateReportEvent:
@@ -1179,7 +1237,7 @@ async def send_daily_report_to_admins(
     group_name: str | None = None,
 ) -> str:
     group_name = group_name or await get_group_name(bot, group_id)
-    markdown_filename, markdown_content, pdf_filename = await generate_daily_report_files(
+    markdown_filename, markdown_content, pdf_filename, image_filename = await generate_daily_report_files(
         group_id,
         target_date,
         group_name=group_name,
@@ -1189,23 +1247,29 @@ async def send_daily_report_to_admins(
         logger.warning("Daily report skipped: no admins configured")
         return pdf_filename
 
-    if not pdf_filename:
-        message = f"群 {group_id} {target_date.strftime('%Y-%m-%d')} 日报生成失败：PDF 未生成。"
+    if not pdf_filename and not image_filename:
+        message = f"群 {group_id} {target_date.strftime('%Y-%m-%d')} 日报生成失败：长图/PDF 未生成。"
         for admin_id in admin_ids:
             try:
                 await bot.call_api("send_private_msg", user_id=int(admin_id), message=message)
             except Exception:
                 logger.exception(f"Failed to send daily report failure notice to admin {admin_id}")
-        raise RuntimeError("PDF 未生成")
+        raise RuntimeError("长图/PDF 未生成")
 
     for admin_id in admin_ids:
         event = PrivateReportEvent(admin_id)
         try:
-            await send_existing_file(bot, event, report_file_path(pdf_filename), pdf_filename)
+            if image_filename:
+                await send_report_image(bot, event, report_file_path(image_filename), image_filename)
+            elif pdf_filename:
+                await send_existing_file(bot, event, report_file_path(pdf_filename), pdf_filename)
             await bot.call_api(
                 "send_private_msg",
                 user_id=int(admin_id),
-                message=f"群 {group_id} {target_date.strftime('%Y-%m-%d')} 日报已生成：{pdf_filename}",
+                message=(
+                    f"群 {group_id} {target_date.strftime('%Y-%m-%d')} 日报已生成。"
+                    f"长图：{image_filename or '未生成'}；PDF 留档：{pdf_filename or '未生成'}"
+                ),
             )
         except Exception:
             logger.exception(f"Failed to send daily report to admin {admin_id}")
@@ -1388,7 +1452,7 @@ async def handle_daily_report(
     await daily_report.send(Message(f"开始生成群 {group_id} {target_date.strftime('%Y-%m-%d')} 的日报，稍等一下。"))
     try:
         group_name = await get_group_name(bot, group_id)
-        markdown_filename, markdown_content, pdf_filename = await generate_daily_report_files(
+        markdown_filename, markdown_content, pdf_filename, image_filename = await generate_daily_report_files(
             group_id,
             target_date,
             group_name=group_name,
@@ -1397,16 +1461,26 @@ async def handle_daily_report(
         logger.exception("Failed to generate daily report")
         await daily_report.finish(Message(f"日报生成失败：{exc}"))
 
-    if not pdf_filename:
-        await daily_report.finish(Message("日报生成失败：PDF 未生成，请检查服务器中文字体或 ReportLab 配置。"))
+    if not pdf_filename and not image_filename:
+        await daily_report.finish(Message("日报生成失败：长图/PDF 未生成，请检查服务器中文字体、Pillow 或 ReportLab 配置。"))
 
-    try:
-        await send_existing_file(bot, event, report_file_path(pdf_filename), pdf_filename)
-    except Exception:
-        logger.exception("Failed to upload daily report")
-        await daily_report.finish(Message(f"日报已生成但 PDF 发送失败：{pdf_filename}。请检查 NapCat 是否支持文件上传。"))
+    if image_filename:
+        try:
+            await send_report_image(bot, event, report_file_path(image_filename), image_filename)
+        except Exception:
+            logger.exception("Failed to send daily report image")
+            await daily_report.send(Message(f"日报长图已生成但发送失败：{image_filename}。继续发送 PDF 留档。"))
 
-    await daily_report.finish(Message(f"日报已生成：{pdf_filename}"))
+    if pdf_filename:
+        try:
+            await send_existing_file(bot, event, report_file_path(pdf_filename), pdf_filename)
+        except Exception:
+            logger.exception("Failed to upload daily report PDF")
+            if image_filename:
+                await daily_report.finish(Message(f"日报长图已发送，但 PDF 发送失败：{pdf_filename}。请检查 NapCat 是否支持文件上传。"))
+            await daily_report.finish(Message(f"日报已生成但 PDF 发送失败：{pdf_filename}。请检查 NapCat 是否支持文件上传。"))
+
+    await daily_report.finish(Message(f"日报已生成：长图 {image_filename or '未生成'}；PDF 留档 {pdf_filename or '未生成'}"))
 
 
 @daily_report_test_send.handle()
