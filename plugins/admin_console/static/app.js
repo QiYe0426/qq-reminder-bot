@@ -151,6 +151,7 @@ function refreshNav() {
   navButton("persona");
   navButton("knowledge");
   navButton("groups");
+  navButton("about");
 }
 
 function setView(view) {
@@ -305,6 +306,20 @@ function renderSidePanel() {
     return;
   }
 
+  if (state.view === "about") {
+    const heading = document.createElement("div");
+    heading.className = "side-heading";
+    heading.textContent = "关于";
+    panel.appendChild(heading);
+    panel.appendChild(sideButton({
+      title: "猎宝",
+      meta: `${state.data?.version || "v1.2.1"}`,
+      active: true,
+      onClick: () => {},
+    }));
+    return;
+  }
+
   if (state.view === "groups") {
     const heading = document.createElement("div");
     heading.className = "side-heading";
@@ -343,12 +358,12 @@ function renderPersona() {
   const content = $("content");
   content.innerHTML = "";
   state.rightView = "persona-editor";
-
+  
   const card = document.createElement("div");
   card.className = "panel section";
   card.innerHTML = `
     <h2 class="section-title">Bot 人设概览</h2>
-    <p class="muted" style="margin:0 0 12px">猎宝在群聊中的回复风格和基础设定。在右侧面板编辑人设提示词，保存后云端立即生效。</p>
+    <p class="muted" style="margin:0 0 12px">猎宝在群聊中的回复风格和基础设定。<strong>右侧面板</strong>实时编辑人设提示词，保存后云端立即生效。</p>
     <div style="padding:12px;background:var(--bg);border-radius:6px">
       <div style="font-size:12px;color:var(--muted);margin-bottom:6px">当前人设长度</div>
       <div style="font-weight:700;font-size:24px">${((state.data?.persona || "").length).toLocaleString()}</div>
@@ -356,6 +371,26 @@ function renderPersona() {
     </div>
   `;
   content.appendChild(card);
+}
+
+function renderAbout() {
+  setTitle("关于猎宝", "Bot 能力概览与版本信息。");
+  const content = $("content");
+  content.innerHTML = "";
+  state.rightView = null;
+
+  const versionPanel = document.createElement("div");
+  versionPanel.className = "panel section";
+  versionPanel.innerHTML = `
+    <h2 class="section-title">版本信息</h2>
+    <div style="display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:13px">
+      <span style="color:var(--muted)">版本</span><span style="font-weight:600">${state.data?.version || "v1.2.1"}</span>
+      <span style="color:var(--muted)">框架</span><span>NoneBot2 + OneBot v11</span>
+      <span style="color:var(--muted)">运行状态</span><span style="color:var(--hunter);font-weight:600">● 运行中</span>
+    </div>
+  `;
+  content.appendChild(versionPanel);
+  content.appendChild(renderAgentCapabilitiesPanel());
 }
 
 function renderPersonaEditor(container) {
@@ -596,42 +631,7 @@ function renderGroups() {
   const layout = document.createElement("div");
   layout.className = "group-layout";
 
-  const featuresPanel = document.createElement("div");
-  featuresPanel.className = "panel section";
-  const title = document.createElement("h2");
-  title.className = "section-title";
-  title.textContent = "群功能开关";
-
-  const grid = document.createElement("div");
-  grid.className = "switch-grid";
-  const collectorEnabled = Boolean(group.features?.collector);
-  grid.append(
-    switchCard("ai_chat", "AI 对话", "允许群内触发猎宝回复"),
-    switchCard("collector", "消息采集", "保存群聊消息，供日报、智能陪伴和增强上下文使用"),
-    dailyReportCard(),
-    switchCard("companion", "智能陪伴", "启用群友画像和记忆", {
-      disabled: !collectorEnabled,
-      disabledNote: "需要先开启消息采集",
-    }),
-    chimeCard()
-  );
-
-  featuresPanel.append(title, grid);
-  layout.appendChild(featuresPanel);
-  layout.appendChild(renderAgentCapabilitiesPanel());
-  layout.appendChild(renderAgentToolsPanel());
-
-  if (group.features?.companion) {
-    layout.appendChild(renderCompanionFeaturePanel());
-    layout.appendChild(renderGroupProfilePanel());
-  } else {
-    const disabled = document.createElement("div");
-    disabled.className = "empty";
-    disabled.textContent = "开启智能陪伴后可管理本群群友画像。";
-    layout.appendChild(disabled);
-  }
-
-  // 详情导航栏 —— 点击后在右侧面板打开
+  // 详情导航栏 —— 放在最顶部，点击后在右侧面板打开
   const detailNav = document.createElement("div");
   detailNav.className = "panel section";
   detailNav.innerHTML = `<h2 class="section-title" style="margin-bottom:10px">详情管理</h2>`;
@@ -657,6 +657,40 @@ function renderGroups() {
   );
   detailNav.appendChild(detailLinks);
   layout.appendChild(detailNav);
+
+  const featuresPanel = document.createElement("div");
+  featuresPanel.className = "panel section";
+  const title = document.createElement("h2");
+  title.className = "section-title";
+  title.textContent = "群功能开关";
+
+  const grid = document.createElement("div");
+  grid.className = "switch-grid";
+  const collectorEnabled = Boolean(group.features?.collector);
+  grid.append(
+    switchCard("ai_chat", "AI 对话", "允许群内触发猎宝回复"),
+    switchCard("collector", "消息采集", "保存群聊消息，供日报、智能陪伴和增强上下文使用"),
+    dailyReportCard(),
+    switchCard("companion", "智能陪伴", "启用群友画像和记忆", {
+      disabled: !collectorEnabled,
+      disabledNote: "需要先开启消息采集",
+    }),
+    chimeCard()
+  );
+
+  featuresPanel.append(title, grid);
+  layout.appendChild(featuresPanel);
+  layout.appendChild(renderAgentToolsPanel());
+
+  if (group.features?.companion) {
+    layout.appendChild(renderCompanionFeaturePanel());
+    layout.appendChild(renderGroupProfilePanel());
+  } else {
+    const disabled = document.createElement("div");
+    disabled.className = "empty";
+    disabled.textContent = "开启智能陪伴后可管理本群群友画像。";
+    layout.appendChild(disabled);
+  }
 
   content.appendChild(layout);
 }
@@ -1657,8 +1691,9 @@ function render() {
   if (state.view === "persona") renderPersona();
   if (state.view === "knowledge") renderKnowledge();
   if (state.view === "groups") renderGroups();
+  if (state.view === "about") renderAbout();
   renderRightPanel();
-  $("saveButton").style.display = state.view ? "" : "none";
+  $("saveButton").style.display = state.view && state.view !== "about" ? "" : "none";
 }
 
 async function loadState() {

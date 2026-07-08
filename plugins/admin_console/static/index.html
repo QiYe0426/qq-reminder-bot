@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>猎宝控制台</title>
-  <link rel="stylesheet" href="/hunterbot/admin-console/static/style.css?v=20260709-01" />
+  <link rel="stylesheet" href="/hunterbot/admin-console/static/style.css?v=20260709-02" />
 </head>
 <body>
   <div class="shell">
@@ -19,13 +19,20 @@
         </div>
       </div>
 
-      <nav class="main-nav" aria-label="主导航">
-        <button class="nav-item active" data-view="persona" type="button">Bot 人设</button>
-        <button class="nav-item" data-view="knowledge" type="button">知识库</button>
-        <button class="nav-item" data-view="groups" type="button">群管理</button>
-      </nav>
+      <div class="nav-area">
+        <div class="nav-spacer"></div>
+        <nav class="main-nav" aria-label="主导航">
+          <button class="nav-item active" data-view="persona" type="button">Bot 人设</button>
+          <button class="nav-item" data-view="knowledge" type="button">知识库</button>
+          <button class="nav-item" data-view="groups" type="button">群管理</button>
+        </nav>
+        <div class="nav-spacer"></div>
+        <div class="side-panel" id="sidePanel"></div>
+      </div>
 
-      <div class="side-panel" id="sidePanel"></div>
+      <nav class="bottom-nav" aria-label="底部导航">
+        <button class="nav-item" data-view="about" type="button">关于猎宝</button>
+      </nav>
 
       <div class="version" id="version">v1.2.1</div>
     </aside>
