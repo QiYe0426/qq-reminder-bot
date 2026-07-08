@@ -43,6 +43,9 @@ REGISTERED_TOOL_LABELS = {
     "get_group_profile": "查看群画像",
     "get_member_profile": "查看群友画像",
     "set_group_features": "调整群功能",
+    "build_semantic_graph": "生成语义图",
+    "get_semantic_graph": "读取语义图",
+    "render_semantic_graph": "语义图可视化",
 }
 
 BUILTIN_CAPABILITIES = [

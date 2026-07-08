@@ -130,6 +130,7 @@ AGENT_SYSTEM_INSTRUCTIONS = (
     "如果用户要提醒群里的别人但对象不明确，应先确认对象；用户也可以通过 @某人 明确指定。"
     "如果用户询问杀戮尖塔2/STS2 的卡牌、遗物、角色、敌人、Boss、事件、关键词、机制或攻略，优先使用 search_sts2_knowledge；涉及卡牌强度、抓率和版本变化时，要同时参考107攻略和108相对107差异。"
     "如果用户要你回忆、查找、总结当前群刚才或最近聊过什么，使用 get_group_context；需要关键词时传 keyword，不需要时查最近消息。"
+    "如果管理员询问群聊话题之间的关系、语义图、话题图谱、群知识结构或想把关系画出来，使用 build_semantic_graph、get_semantic_graph 或 render_semantic_graph；私聊里必须带 group_id。"
     "如果管理员询问当前群或指定群的状态、功能开关、消息采集数量、日报生成状态或 Agent 工具权限，使用 get_group_status；私聊里必须带 group_id。"
     "如果管理员询问昨日总结、昨天日报、群日报或指定日期总结，使用 generate_daily_report；未指定日期时按昨天处理；私聊里必须带 group_id。"
     "如果管理员要开启、关闭或调整某群功能，使用 set_group_features；私聊里必须带 group_id，并遵守日报/陪伴依赖消息采集。"

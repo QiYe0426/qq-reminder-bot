@@ -59,6 +59,8 @@ const agentCategoryLabels = {
   knowledge: "知识库",
   group_context: "群上下文",
   daily_report: "日报",
+  semantic_graph: "语义图",
+  semantic_graph_visual: "语义图可视化",
   profile: "画像",
   admin: "管理",
   chime: "常数报时",

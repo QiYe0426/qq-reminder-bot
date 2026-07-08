@@ -50,12 +50,18 @@ def test_reminder_tools_are_registered() -> None:
     assert has_agent_tool("cancel_reminder")
     assert has_agent_tool("search_sts2_knowledge")
     assert has_agent_tool("get_group_context")
+    assert has_agent_tool("build_semantic_graph")
+    assert has_agent_tool("get_semantic_graph")
+    assert has_agent_tool("render_semantic_graph")
     assert {
         "create_reminder",
         "list_reminders",
         "cancel_reminder",
         "search_sts2_knowledge",
         "get_group_context",
+        "build_semantic_graph",
+        "get_semantic_graph",
+        "render_semantic_graph",
         "generate_daily_report",
         "get_group_status",
         "get_group_profile",
@@ -65,6 +71,8 @@ def test_reminder_tools_are_registered() -> None:
     assert get_agent_tool("create_reminder").requires_feature == "ai_chat"
     assert get_agent_tool("search_sts2_knowledge").requires_feature == "ai_chat"
     assert get_agent_tool("get_group_context").requires_group is True
+    assert get_agent_tool("build_semantic_graph").requires_feature == FEATURE_COLLECTOR
+    assert get_agent_tool("render_semantic_graph").requires_admin is True
     assert get_agent_tool("generate_daily_report").requires_admin is True
     assert get_agent_tool("get_member_profile").requires_group is False
     assert get_agent_tool("set_group_features").requires_admin is True

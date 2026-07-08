@@ -1,8 +1,8 @@
 # 猎bot
 
-猎bot正式发布基线为 v2.0.0「猎bot-初具人形」，当前工作树为 v2.3.3。项目是一个用于学习和自用的 QQ bot，基于 NoneBot2 + OneBot v11。当前版本已经从“命令型提醒 bot”整理成“消息交给 AI agent，再由 agent 调用工具”的雏形，主要支持 AI 对话、联网搜索、提醒工具、常数报时工具、分群消息采集、视觉日报、智能陪伴画像、STS2 知识库、群上下文工具、日报/画像/群状态/群功能管理 Agent 工具和猎宝控制台。
+猎bot正式发布基线为 v2.0.0「猎bot-初具人形」，当前工作树为 v2.4.0。项目是一个用于学习和自用的 QQ bot，基于 NoneBot2 + OneBot v11。当前版本已经从“命令型提醒 bot”整理成“消息交给 AI agent，再由 agent 调用工具”的雏形，主要支持 AI 对话、联网搜索、提醒工具、常数报时工具、分群消息采集、视觉日报、智能陪伴画像、STS2 知识库、群上下文工具、语义图、语义图可视化、日报/画像/群状态/群功能管理 Agent 工具和猎宝控制台。
 
-猎bot加入新群后默认保持业务功能静默。常规 AI 对话、AI 对话里的自然语言提醒、`ping`、`help` 可直接使用；传统 `提醒 ...` 命令、消息采集、日报和陪伴画像需要管理员按群开启。AI 对话独立于消息采集，也可以按群单独关闭。`群功能状态`、采集、日报、存储、媒体识别、日报 Agent 工具、画像 Agent 工具、群状态 Agent 工具和群功能管理 Agent 工具等管理能力仅管理员可用，并可在控制台按群配置允许哪些 Agent 工具。管理员也可以私聊猎宝，带群号查看某群状态/日报/画像或调整某群功能。
+猎bot加入新群后默认保持业务功能静默。常规 AI 对话、AI 对话里的自然语言提醒、`ping`、`help` 可直接使用；传统 `提醒 ...` 命令、消息采集、日报和陪伴画像需要管理员按群开启。AI 对话独立于消息采集，也可以按群单独关闭。`群功能状态`、采集、日报、存储、媒体识别、日报 Agent 工具、画像 Agent 工具、语义图 Agent 工具、群状态 Agent 工具和群功能管理 Agent 工具等管理能力仅管理员可用，并可在控制台按群配置允许哪些 Agent 工具。管理员也可以私聊猎宝，带群号查看某群状态/日报/画像/语义图或调整某群功能。
 
 如果你是接手这份仓库的 AI，请先完整读本文件。仓库后续只保留这一份说明入口。
 
@@ -19,6 +19,8 @@
   - `plugins/message_collector.py`
   - `plugins/media_insights.py`
   - `plugins/daily_report.py`
+  - `plugins/semantic_graph.py`
+  - `plugins/semantic_graph_visual.py`
   - `plugins/ai_chat.py`
   - `plugins/agent_tools/`
   - `plugins/reminder.py`
@@ -29,11 +31,11 @@
 - 当前数据流：
   - NoneBot 从 `pyproject.toml` 加载插件，OneBot v11/NapCat 负责 QQ 收发。
   - 普通用户消息先经过 `ai_chat` 判断是否触发猎宝；触发后构造本地上下文，再交给 AI agent。
-  - AI agent 可调用受控工具：`web_search`、`fetch_url`、`create_reminder`、`list_reminders`、`cancel_reminder`、`search_sts2_knowledge`、`get_group_context`、`generate_daily_report`、`get_group_status`、`get_group_profile`、`get_member_profile`、`set_group_features`、`get_chime`、`set_chime` 和 `respond`。
-  - `plugins/agent_tools/` 是 2.1 起新增的工具注册层；提醒、STS2 知识库、群上下文、日报、画像、群状态和群功能管理工具已迁入注册表，并跟随权限、功能依赖和控制台 Agent 工具开关动态过滤。
+  - AI agent 可调用受控工具：`web_search`、`fetch_url`、`create_reminder`、`list_reminders`、`cancel_reminder`、`search_sts2_knowledge`、`get_group_context`、`build_semantic_graph`、`get_semantic_graph`、`render_semantic_graph`、`generate_daily_report`、`get_group_status`、`get_group_profile`、`get_member_profile`、`set_group_features`、`get_chime`、`set_chime` 和 `respond`。
+  - `plugins/agent_tools/` 是 2.1 起新增的工具注册层；提醒、STS2 知识库、群上下文、语义图、日报、画像、群状态和群功能管理工具已迁入注册表，并跟随权限、功能依赖和控制台 Agent 工具开关动态过滤。
   - 命令入口仍由 `reminder.py`、`daily_report.py`、`message_collector.py` 等插件保留；提醒和常数报时的核心逻辑已下沉到 `reminder_service.py` / `chime_service.py`，方便 AI 调用。
   - 群消息先进入归档库 `message_archive`，再由 `message_collector` / `media_insights` 做采集和素材识别。
-  - `daily_report` 读取数据库生成日报，`companion_memory` 读取采集消息生成画像，`admin_console` 写入控制台配置。
+  - `daily_report` 读取数据库生成日报，`semantic_graph` 读取采集消息生成话题关系图，`companion_memory` 读取采集消息生成画像，`admin_console` 写入控制台配置。
   - 日志只用于排障，不是最终数据源
 - 关键约定：
   - `@` 会保留 QQ 号
@@ -97,6 +99,9 @@ AI 对话默认走受控 agent。用户发给猎宝的自然语言会先进入 `
 - `create_reminder` / `list_reminders` / `cancel_reminder`：创建、查看和取消本人提醒；AI 对话里的自然语言提醒跟随 `AI 对话` 开关常开，传统 `提醒 ...` 命令仍遵守本群 `提醒` 开关。
 - `search_sts2_knowledge`：按需检索本地 STS2 知识库，适合卡牌、遗物、角色、敌人、Boss、事件、关键词、机制和攻略问题。
 - `get_group_context`：按需读取当前群最近上下文；开启 `消息采集` 时查归档库，未开启时只查进程内临时上下文。
+- `build_semantic_graph`：管理员基于指定群的采集消息生成或刷新语义图，抽取发言人、话题关键词、共现关系和接续讨论关系。
+- `get_semantic_graph`：管理员读取指定群最近一次语义图摘要；私聊里需要提供群号。
+- `render_semantic_graph`：管理员把语义图渲染为 PNG 可视化图片，并尽量发送到当前 QQ 会话。
 - `generate_daily_report`：管理员生成或查看指定群的日报/昨日总结；私聊里需要提供群号，生成开始和失败原因会有明确反馈。
 - `get_group_status`：管理员查看当前群或指定群的功能开关、采集数量、日报运行状态、群画像和 Agent 工具权限。
 - `get_group_profile` / `get_member_profile`：管理员查看当前群或指定群的群画像、群友画像。
@@ -126,6 +131,15 @@ AI 对话会先判断当前问题是否需要联网搜索：像最新消息、�
 - 管理员命令通常不进入采集库。
 - `采集状态` / `消息采集状态`：查看当前群采集数量；管理员私聊使用时查看全部已采集群。
 - `查看采集 20`：导出最近采集消息 txt，数字范围 1-50；群聊中只导出当前群，私聊中导出全部群最近消息。
+
+### 语义图和可视化
+
+语义图插件基于已采集消息工作，不单独采集新数据。它会从指定群的消息中抽取发言人、话题/关键词、媒体素材节点，以及“提到”“相关”“接续讨论”等关系，保存到 `data/semantic_graph.db`。
+
+- `build_semantic_graph`：生成或刷新当前群/指定群语义图；可按 `date` 限定某天，或按 `keyword` 只看相关消息。
+- `get_semantic_graph`：读取最近一次语义图，返回核心节点和主要关系摘要。
+- `render_semantic_graph`：把语义图渲染为 `data/semantic_graphs/` 下的 PNG 图片，并在可用时发送到群聊或管理员私聊。
+- 语义图工具默认需要管理员权限，并依赖目标群开启 `消息采集`。控制台的 Agent 工具权限面板可以按群关闭或重新开启这些工具。
 
 ### 媒体和素材识别
 
@@ -412,7 +426,7 @@ ssh ubuntu@62.234.188.16
 cd ~/qq-reminder-bot
 git pull --ff-only
 .venv/bin/pip install -e .
-.venv/bin/python -m py_compile bot.py plugins/access_control.py plugins/companion_registry.py plugins/companion_memory.py plugins/admin_console/__init__.py plugins/message_archive.py plugins/reminder.py plugins/reminder_service.py plugins/chime_service.py plugins/ai_chat.py plugins/group_reactions.py plugins/message_collector.py plugins/storage_status.py plugins/media_insights.py plugins/daily_report.py plugins/remote_approval.py scripts/codex_remote_approval_hook.py
+.venv/bin/python -m py_compile bot.py plugins/access_control.py plugins/companion_registry.py plugins/companion_memory.py plugins/admin_console/__init__.py plugins/message_archive.py plugins/reminder.py plugins/reminder_service.py plugins/chime_service.py plugins/ai_chat.py plugins/group_reactions.py plugins/message_collector.py plugins/storage_status.py plugins/media_insights.py plugins/daily_report.py plugins/semantic_graph.py plugins/semantic_graph_visual.py plugins/remote_approval.py scripts/codex_remote_approval_hook.py
 sudo systemctl restart qq-reminder-bot
 journalctl -u qq-reminder-bot -n 80 --no-pager
 ```
@@ -443,13 +457,15 @@ plugins/chime_service.py 常数报时开关、模式和目标列表服务，可�
 plugins/knowledge_service.py STS2/知识库检索服务，供轻量上下文和 AI agent 工具复用
 plugins/group_context_service.py 群上下文服务，统一处理采集库上下文和未采集时的临时上下文
 plugins/ai_chat.py     AI 对话、联网搜索和工具调用 agent
-plugins/agent_tools/   AI agent 的受控工具注册表；当前承接提醒、STS2 知识库、群上下文、日报、画像、群状态和群功能管理工具
+plugins/agent_tools/   AI agent 的受控工具注册表；当前承接提醒、STS2 知识库、群上下文、语义图、日报、画像、群状态和群功能管理工具
 plugins/group_reactions.py 群聊附加反应：调戏其他bot、关键词回怼
 plugins/message_archive.py 消息归档写入代码
 plugins/message_collector.py 指定群消息采集代码
 plugins/storage_status.py 存储占用查询代码
 plugins/media_insights.py 媒体识别、链接解析、文件读取、语音转写和素材自动识别代码
 plugins/daily_report.py 日报预览、AI总结、PNG长图、PDF留档和定时发送代码
+plugins/semantic_graph.py 语义图抽取、落库和摘要服务
+plugins/semantic_graph_visual.py 语义图 PNG 可视化渲染服务
 plugins/remote_approval.py Codex 审批请求的 QQ 私聊远程批准插件
 tests/                提醒、报时、审批脱敏和插件配置的最小自动化测试
 .github/workflows/ci.yml GitHub Actions：安装、编译并运行测试

@@ -23,6 +23,8 @@ def test_agent_tool_capabilities_include_admin_and_core_tools() -> None:
 
     assert tools["respond"]["configurable"] is False
     assert tools["generate_daily_report"]["requires_admin"] is True
+    assert tools["build_semantic_graph"]["requires_feature"] == "collector"
+    assert tools["render_semantic_graph"]["category"] == "semantic_graph_visual"
     assert tools["get_member_profile"]["requires_group"] is False
     assert tools["set_group_features"]["requires_admin"] is True
     assert tools["web_search"]["category"] == "web"
