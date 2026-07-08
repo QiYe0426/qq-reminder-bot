@@ -1,6 +1,6 @@
 [project]
 name = "qq-reminder-bot"
-version = "2.3.0"
+version = "2.3.1"
 description = "HunterBot, a QQ assistant with AI agent tools, reminders, reports, memory, and an admin console."
 requires-python = ">=3.10"
 dependencies = [

@@ -71,6 +71,7 @@ from plugins.reminder_target_service import (
     group_member_from_payload,
     strip_target_pronoun,
 )
+from plugins.reminder_prompt import reminder_confirmation_prompt, reminder_time_wait_prompt
 from plugins.message_archive import save_ai_reply
 
 
@@ -1508,10 +1509,7 @@ async def handle_pending_reminder_confirmation(bot: Bot, event: GroupMessageEven
         pending_reminder_confirmations.pop(key, None)
         return "好，那这条提醒我先取消。你可以重新 @某人 让我提醒。"
 
-    return (
-        f"我还在确认：你想提醒的是 {pending.target.display_name or pending.target.user_id} 对吗？"
-        "回答“对”或“不对”就行，也可以直接 @某人。"
-    )
+    return reminder_confirmation_prompt(pending.target.display_name or pending.target.user_id, prefix="我还在等你确认。")
 
 
 async def create_pending_reminder_setup_reply(
@@ -1555,7 +1553,7 @@ async def handle_pending_reminder_setup(bot: Bot, event: GroupMessageEvent) -> s
             time_text="",
         )
         target_name = target.display_name or target.user_id
-        return f"好，提醒对象改成 {target_name}。再告诉我什么时候提醒，比如“一分钟后”或“明早9点”。"
+        return reminder_time_wait_prompt(target_name)
 
     normalized = normalize_text(text).strip("。.!！")
     yes_words = {"对", "是", "是的", "对的", "没错", "确定", "ok", "okay", "yes", "y"}
@@ -1572,7 +1570,7 @@ async def handle_pending_reminder_setup(bot: Bot, event: GroupMessageEvent) -> s
             target_confirmed=True,
             time_text="",
         )
-        return "对象确认了。再告诉我什么时候提醒，比如“一分钟后”或“明早9点”。"
+        return reminder_time_wait_prompt(pending.target.display_name or pending.target.user_id)
 
     if normalized in no_words:
         pending_reminder_setups.pop(key, None)
@@ -1591,15 +1589,20 @@ async def handle_pending_reminder_setup(bot: Bot, event: GroupMessageEvent) -> s
             time_text=text,
         )
         target_name = pending.target.display_name or pending.target.user_id
-        return f"时间收到。你想提醒的是 {target_name} 对吗？回答“对”或“不对”就行，也可以直接 @某人。"
+        return reminder_confirmation_prompt(target_name, prefix="时间收到了，还差确认提醒对象。")
 
     if group_mentions_bot(event, bot):
         return None
 
     target_name = pending.target.display_name or pending.target.user_id
     if pending.target_confirmed:
-        return f"我还在等提醒时间：要什么时候提醒 {target_name}？比如“一分钟后”或“明早9点”。"
-    return f"我还在确认：你想提醒的是 {target_name} 对吗？回答“对”或“不对”，也可以直接 @某人。"
+        return (
+            "【提醒时间】\n"
+            f"我还在等提醒时间：要什么时候提醒 {target_name}？\n"
+            "比如“一分钟后”或“明早9点”。\n"
+            "这个等待在 1 分钟内有效。"
+        )
+    return reminder_confirmation_prompt(target_name, prefix="我还在等你确认。")
 
 
 def remember_transient_group_message(event: GroupMessageEvent) -> None:
@@ -1957,14 +1960,8 @@ async def try_direct_reminder_reply(question: str, event: MessageEvent, bot: Bot
                 )
                 target_name = missing_time_match.target.display_name or missing_time_match.target.user_id
                 if target_confirmed:
-                    return (
-                        f"好，我知道要提醒 {target_name}：{missing_time_match.content}。"
-                        "再告诉我什么时候提醒，比如“一分钟后”或“明早9点”。"
-                    )
-                return (
-                    f"我先确认一下：你想提醒的是 {target_name} 对吗？"
-                    "回答“对”或“不对”，也可以直接 @某人；时间可以直接说“一分钟后”。"
-                )
+                    return reminder_time_wait_prompt(target_name, content=missing_time_match.content)
+                return reminder_confirmation_prompt(target_name, prefix="我先确认一下。", allow_time_reply=True)
             if reminder_intent_without_time_text(question):
                 return "我没认出要提醒谁。你可以直接 @某人，再告诉我什么时候提醒，比如“一分钟后”。"
         return ""
@@ -1980,7 +1977,7 @@ async def try_direct_reminder_reply(question: str, event: MessageEvent, bot: Bot
                     target=target_match.target,
                 )
                 target_name = target_match.target.display_name or target_match.target.user_id
-                return f"你想提醒的是 {target_name} 对吗？回答“对”或“不对”就行，也可以 @某人 让我提醒。"
+                return reminder_confirmation_prompt(target_name)
             return await create_targeted_reminder_reply(
                 event,
                 raw_text=question,
