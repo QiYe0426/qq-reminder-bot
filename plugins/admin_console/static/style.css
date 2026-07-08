@@ -29,6 +29,12 @@
   --danger-line: #e6b3ae;
   --danger-line-strong: #f2b8b5;
   --shadow: 0 1px 2px rgba(16, 24, 40, 0.06);
+  /* 猎人主题 accent — 猎宝绿 */
+  --hunter: #3b8c5e;
+  --hunter-soft: #e6f4ee;
+  --hunter-line: #a8d5b8;
+  --hunter-hover: #2f7350;
+  --hunter-glow: rgba(59, 140, 94, 0.14);
 }
 
 html[data-theme="dark"] {
@@ -62,6 +68,12 @@ html[data-theme="dark"] {
   --danger-line: #744347;
   --danger-line-strong: #8c4c50;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.28);
+  /* 猎人主题 accent — 暗色模式微调 */
+  --hunter: #5db882;
+  --hunter-soft: #1c3d2d;
+  --hunter-line: #3d7a5a;
+  --hunter-hover: #4e9e71;
+  --hunter-glow: rgba(93, 184, 130, 0.18);
 }
 
 * {
@@ -94,7 +106,7 @@ button {
 
 .shell {
   display: grid;
-  grid-template-columns: 280px minmax(0, 1fr);
+  grid-template-columns: 260px minmax(0, 1fr) 380px;
   min-height: 100vh;
 }
 
@@ -107,19 +119,34 @@ button {
 }
 
 .brand {
-  padding: 18px 20px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
   border-bottom: 1px solid var(--line);
 }
 
+.brand-icon {
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.brand-text {
+  min-width: 0;
+}
+
 .brand-title {
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 700;
+  line-height: 1.3;
 }
 
 .brand-subtitle {
-  margin-top: 4px;
+  margin-top: 2px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .main-nav {
@@ -1305,7 +1332,161 @@ button {
   margin-top: 12px;
 }
 
-@media (max-width: 980px) {
+/* ===== 右栏 ===== */
+
+.right-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background: var(--panel);
+  border-left: 1px solid var(--line);
+  overflow: hidden;
+}
+
+.right-content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.right-content .panel {
+  margin-bottom: 14px;
+}
+
+.right-content .section-title {
+  font-size: 14px;
+}
+
+.right-content .keyword-retort-panel {
+  border: none;
+  box-shadow: none;
+  padding: 0;
+}
+
+.right-content .keyword-retort-rule-list {
+  max-height: 480px;
+  overflow-y: auto;
+}
+
+/* 右栏内嵌编辑区样式 */
+.right-editor-panel {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.right-editor-panel textarea {
+  min-height: 240px;
+}
+
+.right-editor-panel .persona-editor {
+  min-height: 0;
+}
+
+.right-editor-panel .persona-editor textarea {
+  min-height: calc(100vh - 200px);
+}
+
+/* 右栏空状态 */
+.right-content .empty {
+  margin-top: 0;
+}
+
+/* 右栏开关网格压缩 */
+.right-content .switch-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.right-content .companion-layout {
+  grid-template-columns: 1fr;
+  height: auto;
+}
+
+.right-content .companion-member-column,
+.right-content .member-chip-list,
+.right-content #companionEditor {
+  height: auto;
+  max-height: none;
+}
+
+.right-content .member-chip-list {
+  max-height: 320px;
+}
+
+.right-content .form-grid {
+  grid-template-columns: 1fr;
+}
+
+/* 右栏知识库适配 */
+.right-content .knowledge-layout {
+  grid-template-columns: 1fr;
+  min-height: 0;
+}
+
+.right-content .item-list {
+  max-height: 240px;
+}
+
+/* 猎人主题 nav-item active 态 */
+.nav-item.active {
+  background: var(--hunter-soft);
+  border-color: var(--hunter-line);
+  color: var(--hunter);
+}
+
+.nav-item.active::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--hunter);
+  vertical-align: middle;
+}
+
+/* 猎人主题 save 按钮 */
+.button.primary {
+  border-color: var(--hunter);
+  background: var(--hunter);
+}
+
+.button.primary:hover {
+  background: var(--hunter-hover);
+  border-color: var(--hunter-hover);
+}
+
+/* 猎人主题 scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  border-radius: 3px;
+  background: var(--line-strong);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--hover-line);
+}
+
+@media (max-width: 1200px) {
+  .shell {
+    grid-template-columns: 260px minmax(0, 1fr);
+  }
+
+  .right-panel {
+    display: none;
+  }
+}
+
+@media (max-width: 700px) {
   .shell {
     grid-template-columns: 1fr;
   }

@@ -22,6 +22,10 @@ const state = {
   archiveRows: [],
   archiveHasMore: false,
   archiveOffset: 0,
+  /* 右栏视图 */
+  rightView: null,
+  /* 右栏各视图的可选值 */
+  /* "persona-editor", "knowledge-editor", "keyword-retort", "companion", "archive" */
 };
 
 const ARCHIVE_PAGE_SIZE = 50;
@@ -155,6 +159,7 @@ function setView(view) {
   state.knowledgeDetail = null;
   state.selectedCompanionId = null;
   state.companionDetail = null;
+  state.rightView = null;
   refreshNav();
   render();
 }
@@ -337,9 +342,25 @@ function renderPersona() {
   setTitle("Bot 人设", "编辑猎宝全局回复风格和设定。保存后云端立即生效。");
   const content = $("content");
   content.innerHTML = "";
+  state.rightView = "persona-editor";
 
+  const card = document.createElement("div");
+  card.className = "panel section";
+  card.innerHTML = `
+    <h2 class="section-title">Bot 人设概览</h2>
+    <p class="muted" style="margin:0 0 12px">猎宝在群聊中的回复风格和基础设定。在右侧面板编辑人设提示词，保存后云端立即生效。</p>
+    <div style="padding:12px;background:var(--bg);border-radius:6px">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:6px">当前人设长度</div>
+      <div style="font-weight:700;font-size:24px">${((state.data?.persona || "").length).toLocaleString()}</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:4px">字符</div>
+    </div>
+  `;
+  content.appendChild(card);
+}
+
+function renderPersonaEditor(container) {
   const panel = document.createElement("div");
-  panel.className = "panel section persona-editor";
+  panel.className = "panel section right-editor-panel";
   panel.appendChild(field({
     id: "personaText",
     label: "人设提示词",
@@ -347,7 +368,7 @@ function renderPersona() {
     rows: 22,
     wide: true,
   }));
-  content.appendChild(panel);
+  container.appendChild(panel);
 }
 
 function knowledgeItems() {
@@ -367,8 +388,7 @@ function renderKnowledge() {
   const content = $("content");
   content.innerHTML = "";
 
-  const layout = document.createElement("div");
-  layout.className = "knowledge-layout";
+  state.rightView = state.knowledgeDetail ? "knowledge-editor" : null;
 
   const listPanel = document.createElement("div");
   listPanel.className = "panel section";
@@ -429,14 +449,15 @@ function renderKnowledge() {
   list.className = "item-list";
 
   listPanel.append(tabs, toolbar, list);
-
-  const editorPanel = document.createElement("div");
-  editorPanel.className = "panel section";
-  editorPanel.id = "knowledgeEditor";
-
-  layout.append(listPanel, editorPanel);
-  content.appendChild(layout);
+  content.appendChild(listPanel);
   renderKnowledgeList();
+}
+
+function renderKnowledgeEditorIn(container) {
+  const panel = document.createElement("div");
+  panel.className = "panel section";
+  panel.id = "knowledgeEditor";
+  container.appendChild(panel);
   renderKnowledgeEditor();
 }
 
@@ -562,8 +583,14 @@ function renderGroups() {
   const content = $("content");
   content.innerHTML = "";
   if (!group) {
+    state.rightView = null;
     content.appendChild(empty("左侧选择一个群。"));
     return;
+  }
+
+  // 如果右栏没有打开任何详情，默认不显示
+  if (!state.rightView || !["keyword-retort", "companion", "archive"].includes(state.rightView)) {
+    state.rightView = null;
   }
 
   const layout = document.createElement("div");
@@ -593,19 +620,43 @@ function renderGroups() {
   layout.appendChild(featuresPanel);
   layout.appendChild(renderAgentCapabilitiesPanel());
   layout.appendChild(renderAgentToolsPanel());
-  layout.appendChild(renderKeywordRetortPanel());
 
   if (group.features?.companion) {
     layout.appendChild(renderCompanionFeaturePanel());
     layout.appendChild(renderGroupProfilePanel());
-    layout.appendChild(renderCompanionManager());
   } else {
     const disabled = document.createElement("div");
     disabled.className = "empty";
     disabled.textContent = "开启智能陪伴后可管理本群群友画像。";
     layout.appendChild(disabled);
   }
-  layout.appendChild(renderArchivePanel());
+
+  // 详情导航栏 —— 点击后在右侧面板打开
+  const detailNav = document.createElement("div");
+  detailNav.className = "panel section";
+  detailNav.innerHTML = `<h2 class="section-title" style="margin-bottom:10px">详情管理</h2>`;
+  const detailLinks = document.createElement("div");
+  detailLinks.style.cssText = "display:flex;flex-wrap:wrap;gap:8px";
+
+  const rightButton = (label, view) => {
+    const btn = document.createElement("button");
+    btn.className = `button${state.rightView === view ? " primary" : ""}`;
+    btn.type = "button";
+    btn.textContent = label;
+    btn.onclick = () => {
+      state.rightView = state.rightView === view ? null : view;
+      render();
+    };
+    return btn;
+  };
+
+  detailLinks.append(
+    rightButton("关键词回怼", "keyword-retort"),
+    rightButton("群友画像管理", "companion"),
+    rightButton("消息采集记录", "archive")
+  );
+  detailNav.appendChild(detailLinks);
+  layout.appendChild(detailNav);
 
   content.appendChild(layout);
 }
@@ -1563,11 +1614,50 @@ function archiveMessageRow(item) {
   return row;
 }
 
+function renderRightPanel() {
+  const rightContent = $("rightContent");
+  if (!rightContent) return;
+  rightContent.innerHTML = "";
+
+  if (!state.rightView) {
+    rightContent.appendChild(empty(""));
+    return;
+  }
+
+  if (state.rightView === "persona-editor") {
+    renderPersonaEditor(rightContent);
+    return;
+  }
+  if (state.rightView === "knowledge-editor") {
+    renderKnowledgeEditorIn(rightContent);
+    return;
+  }
+  if (state.rightView === "keyword-retort") {
+    const panel = renderKeywordRetortPanel();
+    panel.classList.remove("section");
+    rightContent.appendChild(panel);
+    return;
+  }
+  if (state.rightView === "companion") {
+    const panel = renderCompanionManager();
+    panel.classList.remove("section");
+    rightContent.appendChild(panel);
+    return;
+  }
+  if (state.rightView === "archive") {
+    const panel = renderArchivePanel();
+    panel.classList.remove("section");
+    rightContent.appendChild(panel);
+    return;
+  }
+}
+
 function render() {
   renderSidePanel();
   if (state.view === "persona") renderPersona();
   if (state.view === "knowledge") renderKnowledge();
   if (state.view === "groups") renderGroups();
+  renderRightPanel();
   $("saveButton").style.display = state.view ? "" : "none";
 }
 
@@ -1684,7 +1774,7 @@ async function saveGroup(options = {}) {
       companion: collectorEnabled && ($("feature_companion")?.checked ?? false),
       hourly_chime: selectedChimeEnabled(),
       bot_tease: $("feature_bot_tease")?.checked ?? false,
-      keyword_retort: $("feature_keyword_retort")?.checked ?? false,
+      keyword_retort: $("feature_keyword_retort")?.checked ?? state.group?.features?.keyword_retort ?? false,
     },
     chime: {
       mode: selectedChimeMode(),
@@ -1702,7 +1792,7 @@ async function saveGroup(options = {}) {
       },
     },
     keyword_retort: {
-      rules: readKeywordRetortRules(),
+      rules: document.querySelector(".keyword-retort-rule") ? readKeywordRetortRules() : (state.group?.keyword_retort?.rules || []),
     },
     group_profile: {
       summary: readInput("groupProfileSummary"),

@@ -4,14 +4,19 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>猎宝控制台</title>
-  <link rel="stylesheet" href="/hunterbot/admin-console/static/style.css?v=20260707-22" />
+  <link rel="stylesheet" href="/hunterbot/admin-console/static/style.css?v=20260709-01" />
 </head>
 <body>
   <div class="shell">
+
+    <!-- ===== 左栏：导航 + 上下文 ===== -->
     <aside class="sidebar">
       <div class="brand">
-        <div class="brand-title">猎宝控制台</div>
-        <div class="brand-subtitle">HunterBot Admin</div>
+        <img class="brand-icon" src="/hunterbot/admin-console/static/hunter-brand.png" alt="" />
+        <div class="brand-text">
+          <div class="brand-title">猎宝控制台</div>
+          <div class="brand-subtitle">HunterBot Admin</div>
+        </div>
       </div>
 
       <nav class="main-nav" aria-label="主导航">
@@ -25,6 +30,7 @@
       <div class="version" id="version">v1.2.1</div>
     </aside>
 
+    <!-- ===== 中栏：内容区 ===== -->
     <main class="workspace">
       <header class="topbar">
         <div>
@@ -44,8 +50,14 @@
 
       <section class="content" id="content"></section>
     </main>
+
+    <!-- ===== 右栏：详情 / 编辑区 ===== -->
+    <aside class="right-panel" id="rightPanel">
+      <div class="right-content" id="rightContent"></div>
+    </aside>
+
   </div>
 
-  <script src="/hunterbot/admin-console/static/app.js?v=20260707-22"></script>
+  <script src="/hunterbot/admin-console/static/app.js?v=20260709-01"></script>
 </body>
 </html>
