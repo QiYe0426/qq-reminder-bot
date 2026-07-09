@@ -263,6 +263,7 @@ def normalize_profile_payload(payload: dict[str, object]) -> dict[str, object]:
         "personality_notes": str(payload.get("personality_notes") or "").strip()[:1000],
         "emotional_preferences": str(payload.get("emotional_preferences") or "").strip()[:1000],
         "topics": parse_topics(payload.get("topics"))[:20],
+        "longterm_profile": str(payload.get("longterm_profile") or "").strip()[:2000],
         "confidence": min(max(confidence, 0.0), 1.0),
     }
 
@@ -912,9 +913,10 @@ async def save_companion_profile(group_id: str, user_id: str, payload: dict[str,
                 confidence,
                 source_message_from_id,
                 source_message_to_id,
+                longterm_profile,
                 updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?)
             ON CONFLICT(group_id, user_id) DO UPDATE SET
                 summary = excluded.summary,
                 current_activity = excluded.current_activity,
@@ -922,6 +924,7 @@ async def save_companion_profile(group_id: str, user_id: str, payload: dict[str,
                 emotional_preferences = excluded.emotional_preferences,
                 topics = excluded.topics,
                 confidence = excluded.confidence,
+                longterm_profile = excluded.longterm_profile,
                 updated_at = excluded.updated_at
             """,
             (
@@ -933,6 +936,7 @@ async def save_companion_profile(group_id: str, user_id: str, payload: dict[str,
                 profile["emotional_preferences"],
                 json.dumps(profile["topics"], ensure_ascii=False),
                 profile["confidence"],
+                profile["longterm_profile"],
                 timestamp,
             ),
         )

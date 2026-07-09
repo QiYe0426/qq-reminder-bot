@@ -336,11 +336,16 @@ async def init_companion_memory_db() -> None:
                 confidence REAL NOT NULL DEFAULT 0,
                 source_message_from_id INTEGER NOT NULL DEFAULT 0,
                 source_message_to_id INTEGER NOT NULL DEFAULT 0,
+                longterm_profile TEXT NOT NULL DEFAULT '',
                 updated_at TEXT NOT NULL,
                 PRIMARY KEY (group_id, user_id)
             )
             """
         )
+        cursor = await db.execute("PRAGMA table_info(companion_profiles)")
+        columns = {str(row[1]) for row in await cursor.fetchall()}
+        if "longterm_profile" not in columns:
+            await db.execute("ALTER TABLE companion_profiles ADD COLUMN longterm_profile TEXT NOT NULL DEFAULT ''")
         await db.execute(
             """
             CREATE TABLE IF NOT EXISTS companion_memories (
@@ -915,6 +920,9 @@ def profile_to_text(profile: aiosqlite.Row | None) -> str:
         value_text = str(value or "").strip()
         if value_text:
             lines.append(f"{label}：{value_text}")
+    longterm = str(profile.get("longterm_profile") or "").strip()
+    if longterm:
+        lines.append(f"长期画像：{longterm}")
     if profile["updated_at"]:
         lines.append(f"更新时间：{profile['updated_at']}")
     if profile["confidence"]:
@@ -1162,6 +1170,8 @@ async def call_summary_model(
 新消息：
 {messages_text}
 
+长期画像说明：综合所有已积累信息，用 200 字以内提炼此用户最稳定、最核心的特征 —— 兴趣爱好、行为模式、个人特质等。长期画像不随短期活动频繁变动，除非新消息明显改变了之前的长期判断。如果尚无足够依据，返回空字符串。
+
 JSON 格式：
 {{
   "current_activity": "用户最近在做什么或关注什么，未知则空字符串",
@@ -1169,6 +1179,7 @@ JSON 格式：
   "emotional_preferences": "适合怎样陪伴TA，未知则空字符串",
   "topics": ["主题1", "主题2"],
   "summary": "100字以内整体摘要",
+  "longterm_profile": "200字以内长期画像，综合所有信息的核心特征提炼。无足够依据则为空字符串",
   "confidence": 0.0,
   "memories": [
     {{
@@ -1218,6 +1229,7 @@ async def write_profile_and_memories(
         "emotional_preferences": str(result.get("emotional_preferences") or "").strip()[:500],
         "topics": dump_json(topics),
         "confidence": normalize_confidence(result.get("confidence")),
+        "longterm_profile": str(result.get("longterm_profile") or "").strip()[:1000],
     }
 
     memories_value = result.get("memories")
@@ -1237,9 +1249,10 @@ async def write_profile_and_memories(
                 confidence,
                 source_message_from_id,
                 source_message_to_id,
+                longterm_profile,
                 updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(group_id, user_id) DO UPDATE SET
                 summary = excluded.summary,
                 current_activity = excluded.current_activity,
@@ -1249,6 +1262,10 @@ async def write_profile_and_memories(
                 confidence = excluded.confidence,
                 source_message_from_id = excluded.source_message_from_id,
                 source_message_to_id = excluded.source_message_to_id,
+                longterm_profile = CASE
+                    WHEN excluded.longterm_profile != '' THEN excluded.longterm_profile
+                    ELSE companion_profiles.longterm_profile
+                END,
                 updated_at = excluded.updated_at
             """,
             (
@@ -1262,6 +1279,7 @@ async def write_profile_and_memories(
                 profile_values["confidence"],
                 first_id,
                 last_id,
+                profile_values["longterm_profile"],
                 timestamp,
             ),
         )

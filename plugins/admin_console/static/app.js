@@ -1501,6 +1501,7 @@ function renderCompanionEditor() {
       value: parseJsonArray(target.bot_keywords || member.bot_keywords).join("，"),
       rows: 3,
     }),
+    field({ id: "profileLongterm", label: "长期画像", value: profile.longterm_profile || "", rows: 6, wide: true }),
     field({ id: "profileSummary", label: "画像摘要", value: profile.summary || "", rows: 6, wide: true }),
     field({ id: "profileConfidence", label: "置信度 0-1", value: profile.confidence ?? "", type: "number" })
   );
@@ -1855,6 +1856,7 @@ async function saveCompanion() {
       personality_notes: readInput("profileStyle"),
       emotional_preferences: readInput("profilePreference"),
       topics: parseKeywordInput(readInput("profileTopics")),
+      longterm_profile: readInput("profileLongterm"),
       summary: readInput("profileSummary"),
       confidence: readInput("profileConfidence"),
     }),
