@@ -9,16 +9,19 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import matplotlib
+# matplotlib.use("Agg") MUST be the very first matplotlib operation,
+# before any import triggers backend selection.
+import matplotlib as mpl
+mpl.use("Agg")
+import matplotlib.font_manager as fm  # noqa: E402
+import matplotlib.pyplot as plt  # noqa: E402
+
+import numpy as np
 import networkx as nx
-from matplotlib import font_manager as fm
 from netgraph import Graph as NetgraphPlot
 from PIL import Image, ImageDraw
 
 from plugins.daily_report_visual import load_font
-
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402 — must set backend before import
 
 logger = logging.getLogger(__name__)
 
@@ -27,9 +30,7 @@ CANVAS_WIDTH = 1280
 CANVAS_HEIGHT = 1500
 GREEN_50 = "#F7FCEB"
 GREEN_100 = "#EEF8D7"
-GREEN_200 = "#D9EFB4"
 GREEN_300 = "#BFE48A"
-GREEN_500 = "#78A64F"
 GREEN_700 = "#31583B"
 TEXT_DARK = "#24351F"
 TEXT_MUTED = "#6F7F62"
@@ -134,26 +135,19 @@ def edge_color(relation: str) -> str:
     return "#D9C96B"
 
 
-def wrap_label(label: str, *, limit: int = 8) -> str:
-    label = normalize_text(label)
-    if len(label) <= limit:
-        return label
-    return label[: limit - 1] + "…"
-
-
 def graph_nodes(graph: dict[str, object], *, limit: int = 32) -> list[dict[str, object]]:
     nodes = [item for item in graph.get("nodes", []) if isinstance(item, dict)]
     nodes.sort(key=lambda item: float(item.get("weight") or 1), reverse=True)
     return nodes[:limit]
 
 
-def graph_edges(graph: dict[str, object], node_labels: set[tuple[str, str]], *, limit: int = 70) -> list[dict[str, object]]:
+def graph_edges(graph: dict[str, object], node_labels: set[str], *, limit: int = 70) -> list[dict[str, object]]:
     edges = []
     for item in graph.get("edges", []):
         if not isinstance(item, dict):
             continue
-        source = (normalize_text(item.get("source")), normalize_text(item.get("source_kind") or "topic"))
-        target = (normalize_text(item.get("target")), normalize_text(item.get("target_kind") or "topic"))
+        source = normalize_text(item.get("source"))
+        target = normalize_text(item.get("target"))
         if source in node_labels and target in node_labels:
             edges.append(item)
     edges.sort(key=lambda item: float(item.get("weight") or 1), reverse=True)
@@ -163,14 +157,6 @@ def graph_edges(graph: dict[str, object], node_labels: set[tuple[str, str]], *, 
 # ---------------------------------------------------------------------------
 # Netgraph 渲染 — 以 Netgraph + Matplotlib 替代旧的 Graphviz 渲染
 # ---------------------------------------------------------------------------
-
-def _netgraph_available() -> bool:
-    try:
-        import netgraph  # noqa: F401
-        return True
-    except ImportError:
-        return False
-
 
 def _render_graph_via_netgraph(
     nodes: list[dict[str, object]],
@@ -186,7 +172,6 @@ def _render_graph_via_netgraph(
 
     # --- 构建 NetworkX 图 ---
     g = nx.Graph()
-    node_labels_map: dict[str, str] = {}  # nice label -> raw label
     node_kind: dict[str, str] = {}
     node_weight: dict[str, float] = {}
 
@@ -198,7 +183,6 @@ def _render_graph_via_netgraph(
             continue
         # 加入 networkx（使用原始 label 作为节点 ID 以保证唯一性）
         g.add_node(label)
-        node_labels_map[label] = label
         node_kind[label] = kind
         node_weight[label] = weight
 
@@ -206,7 +190,7 @@ def _render_graph_via_netgraph(
         _render_empty_fallback(output_png, "暂无可视化节点")
         return
 
-    max_w = max(node_weight.values()) if node_weight else 1.0
+    max_node_w = max(node_weight.values()) if node_weight else 1.0
 
     for edge in edges:
         src = normalize_text(edge.get("source"))
@@ -222,30 +206,42 @@ def _render_graph_via_netgraph(
     for n in g.nodes():
         w = node_weight.get(n, 1.0)
         # Netgraph 的 node_size 会乘以 BASE_SCALE=1e-2
-        # 所以这里给 200~600 让它缩放到 2~6 pt
-        node_size_dict[n] = 200 + 400 * (w / max_w)
+        # 所以这里给 2000~6000 让它缩放到 20~60 pt
+        node_size_dict[n] = 2000 + 4000 * (w / max_node_w)
         k = node_kind.get(n, "topic")
         node_color_dict[n] = node_color(k)
         node_edge_color_dict[n] = GREEN_700
 
     # --- 边视觉参数 ---
-    edge_width_dict: dict[tuple[str, str], float] = {}
-    edge_color_dict: dict[tuple[str, str], str] = {}
-    edge_labels_dict: dict[tuple[str, str], str] = {}
-
+    # nx.Graph 是无向图，g.edges() 按节点插入顺序访问邻接表，
+    # 因此边 tuple 的方向与 Netgraph 内部的 edge list 一致。
+    # 用 frozenset 做不区分方向的查找，再用 g.edges() 的 key 填充 dict。
+    max_edge_w = 1.0
+    edge_params_lookup: dict[frozenset, dict] = {}
     for edge in edges:
         src = normalize_text(edge.get("source"))
         tgt = normalize_text(edge.get("target"))
         if src not in g or tgt not in g or src == tgt:
             continue
-        key = (src, tgt)
         w = max(1.0, float(edge.get("weight") or 1))
-        # Netgraph 的 edge_width 也会乘以 BASE_SCALE
-        edge_width_dict[key] = 50 + 150 * (w / max_w) if max_w > 0 else 50
+        if w > max_edge_w:
+            max_edge_w = w
         rel = str(edge.get("relation") or "")
-        edge_color_dict[key] = edge_color(rel)
+        edge_params_lookup[frozenset((src, tgt))] = {"weight": w, "relation": rel}
+
+    edge_width_dict: dict[tuple[str, str], float] = {}
+    edge_color_dict: dict[tuple[str, str], str] = {}
+    edge_labels_dict: dict[tuple[str, str], str] = {}
+
+    for u, v in g.edges():
+        params = edge_params_lookup.get(frozenset((u, v)), {"weight": 1.0, "relation": ""})
+        w = max(1.0, params["weight"])
+        # edge_width → Netgraph 内部再乘 BASE_SCALE=1e-2，所以给 800~3000 → 缩到 8~30 pt
+        edge_width_dict[(u, v)] = 800 + 2200 * (w / max_edge_w)
+        rel = params["relation"]
+        edge_color_dict[(u, v)] = edge_color(rel)
         if rel:
-            edge_labels_dict[key] = rel
+            edge_labels_dict[(u, v)] = rel
 
     # --- 使用 Netgraph 渲染到 Matplotlib figure ---
     fig, ax = plt.subplots(figsize=(10, 8), facecolor=GREEN_50)
@@ -264,10 +260,14 @@ def _render_graph_via_netgraph(
         "bbox": {"boxstyle": "round,pad=0.2", "facecolor": "white", "edgecolor": "#ddd", "alpha": 0.85},
     }
 
-    plot_instance = NetgraphPlot(
+    # 预计算 spring layout positions（NetworkX 实现），避免 Netgraph 内部 Voronoi 在小图上崩溃
+    nx_pos = nx.spring_layout(g, seed=42, k=8.0, iterations=500)
+    # 转成 Netgraph 需要的格式（np.ndarray）
+    net_pos = {n: np.array([float(p[0]), float(p[1])]) for n, p in nx_pos.items()}
+
+    NetgraphPlot(
         g,
-        node_layout="spring",
-        node_layout_kwargs={"seed": 42, "k": 0.15, "iterations": 100},
+        node_layout=net_pos,  # dict → fixed layout, 跳过 Netgraph 内部的 spring+Voronoi（小图易崩溃）
         node_size=node_size_dict,
         node_color=node_color_dict,
         node_edge_color=node_edge_color_dict,
@@ -283,8 +283,6 @@ def _render_graph_via_netgraph(
         ax=ax,
     )
 
-    ax.set_xlim(-0.1, 1.1)
-    ax.set_ylim(-0.1, 1.1)
     ax.axis("off")
 
     # 保存到临时 PNG
@@ -301,8 +299,8 @@ def _render_graph_via_netgraph(
         plt.close(fig)
 
         if tmp.exists():
-            from PIL import Image as PILImage
-            img = PILImage.open(tmp).convert("RGB")
+            with Image.open(tmp) as img:
+                img = img.convert("RGB")
             img.save(output_png)
             logger.info("Netgraph rendered semantic graph PNG to %s (%d bytes)", output_png, output_png.stat().st_size)
         else:
@@ -310,9 +308,9 @@ def _render_graph_via_netgraph(
     except Exception as exc:
         logger.exception("Netgraph rendering failed: %s", exc)
         _render_empty_fallback(output_png, "图形渲染异常，请稍后重试")
+        plt.close(fig)
     finally:
-        if tmp.exists():
-            tmp.unlink(missing_ok=True)
+        tmp.unlink(missing_ok=True)
 
 
 def _render_empty_fallback(path: Path, msg: str) -> None:
@@ -371,10 +369,10 @@ def draw_top_relations(draw: ImageDraw.ImageDraw, edges: list[dict[str, object]]
         draw.text((x0 + 32, y0 + 75), "暂无关系。请确认所选范围内有足够消息。", font=font_v, fill=TEXT_MUTED)
         return
     for index, edge in enumerate(edges[:4]):
-        line = (
-            f"{edge.get('source')} --{edge.get('relation')}→ {edge.get('target')}"
-            f"（{float(edge.get('weight') or 1):.0f}）"
-        )
+        src = normalize_text(edge.get("source"))
+        tgt = normalize_text(edge.get("target"))
+        rel = normalize_text(edge.get("relation"))
+        line = f"{src} --{rel}→ {tgt}（{float(edge.get('weight') or 1):.0f}）"
         draw.text((x0 + 32, y0 + 72 + index * 30), line[:58], font=font_v, fill=TEXT_DARK)
 
 
@@ -385,7 +383,7 @@ def draw_top_relations(draw: ImageDraw.ImageDraw, edges: list[dict[str, object]]
 def render_semantic_graph_image(graph: dict[str, object], output_path: Path) -> None:
     """渲染语义图 PNG。
 
-    使用 Graphviz 进行力导向布局和节点/边绘制，PIL 进行标题/图例/关系列表合成。
+    使用 Netgraph (Matplotlib) 进行力导向布局和节点/边绘制，PIL 进行标题/图例/关系列表合成。
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
     BODY_TOP = 270
@@ -404,28 +402,26 @@ def render_semantic_graph_image(graph: dict[str, object], output_path: Path) -> 
 
     nodes = graph_nodes(graph)
     has_nodes = bool(nodes)
-    labels = {(normalize_text(node.get("label")), normalize_text(node.get("kind") or "topic")) for node in nodes}
+    labels = {normalize_text(node.get("label")) for node in nodes}
     edges = graph_edges(graph, labels)
 
-    if has_nodes and _netgraph_available():
+    if has_nodes:
         # ---- Netgraph 渲染 ----
         ng_png = output_path.parent / f".ng_{output_path.stem}.png"
         try:
             _render_graph_via_netgraph(nodes, edges, ng_png)
 
             if ng_png.exists():
-                ng_img = Image.open(ng_png)
-                # 适应画布主体区域
-                margin = 40
-                max_w = CANVAS_WIDTH - 58 * 2 - margin * 2
-                max_h = body_height - margin * 2
-                ng_img.thumbnail((max_w, max_h), Image.LANCZOS)
-                paste_x = (CANVAS_WIDTH - ng_img.width) // 2
-                paste_y = BODY_TOP + (body_height - ng_img.height) // 2
-                canvas.paste(ng_img, (paste_x, paste_y))
-                ng_path = Path(str(ng_png))
-                if ng_path.exists():
-                    ng_path.unlink()
+                with Image.open(ng_png) as ng_img:
+                    # 适应画布主体区域
+                    margin = 40
+                    max_w = CANVAS_WIDTH - 58 * 2 - margin * 2
+                    max_h = body_height - margin * 2
+                    ng_img.thumbnail((max_w, max_h), Image.LANCZOS)
+                    paste_x = (CANVAS_WIDTH - ng_img.width) // 2
+                    paste_y = BODY_TOP + (body_height - ng_img.height) // 2
+                    canvas.paste(ng_img, (paste_x, paste_y))
+                ng_png.unlink(missing_ok=True)
             else:
                 empty_font = load_font(30)
                 draw_centered_text(draw, (CANVAS_WIDTH / 2, BODY_TOP + body_height // 2 - 20),
@@ -435,15 +431,7 @@ def render_semantic_graph_image(graph: dict[str, object], output_path: Path) -> 
             empty_font = load_font(30)
             draw_centered_text(draw, (CANVAS_WIDTH / 2, BODY_TOP + body_height // 2 - 20),
                                "图形渲染异常，请稍后重试", empty_font, TEXT_MUTED)
-            if ng_png.exists():
-                ng_path = Path(str(ng_png))
-                if ng_path.exists():
-                    ng_path.unlink()
-    elif has_nodes and not _netgraph_available():
-        # netgraph 不可用：提示安装
-        empty_font = load_font(30)
-        draw_centered_text(draw, (CANVAS_WIDTH / 2, BODY_TOP + body_height // 2 - 20),
-                           "需要 netgraph（pip install netgraph）", empty_font, TEXT_MUTED)
+            ng_png.unlink(missing_ok=True)
     else:
         # 无节点
         empty_font = load_font(34, bold=True)
