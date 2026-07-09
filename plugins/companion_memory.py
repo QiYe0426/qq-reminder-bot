@@ -15,6 +15,7 @@ from nonebot.adapters.onebot.v11 import Event, GroupMessageEvent, Message
 from nonebot.log import logger
 
 from plugins import knowledge_service as knowledge_lookup_service
+from plugins.access_control import DB_PATH as ACCESS_DB_PATH
 from plugins.access_control import FEATURE_COLLECTOR, FEATURE_COMPANION, admin_denial, is_group_feature_enabled
 from plugins.companion_registry import (
     DB_PATH,
@@ -448,6 +449,33 @@ async def get_profile(group_id: str | int, user_id: str | int) -> aiosqlite.Row 
             (str(group_id), str(user_id)),
         )
         return await cursor.fetchone()
+
+
+async def recent_daily_summaries(group_id: str, days: int = 30) -> list[str]:
+    """获取指定群近 days 天的日报 AI 总结，按日期倒序返回。"""
+    thirty_days_ago = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+    try:
+        async with aiosqlite.connect(ACCESS_DB_PATH) as db:
+            cursor = await db.execute(
+                """
+                SELECT target_date, final_summary
+                FROM daily_report_runs
+                WHERE group_id = ? AND target_date >= ?
+                  AND status = 'sent'
+                  AND final_summary IS NOT NULL
+                  AND final_summary != ''
+                ORDER BY target_date DESC
+                """,
+                (str(group_id), thirty_days_ago),
+            )
+            rows = await cursor.fetchall()
+            return [
+                f"[{row[0]}] {row[1]}"
+                for row in rows
+            ]
+    except Exception:
+        logger.exception("Failed to fetch daily summaries")
+        return []
 
 
 async def get_companion_setting(setting_key: str, default: str = "") -> str:
@@ -1160,7 +1188,7 @@ async def call_summary_model(
     client = AsyncOpenAI(api_key=api_key, base_url=base_url) if base_url else AsyncOpenAI(api_key=api_key)
 
     historical_section = (
-        f"\n近30天对话记录（含本批）：\n{historical_messages}\n"
+        f"\n近30天每日日报总结：\n{historical_messages}\n"
         if historical_messages
         else ""
     )
@@ -1181,7 +1209,7 @@ async def call_summary_model(
 新消息（最新一批）：
 {messages_text}
 {historical_section}
-长期画像说明：综合所有已积累信息，用 200 字以内提炼此用户最稳定、最核心的特征 —— 兴趣爱好、行为模式、个人特质等。对比旧长期画像和近 30 天对话记录，评估用户的核心特征是否有明显变化。仅当近 30 天的表现明显、持续地改变了之前的长期判断时才输出新值，否则返回空字符串。
+长期画像说明：综合所有已积累信息，用 200 字以内提炼此用户最稳定、最核心的特征 —— 兴趣爱好、行为模式、个人特质等。对比旧长期画像和近 30 天每天的日报总结，评估用户的核心特征是否有明显变化。仅当近 30 天每天的总结一致表明用户特征有明显、持续的改变时才输出新值，否则返回空字符串。
 
 JSON 格式：
 {{
@@ -1190,7 +1218,7 @@ JSON 格式：
   "emotional_preferences": "适合怎样陪伴TA，未知则空字符串",
   "topics": ["主题1", "主题2"],
   "summary": "100字以内整体摘要",
-  "longterm_profile": "200字以内长期画像，对比旧画像和近30天记录，有明显变化才输出新值，否则空字符串",
+  "longterm_profile": "200字以内长期画像，对比旧画像和近30天日报总结，有明显持续变化才输出新值，否则空字符串",
   "confidence": 0.0,
   "memories": [
     {{
@@ -1402,32 +1430,11 @@ async def summarize_companion_target(group_id: str, user_id: str, *, force: bool
     messages_text = render_messages(safe_rows)
     previous_profile = profile_to_text(await get_profile(group_id, user_id))
 
-    # 获取近 30 天历史消息（排除当前批次），供 AI 评估长期画像变化
-    thirty_days_ago = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d %H:%M:%S")
-    current_ids = {int(row["id"]) for row in safe_rows}
+    # 获取近 30 天的日报总结，供 AI 评估长期画像变化
+    daily_summaries = await recent_daily_summaries(group_id, days=30)
     historical_messages_text = ""
-    if ARCHIVE_DB_PATH.exists():
-        try:
-            async with aiosqlite.connect(ARCHIVE_DB_PATH) as db:
-                db.row_factory = aiosqlite.Row
-                cursor = await db.execute(
-                    """
-                    SELECT id, group_id, user_id, sender_name, plain_text, created_at
-                    FROM collected_messages
-                    WHERE group_id = ? AND user_id = ?
-                      AND created_at >= ?
-                      AND COALESCE(sub_type, '') != 'ai_reply'
-                      AND COALESCE(plain_text, '') != ''
-                    ORDER BY id ASC
-                    LIMIT 200
-                    """,
-                    (group_id, user_id, thirty_days_ago),
-                )
-                hist_rows = [r for r in await cursor.fetchall() if int(r["id"]) not in current_ids]
-                if hist_rows:
-                    historical_messages_text = render_messages(hist_rows)
-        except Exception:
-            logger.exception("Failed to fetch 30d history for longterm evaluation")
+    if daily_summaries:
+        historical_messages_text = "\n\n".join(daily_summaries)
 
     try:
         result = await call_summary_model(

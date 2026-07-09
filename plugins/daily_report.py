@@ -159,11 +159,17 @@ async def init_daily_report_run_db() -> None:
                 target_date TEXT NOT NULL,
                 status TEXT NOT NULL,
                 error TEXT,
+                final_summary TEXT,
                 updated_at TEXT NOT NULL,
                 PRIMARY KEY (group_id, target_date)
             )
             """
         )
+        # 兼容已有库：增 final_summary 列
+        cursor = await db.execute("PRAGMA table_info(daily_report_runs)")
+        columns = {str(row[1]) for row in await cursor.fetchall()}
+        if "final_summary" not in columns:
+            await db.execute("ALTER TABLE daily_report_runs ADD COLUMN final_summary TEXT")
         await db.commit()
 
 
@@ -242,20 +248,24 @@ async def daily_report_already_sent(group_id: str, target_date: date) -> bool:
     return bool(row and row[0] == "sent")
 
 
-async def mark_daily_report_run(group_id: str, target_date: date, status: str, error: str = "") -> None:
+async def mark_daily_report_run(group_id: str, target_date: date, status: str, error: str = "", summary: str = "") -> None:
     await init_daily_report_run_db()
     updated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     async with aiosqlite.connect(ACCESS_DB_PATH) as db:
         await db.execute(
             """
-            INSERT INTO daily_report_runs (group_id, target_date, status, error, updated_at)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO daily_report_runs (group_id, target_date, status, error, final_summary, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT(group_id, target_date) DO UPDATE SET
                 status = excluded.status,
                 error = excluded.error,
+                final_summary = CASE
+                    WHEN excluded.final_summary != '' THEN excluded.final_summary
+                    ELSE daily_report_runs.final_summary
+                END,
                 updated_at = excluded.updated_at
             """,
-            (str(group_id), target_date.isoformat(), status, error[:1000], updated_at),
+            (str(group_id), target_date.isoformat(), status, error[:1000], summary[:2000], updated_at),
         )
         await db.commit()
 
@@ -1369,6 +1379,11 @@ async def send_daily_report_to_admins(
             target_date,
             group_name=group_name,
         )
+        # 保存 final_summary 到 daily_report_runs 供长期画像读取
+        if markdown_content:
+            final_summary = markdown_content.split("\n## ")[0].strip()
+            if final_summary:
+                await mark_daily_report_run(str(group_id), target_date, "sent", summary=final_summary)
     admin_ids = sorted(admin_user_ids())
     if not admin_ids:
         logger.warning("Daily report skipped: no admins configured")
