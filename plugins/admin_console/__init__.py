@@ -914,9 +914,10 @@ async def save_companion_profile(group_id: str, user_id: str, payload: dict[str,
                 source_message_from_id,
                 source_message_to_id,
                 longterm_profile,
+                longterm_updated_at,
                 updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?)
             ON CONFLICT(group_id, user_id) DO UPDATE SET
                 summary = excluded.summary,
                 current_activity = excluded.current_activity,
@@ -925,6 +926,10 @@ async def save_companion_profile(group_id: str, user_id: str, payload: dict[str,
                 topics = excluded.topics,
                 confidence = excluded.confidence,
                 longterm_profile = excluded.longterm_profile,
+                longterm_updated_at = CASE
+                    WHEN excluded.longterm_profile != '' THEN excluded.longterm_updated_at
+                    ELSE companion_profiles.longterm_updated_at
+                END,
                 updated_at = excluded.updated_at
             """,
             (
@@ -937,6 +942,7 @@ async def save_companion_profile(group_id: str, user_id: str, payload: dict[str,
                 json.dumps(profile["topics"], ensure_ascii=False),
                 profile["confidence"],
                 profile["longterm_profile"],
+                timestamp if profile["longterm_profile"] else None,
                 timestamp,
             ),
         )

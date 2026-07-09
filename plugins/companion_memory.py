@@ -337,6 +337,7 @@ async def init_companion_memory_db() -> None:
                 source_message_from_id INTEGER NOT NULL DEFAULT 0,
                 source_message_to_id INTEGER NOT NULL DEFAULT 0,
                 longterm_profile TEXT NOT NULL DEFAULT '',
+                longterm_updated_at TEXT,
                 updated_at TEXT NOT NULL,
                 PRIMARY KEY (group_id, user_id)
             )
@@ -346,6 +347,8 @@ async def init_companion_memory_db() -> None:
         columns = {str(row[1]) for row in await cursor.fetchall()}
         if "longterm_profile" not in columns:
             await db.execute("ALTER TABLE companion_profiles ADD COLUMN longterm_profile TEXT NOT NULL DEFAULT ''")
+        if "longterm_updated_at" not in columns:
+            await db.execute("ALTER TABLE companion_profiles ADD COLUMN longterm_updated_at TEXT")
         await db.execute(
             """
             CREATE TABLE IF NOT EXISTS companion_memories (
@@ -1170,7 +1173,7 @@ async def call_summary_model(
 新消息：
 {messages_text}
 
-长期画像说明：综合所有已积累信息，用 200 字以内提炼此用户最稳定、最核心的特征 —— 兴趣爱好、行为模式、个人特质等。长期画像不随短期活动频繁变动，除非新消息明显改变了之前的长期判断。如果尚无足够依据，返回空字符串。
+长期画像说明：综合所有已积累信息，用 200 字以内提炼此用户最稳定、最核心的特征 —— 兴趣爱好、行为模式、个人特质等。长期画像仅在有相当于一天消息量的充分证据时才更新，不要因为几句发言就修改。除非新消息量足够大且明显改变了之前的长期判断才输出新值，否则返回空字符串。
 
 JSON 格式：
 {{
@@ -1179,7 +1182,7 @@ JSON 格式：
   "emotional_preferences": "适合怎样陪伴TA，未知则空字符串",
   "topics": ["主题1", "主题2"],
   "summary": "100字以内整体摘要",
-  "longterm_profile": "200字以内长期画像，综合所有信息的核心特征提炼。无足够依据则为空字符串",
+  "longterm_profile": "200字以内长期画像，必须基于一天量级的新消息才更新，证据不足则为空字符串",
   "confidence": 0.0,
   "memories": [
     {{
@@ -1222,6 +1225,27 @@ async def write_profile_and_memories(
     topics = normalize_keywords(result.get("topics"))
     source_ids = [int(row["id"]) for row in rows]
 
+    new_longterm = str(result.get("longterm_profile") or "").strip()[:1000]
+
+    # 长期画像 24h 冷却：读取已有长期画像更新时间，不够一天则保留旧值
+    existing_profile = await get_profile(group_id, user_id)
+    longterm_updated_at_str = str(existing_profile["longterm_updated_at"] or "") if existing_profile else ""
+    if new_longterm and longterm_updated_at_str:
+        try:
+            last_lt_update = datetime.strptime(longterm_updated_at_str, "%Y-%m-%d %H:%M:%S")
+            if (datetime.now() - last_lt_update).total_seconds() < 86400:
+                new_longterm = ""
+        except (ValueError, TypeError):
+            pass
+
+    # 真正决定最终写入的 longterm 值
+    if new_longterm:
+        final_longterm = new_longterm
+        final_longterm_updated_at = timestamp
+    else:
+        final_longterm = str(existing_profile["longterm_profile"]) if existing_profile else ""
+        final_longterm_updated_at = longterm_updated_at_str if longterm_updated_at_str else None
+
     profile_values = {
         "summary": str(result.get("summary") or "").strip()[:500],
         "current_activity": str(result.get("current_activity") or "").strip()[:500],
@@ -1229,7 +1253,8 @@ async def write_profile_and_memories(
         "emotional_preferences": str(result.get("emotional_preferences") or "").strip()[:500],
         "topics": dump_json(topics),
         "confidence": normalize_confidence(result.get("confidence")),
-        "longterm_profile": str(result.get("longterm_profile") or "").strip()[:1000],
+        "longterm_profile": final_longterm,
+        "longterm_updated_at": final_longterm_updated_at,
     }
 
     memories_value = result.get("memories")
@@ -1250,9 +1275,10 @@ async def write_profile_and_memories(
                 source_message_from_id,
                 source_message_to_id,
                 longterm_profile,
+                longterm_updated_at,
                 updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(group_id, user_id) DO UPDATE SET
                 summary = excluded.summary,
                 current_activity = excluded.current_activity,
@@ -1262,10 +1288,8 @@ async def write_profile_and_memories(
                 confidence = excluded.confidence,
                 source_message_from_id = excluded.source_message_from_id,
                 source_message_to_id = excluded.source_message_to_id,
-                longterm_profile = CASE
-                    WHEN excluded.longterm_profile != '' THEN excluded.longterm_profile
-                    ELSE companion_profiles.longterm_profile
-                END,
+                longterm_profile = excluded.longterm_profile,
+                longterm_updated_at = excluded.longterm_updated_at,
                 updated_at = excluded.updated_at
             """,
             (
@@ -1280,6 +1304,7 @@ async def write_profile_and_memories(
                 first_id,
                 last_id,
                 profile_values["longterm_profile"],
+                profile_values["longterm_updated_at"],
                 timestamp,
             ),
         )
