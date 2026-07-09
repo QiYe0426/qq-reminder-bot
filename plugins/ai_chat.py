@@ -53,6 +53,7 @@ from plugins.group_context_service import (
     group_context_result,
     remember_transient_group_message as remember_transient_group_message_record,
 )
+from plugins.semantic_graph import build_semantic_graph_result, semantic_graph_summary
 from plugins.reminder_service import (
     ReminderScope,
     ReminderTarget,
@@ -2482,6 +2483,19 @@ async def build_local_context(question: str, event: MessageEvent) -> str:
                 context_parts.append(companion_context)
         except Exception:
             logger.exception("Failed to load companion context")
+
+        try:
+            if await is_group_feature_enabled(str(event.group_id), FEATURE_COLLECTOR):
+                graph_result = await build_semantic_graph_result(
+                    group_id=str(event.group_id),
+                    target_date=datetime.now().date(),
+                )
+                if graph_result.get("ok"):
+                    summary = semantic_graph_summary(graph_result)
+                    if summary:
+                        context_parts.append(f"今日话题关系图：\n{summary}")
+        except Exception:
+            logger.exception("Failed to build semantic graph context")
 
     return "\n\n".join(context_parts)
 
