@@ -22,6 +22,7 @@ import logging
 import os
 import subprocess
 import sys
+import time
 
 logging.basicConfig(
     level=logging.INFO,
@@ -62,13 +63,20 @@ def deploy():
         last_error = None
         for attempt in range(max_retries):
             try:
-                return subprocess.run(
+                result = subprocess.run(
                     ["git", "pull", "--ff-only"],
                     cwd=REPO_DIR,
                     capture_output=True,
                     text=True,
                     timeout=120,
                 )
+                if result.returncode == 0:
+                    return result
+                # 重试非零退出码（GnuTLS 等网络错误）
+                last_error = RuntimeError(result.stderr.strip() or f"exit {result.returncode}")
+                logger.warning(f"git pull attempt {attempt + 1}/{max_retries} failed: {last_error}")
+                if attempt < max_retries - 1:
+                    time.sleep(3)
             except subprocess.TimeoutExpired as e:
                 last_error = e
                 logger.warning(f"git pull attempt {attempt + 1}/{max_retries} timed out, retrying...")
