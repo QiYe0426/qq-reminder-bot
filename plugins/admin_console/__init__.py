@@ -7,6 +7,26 @@ import json
 import os
 import time
 from datetime import datetime
+
+# ── 控制台状态缓存 ──────────────────────────────────────────────
+_CONSOLE_CACHE_TTL = 2.0  # 秒
+_console_cache: dict[str, object] | None = None
+_console_cache_at: float = 0.0
+
+def _invalidate_console_cache() -> None:
+    global _console_cache, _console_cache_at
+    _console_cache = None
+    _console_cache_at = 0.0
+
+def _get_cached_console_state() -> dict[str, object] | None:
+    if _console_cache is not None and (time.monotonic() - _console_cache_at) < _CONSOLE_CACHE_TTL:
+        return _console_cache
+    return None
+
+def _set_console_cache(data: dict[str, object]) -> None:
+    global _console_cache, _console_cache_at
+    _console_cache = data
+    _console_cache_at = time.monotonic()
 from http.cookies import SimpleCookie
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
@@ -1046,10 +1066,13 @@ async def knowledge_detail(item_id: int) -> dict[str, object]:
 
 
 async def console_state() -> dict[str, object]:
+    cached = _get_cached_console_state()
+    if cached is not None:
+        return cached
     await ensure_console_databases()
     groups = await list_groups()
     selected_group = str(groups[0]["group_id"]) if groups else ""
-    return {
+    data = {
         "persona": await bot_persona_prompt(),
         "groups": groups,
         "selected_group": selected_group,
@@ -1059,6 +1082,8 @@ async def console_state() -> dict[str, object]:
         "version": app_version(),
         "route_prefix": ROUTE_PREFIX,
     }
+    _set_console_cache(data)
+    return data
 
 
 def static_file(name: str) -> Path:
@@ -1125,7 +1150,7 @@ if (
     async def admin_console_static(asset_name: str):
         asset = static_file(unquote(asset_name))
         media_type = "text/css" if asset.suffix == ".css" else "application/javascript"
-        return FileResponse(asset, media_type=media_type)
+        return FileResponse(asset, media_type=media_type, headers={"Cache-Control": "public, max-age=86400"})
 
     @server_app.get(f"{ROUTE_PREFIX}/group-avatars/{{group_id}}.jpg")
     async def admin_console_group_avatar(
@@ -1152,6 +1177,7 @@ if (
         authorization: str | None = Header(default=None),
     ) -> JSONResponse:
         check_token(token=token, authorization=authorization)
+        _invalidate_console_cache()
         payload = await request.json()
         await save_bot_persona_prompt(str(payload.get("persona") or ""))
         return JSONResponse({"persona": await bot_persona_prompt()})
@@ -1170,6 +1196,7 @@ if (
         authorization: str | None = Header(default=None),
     ) -> JSONResponse:
         check_token(token=token, authorization=authorization)
+        _invalidate_console_cache()
         result = seed_sts_knowledge()
         return JSONResponse({"result": result, "knowledge": await knowledge_state()})
 
@@ -1189,6 +1216,7 @@ if (
         authorization: str | None = Header(default=None),
     ) -> JSONResponse:
         check_token(token=token, authorization=authorization)
+        _invalidate_console_cache()
         return JSONResponse(await save_knowledge(await request.json()))
 
     @server_app.put(f"{ROUTE_PREFIX}/api/knowledge/{{item_id}}")
@@ -1199,6 +1227,7 @@ if (
         authorization: str | None = Header(default=None),
     ) -> JSONResponse:
         check_token(token=token, authorization=authorization)
+        _invalidate_console_cache()
         return JSONResponse(await save_knowledge(await request.json(), item_id=item_id))
 
     @server_app.delete(f"{ROUTE_PREFIX}/api/knowledge/{{item_id}}")
@@ -1208,6 +1237,7 @@ if (
         authorization: str | None = Header(default=None),
     ) -> JSONResponse:
         check_token(token=token, authorization=authorization)
+        _invalidate_console_cache()
         await delete_knowledge_item(item_id)
         return JSONResponse({"deleted": True, "knowledge": await knowledge_state()})
 
@@ -1254,6 +1284,7 @@ if (
         authorization: str | None = Header(default=None),
     ) -> JSONResponse:
         check_token(token=token, authorization=authorization)
+        _invalidate_console_cache()
         return JSONResponse(await save_group_state(group_id, await request.json()))
 
     @server_app.get(f"{ROUTE_PREFIX}/api/groups/{{group_id}}/archive")
@@ -1294,6 +1325,7 @@ if (
         authorization: str | None = Header(default=None),
     ) -> JSONResponse:
         check_token(token=token, authorization=authorization)
+        _invalidate_console_cache()
         return JSONResponse(await save_companion_profile(group_id, user_id, await request.json()))
 
     @server_app.put(f"{ROUTE_PREFIX}/api/groups/{{group_id}}/companions/{{user_id}}/target")
@@ -1305,6 +1337,7 @@ if (
         authorization: str | None = Header(default=None),
     ) -> JSONResponse:
         check_token(token=token, authorization=authorization)
+        _invalidate_console_cache()
         return JSONResponse(
             await save_companion_target(
                 group_id,
@@ -1322,6 +1355,7 @@ if (
         authorization: str | None = Header(default=None),
     ) -> JSONResponse:
         check_token(token=token, authorization=authorization)
+        _invalidate_console_cache()
         return JSONResponse(
             await save_companion_targets_bulk(
                 group_id,
@@ -1338,6 +1372,7 @@ if (
         authorization: str | None = Header(default=None),
     ) -> JSONResponse:
         check_token(token=token, authorization=authorization)
+        _invalidate_console_cache()
         return JSONResponse(await reset_companion_profile(group_id, user_id))
 
     @server_app.delete(f"{ROUTE_PREFIX}/api/groups/{{group_id}}/companions/{{user_id}}")
@@ -1348,4 +1383,5 @@ if (
         authorization: str | None = Header(default=None),
     ) -> JSONResponse:
         check_token(token=token, authorization=authorization)
+        _invalidate_console_cache()
         return JSONResponse(await delete_companion_profile(group_id, user_id))
