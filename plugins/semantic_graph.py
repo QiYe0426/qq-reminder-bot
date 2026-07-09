@@ -148,6 +148,35 @@ def valid_term(term: str) -> bool:
     return True
 
 
+# Emoji 在 PIL 渲染中会变成方块，在话题关键词里无意义，故在提取时过滤掉。
+# 群友昵称中的 emoji 不受影响（speaker_label 不做过滤）。
+_EMOJI_RE = re.compile(
+    "["
+    "\U0001F000-\U0001FFFF"   # Supplementary Multilingual Plane — 绝大多数现代 emoji
+    "\U00002600-\U000027BF"   # Miscellaneous Symbols + Dingbats
+    "\U0000FE00-\U0000FE0F"   # Variation Selectors (肤色、性别等)
+    "\U0000200D\U000020E3"    # ZWJ (组合用) + 结合围 keycap
+    "\U0000231A-\U0000231B\U000023CF"  # 手表、沙漏、退出
+    "\U000023E9-\U000023FA"   # 时间按钮 + 媒体控制
+    "\U000024C2"              # 圆圈 M
+    "\U000025AA-\U000025AB"   # 小黑白方
+    "\U000025B6\U000025C0"    # 播放、倒退
+    "\U000025FB-\U000025FE"   # 中方块
+    "\U00002B05-\U00002B07"   # 箭头
+    "\U00002B1B-\U00002B1C"   # 大方块
+    "\U00002B50\U00002B55"    # 星星、圈
+    "\U00003030\U0000303D"    # 波浪横、部分交替
+    "\U00003297\U00003299"    # 圈中「合」「秘」
+    "]+",
+    re.UNICODE,
+)
+
+
+def strip_emoji(text: str) -> str:
+    """移除文本中的 emoji 字符，用于话题关键词提取。"""
+    return _EMOJI_RE.sub("", text)
+
+
 def split_chinese_phrase(phrase: str) -> list[str]:
     parts = [phrase]
     for splitter in CHINESE_SPLITTERS:
@@ -183,7 +212,7 @@ def parse_segment_types(raw: object) -> list[str]:
 
 
 def extract_terms_from_message(message: dict[str, str], *, max_terms: int = 10) -> list[str]:
-    text = normalize_text(message.get("plain_text"))
+    text = strip_emoji(normalize_text(message.get("plain_text")))
     terms: list[str] = []
 
     for raw in re.findall(r"[A-Za-z][A-Za-z0-9_.+\-]{1,32}", text):
