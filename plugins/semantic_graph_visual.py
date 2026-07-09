@@ -1,21 +1,26 @@
 from __future__ import annotations
 
-import hashlib
+import logging
 import os
 import platform
 import re
-import shutil
 import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import matplotlib
+import networkx as nx
+from matplotlib import font_manager as fm
+from netgraph import Graph as NetgraphPlot
 from PIL import Image, ImageDraw
-
-from graphviz import Digraph
 
 from plugins.daily_report_visual import load_font
 
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt  # noqa: E402 — must set backend before import
+
+logger = logging.getLogger(__name__)
 
 GRAPH_DIR = Path("data/semantic_graphs")
 CANVAS_WIDTH = 1280
@@ -34,32 +39,44 @@ GOLD = "#F0C955"
 BLUE = "#78A8D8"
 PINK = "#E8A7B7"
 
-# Graphviz 引擎选择：neato 适合力导向布局（30节点以下），fdp 适合更大的图
-DEFAULT_GRAPHVIZ_ENGINE = "neato"
+# ---- Matplotlib 中文字体配置（全局一次） ----
+_MPL_CJK_CONFIGURED = False
 
 
-def _graphviz_font_name() -> str:
-    """返回 Graphviz 可用的中文字体名。
-
-    优先级：GRAPHVIZ_FONT 环境变量 → 按 OS 猜测最可能的已安装字体。
-    """
-    env_font = os.getenv("GRAPHVIZ_FONT")
-    if env_font:
-        return env_font
+def _configure_mpl_cjk() -> None:
+    """配置 Matplotlib 渲染中文所需的 CJK 字体 Fallback 链。"""
+    global _MPL_CJK_CONFIGURED
+    if _MPL_CJK_CONFIGURED:
+        return
     system = platform.system()
+    fallback_candidates: list[str] = []
     if system == "Windows":
-        return "Microsoft YaHei"
-    if system == "Linux":
-        # 优先 fontconfig 最可能找到的 CJK 字体
-        return "WenQuanYi Micro Hei"
-    if system == "Darwin":
-        return "PingFang SC"
-    return "sans-serif"
+        fallback_candidates = ["Microsoft YaHei", "SimHei", "DengXian"]
+    elif system == "Linux":
+        fallback_candidates = [
+            "WenQuanYi Micro Hei",
+            "WenQuanYi Zen Hei",
+            "Noto Sans CJK SC",
+            "Noto Sans CJK JP",
+            "Source Han Sans SC",
+        ]
+    elif system == "Darwin":
+        fallback_candidates = ["PingFang SC", "Heiti SC", "STHeiti"]
 
-
-def _dot_available() -> bool:
-    """检查系统是否有 Graphviz dot 命令。"""
-    return shutil.which("dot") is not None or shutil.which("dot.exe") is not None
+    # 尝试第一个可用的字体
+    chosen = None
+    for name in fallback_candidates:
+        try:
+            fp = fm.findfont(name, fallback_to_default=False)
+            if fp:
+                chosen = name
+                break
+        except Exception:
+            continue
+    if chosen:
+        plt.rcParams["font.sans-serif"] = [chosen] + plt.rcParams.get("font.sans-serif", [])
+    plt.rcParams["axes.unicode_minus"] = False
+    _MPL_CJK_CONFIGURED = True
 
 
 def normalize_text(value: Any) -> str:
@@ -144,151 +161,158 @@ def graph_edges(graph: dict[str, object], node_labels: set[tuple[str, str]], *, 
 
 
 # ---------------------------------------------------------------------------
-# Graphviz 渲染 — 替代旧的 PIL 手绘节点/边/布局
+# Netgraph 渲染 — 以 Netgraph + Matplotlib 替代旧的 Graphviz 渲染
 # ---------------------------------------------------------------------------
 
-def _gv_node_id(label: str, kind: str) -> str:
-    """Graphviz 节点 ID：使用 hash 避免任何特殊字符问题。"""
-    raw = f"{kind}:{label}"
-    h = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:12]
-    return f"n_{h}"
+def _netgraph_available() -> bool:
+    try:
+        import netgraph  # noqa: F401
+        return True
+    except ImportError:
+        return False
 
 
-def _render_graph_via_graphviz(
+def _render_graph_via_netgraph(
     nodes: list[dict[str, object]],
     edges: list[dict[str, object]],
-    max_weight: float,
     output_png: Path,
 ) -> None:
-    """使用 Graphviz neato/fdp/sfdp 渲染语义图到 PNG 文件。"""
-    font_name = _graphviz_font_name()
-    engine = DEFAULT_GRAPHVIZ_ENGINE
-    node_count = len(nodes)
+    """使用 Netgraph (publication-quality Matplotlib) 渲染语义图到 PNG。
 
-    if node_count > 40:
-        engine = "sfdp"
-    elif node_count > 20:
-        engine = "fdp"
-    else:
-        engine = DEFAULT_GRAPHVIZ_ENGINE
+    Netgraph 提供 Fruchterman-Reingold 力导向布局、标签碰撞回避、
+    曲线边避免节点遮挡等，生成出版级质量的网络图。
+    """
+    _configure_mpl_cjk()
 
-    # 估算合适的 DPI 和 size
-    if engine == "sfdp":
-        dpi = "120"
-        size = "16,12"
-    elif node_count > 20:
-        dpi = "130"
-        size = "12,10"
-    else:
-        dpi = "150"
-        size = "8.5,10"
+    # --- 构建 NetworkX 图 ---
+    g = nx.Graph()
+    node_labels_map: dict[str, str] = {}  # nice label -> raw label
+    node_kind: dict[str, str] = {}
+    node_weight: dict[str, float] = {}
 
-    dot = Digraph(
-        name="semantic_graph",
-        format="png",
-        engine=engine,
-        encoding="utf-8",
-    )
-
-    # 全局属性
-    dot.attr(
-        bgcolor=GREEN_50,
-        dpi=dpi,
-        size=size,
-        overlap="false",
-        splines="true",
-        pad="0.5",
-        fontname=font_name,
-        nodesep="0.5",
-        ranksep="0.6",
-        sep="+4",
-    )
-
-    # 默认节点样式
-    dot.attr(
-        "node",
-        fontname=font_name,
-        shape="ellipse",
-        style="filled,solid",
-        penwidth="2",
-        fontcolor=TEXT_DARK,
-        color=GREEN_700,
-        margin="0.08,0.02",
-    )
-
-    # 默认边样式
-    dot.attr(
-        "edge",
-        fontname=font_name,
-        fontsize="9",
-        fontcolor=TEXT_MUTED,
-    )
-
-    # --- 添加节点 ---
     for node in nodes:
         label = normalize_text(node.get("label"))
         kind = normalize_text(node.get("kind") or "topic")
         weight = max(1.0, float(node.get("weight") or 1))
-        nid = _gv_node_id(label, kind)
-        fill = node_color(kind)
-        ratio = weight / max_weight if max_weight > 0 else 0.5
-
-        # 节点直径：0.6~1.8 英寸
-        diam = 0.6 + 1.2 * ratio
-        # 边框线宽：按权重增加视觉权重
-        border_width = 2 + int(3 * ratio)
-
-        dot.node(
-            nid,
-            label=f"{wrap_label(label, limit=10)}",
-            fillcolor=fill,
-            width=str(diam),
-            height=str(diam),
-            penwidth=str(border_width),
-            fontsize=str(10 + int(6 * ratio)),  # 10~16
-        )
-
-    # --- 添加边 ---
-    for edge in edges:
-        source_label = normalize_text(edge.get("source"))
-        source_kind = normalize_text(edge.get("source_kind") or "topic")
-        target_label = normalize_text(edge.get("target"))
-        target_kind = normalize_text(edge.get("target_kind") or "topic")
-        src_id = _gv_node_id(source_label, source_kind)
-        tgt_id = _gv_node_id(target_label, target_kind)
-
-        if src_id == tgt_id:
+        if not label:
             continue
+        # 加入 networkx（使用原始 label 作为节点 ID 以保证唯一性）
+        g.add_node(label)
+        node_labels_map[label] = label
+        node_kind[label] = kind
+        node_weight[label] = weight
 
-        weight = max(1.0, float(edge.get("weight") or 1))
-        relation = str(edge.get("relation") or "")
-        rel_color = edge_color(relation)
+    if g.number_of_nodes() == 0:
+        _render_empty_fallback(output_png, "暂无可视化节点")
+        return
 
-        dot.edge(
-            src_id,
-            tgt_id,
-            label=relation if relation else "",
-            penwidth=str(max(1, min(6, 1 + int(weight / 2)))),
-            color=rel_color,
-            fontcolor=rel_color,
-        )
+    max_w = max(node_weight.values()) if node_weight else 1.0
 
-    # 渲染到临时目录，避免污染 GRAPH_DIR
-    temp_dir = Path(tempfile.mkdtemp(prefix="gv_"))
+    for edge in edges:
+        src = normalize_text(edge.get("source"))
+        tgt = normalize_text(edge.get("target"))
+        if src in g and tgt in g and src != tgt:
+            g.add_edge(src, tgt)
+
+    # --- 节点视觉参数 ---
+    node_size_dict: dict[str, float] = {}
+    node_color_dict: dict[str, str] = {}
+    node_edge_color_dict: dict[str, str] = {}
+
+    for n in g.nodes():
+        w = node_weight.get(n, 1.0)
+        # Netgraph 的 node_size 会乘以 BASE_SCALE=1e-2
+        # 所以这里给 200~600 让它缩放到 2~6 pt
+        node_size_dict[n] = 200 + 400 * (w / max_w)
+        k = node_kind.get(n, "topic")
+        node_color_dict[n] = node_color(k)
+        node_edge_color_dict[n] = GREEN_700
+
+    # --- 边视觉参数 ---
+    edge_width_dict: dict[tuple[str, str], float] = {}
+    edge_color_dict: dict[tuple[str, str], str] = {}
+    edge_labels_dict: dict[tuple[str, str], str] = {}
+
+    for edge in edges:
+        src = normalize_text(edge.get("source"))
+        tgt = normalize_text(edge.get("target"))
+        if src not in g or tgt not in g or src == tgt:
+            continue
+        key = (src, tgt)
+        w = max(1.0, float(edge.get("weight") or 1))
+        # Netgraph 的 edge_width 也会乘以 BASE_SCALE
+        edge_width_dict[key] = 50 + 150 * (w / max_w) if max_w > 0 else 50
+        rel = str(edge.get("relation") or "")
+        edge_color_dict[key] = edge_color(rel)
+        if rel:
+            edge_labels_dict[key] = rel
+
+    # --- 使用 Netgraph 渲染到 Matplotlib figure ---
+    fig, ax = plt.subplots(figsize=(10, 8), facecolor=GREEN_50)
+    ax.set_facecolor(GREEN_50)
+
+    # 标签字体
+    label_fontdict = {
+        "size": 8,
+        "family": plt.rcParams["font.sans-serif"][0] if plt.rcParams["font.sans-serif"] else "sans-serif",
+        "color": TEXT_DARK,
+    }
+    edge_label_fontdict = {
+        "size": 6,
+        "family": plt.rcParams["font.sans-serif"][0] if plt.rcParams["font.sans-serif"] else "sans-serif",
+        "color": TEXT_MUTED,
+        "bbox": {"boxstyle": "round,pad=0.2", "facecolor": "white", "edgecolor": "#ddd", "alpha": 0.85},
+    }
+
+    plot_instance = NetgraphPlot(
+        g,
+        node_layout="spring",
+        node_layout_kwargs={"seed": 42, "k": 0.15, "iterations": 100},
+        node_size=node_size_dict,
+        node_color=node_color_dict,
+        node_edge_color=node_edge_color_dict,
+        node_edge_width=0.4,
+        node_labels=True,
+        node_label_fontdict=label_fontdict,
+        edge_color=edge_color_dict,
+        edge_width=edge_width_dict,
+        edge_labels=edge_labels_dict if edge_labels_dict else False,
+        edge_label_fontdict=edge_label_fontdict,
+        edge_layout="curved",
+        arrows=True,
+        ax=ax,
+    )
+
+    ax.set_xlim(-0.1, 1.1)
+    ax.set_ylim(-0.1, 1.1)
+    ax.axis("off")
+
+    # 保存到临时 PNG
+    tmp = Path(tempfile.mktemp(suffix=".png"))
     try:
-        source_base = temp_dir / output_png.stem
-        dot.render(filename=str(source_base), cleanup=True)
-        rendered = source_base.with_suffix(".png")
+        fig.savefig(
+            str(tmp),
+            dpi=200,
+            bbox_inches="tight",
+            pad_inches=0.3,
+            facecolor=GREEN_50,
+            transparent=False,
+        )
+        plt.close(fig)
 
-        if rendered.exists():
-            # 移动回目标路径
-            shutil.move(str(rendered), str(output_png))
+        if tmp.exists():
+            from PIL import Image as PILImage
+            img = PILImage.open(tmp).convert("RGB")
+            img.save(output_png)
+            logger.info("Netgraph rendered semantic graph PNG to %s (%d bytes)", output_png, output_png.stat().st_size)
         else:
-            # 回退：生成空 PNG 提示
             _render_empty_fallback(output_png, "语义图渲染失败")
+    except Exception as exc:
+        logger.exception("Netgraph rendering failed: %s", exc)
+        _render_empty_fallback(output_png, "图形渲染异常，请稍后重试")
     finally:
-        if temp_dir.exists():
-            shutil.rmtree(temp_dir, ignore_errors=True)
+        if tmp.exists():
+            tmp.unlink(missing_ok=True)
 
 
 def _render_empty_fallback(path: Path, msg: str) -> None:
@@ -383,41 +407,43 @@ def render_semantic_graph_image(graph: dict[str, object], output_path: Path) -> 
     labels = {(normalize_text(node.get("label")), normalize_text(node.get("kind") or "topic")) for node in nodes}
     edges = graph_edges(graph, labels)
 
-    if has_nodes and _dot_available():
-        # ---- Graphviz 渲染 ----
-        max_weight = max([float(n.get("weight") or 1) for n in nodes] or [1.0])
-
-        gv_png = output_path.parent / f".gv_{output_path.stem}.png"
+    if has_nodes and _netgraph_available():
+        # ---- Netgraph 渲染 ----
+        ng_png = output_path.parent / f".ng_{output_path.stem}.png"
         try:
-            _render_graph_via_graphviz(nodes, edges, max_weight, gv_png)
+            _render_graph_via_netgraph(nodes, edges, ng_png)
 
-            if gv_png.exists():
-                gv_img = Image.open(gv_png)
+            if ng_png.exists():
+                ng_img = Image.open(ng_png)
                 # 适应画布主体区域
                 margin = 40
                 max_w = CANVAS_WIDTH - 58 * 2 - margin * 2
                 max_h = body_height - margin * 2
-                gv_img.thumbnail((max_w, max_h), Image.LANCZOS)
-                paste_x = (CANVAS_WIDTH - gv_img.width) // 2
-                paste_y = BODY_TOP + (body_height - gv_img.height) // 2
-                canvas.paste(gv_img, (paste_x, paste_y))
-                gv_path = Path(str(gv_png))
-                if gv_path.exists():
-                    gv_path.unlink()
+                ng_img.thumbnail((max_w, max_h), Image.LANCZOS)
+                paste_x = (CANVAS_WIDTH - ng_img.width) // 2
+                paste_y = BODY_TOP + (body_height - ng_img.height) // 2
+                canvas.paste(ng_img, (paste_x, paste_y))
+                ng_path = Path(str(ng_png))
+                if ng_path.exists():
+                    ng_path.unlink()
+            else:
+                empty_font = load_font(30)
+                draw_centered_text(draw, (CANVAS_WIDTH / 2, BODY_TOP + body_height // 2 - 20),
+                                   "图形渲染失败", empty_font, TEXT_MUTED)
         except Exception:
-            # Graphviz 异常回退：在主体区域显示提示
+            logger.exception("Netgraph rendering failed in compositing")
             empty_font = load_font(30)
             draw_centered_text(draw, (CANVAS_WIDTH / 2, BODY_TOP + body_height // 2 - 20),
                                "图形渲染异常，请稍后重试", empty_font, TEXT_MUTED)
-            if gv_png.exists():
-                gv_path = Path(str(gv_png))
-                if gv_path.exists():
-                    gv_path.unlink()
-    elif has_nodes and not _dot_available():
-        # dot 不可用：提示安装
+            if ng_png.exists():
+                ng_path = Path(str(ng_png))
+                if ng_path.exists():
+                    ng_path.unlink()
+    elif has_nodes and not _netgraph_available():
+        # netgraph 不可用：提示安装
         empty_font = load_font(30)
         draw_centered_text(draw, (CANVAS_WIDTH / 2, BODY_TOP + body_height // 2 - 20),
-                           "需要 Graphviz（sudo apt install graphviz）", empty_font, TEXT_MUTED)
+                           "需要 netgraph（pip install netgraph）", empty_font, TEXT_MUTED)
     else:
         # 无节点
         empty_font = load_font(34, bold=True)
