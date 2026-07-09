@@ -1235,6 +1235,24 @@ async def write_profile_and_memories(
 
     new_longterm = str(result.get("longterm_profile") or "").strip()[:1000]
 
+    # 长期画像每天最多更新一次：读取已有更新时间，不够 24h 则保留旧值
+    existing_profile = await get_profile(group_id, user_id)
+    longterm_updated_at_str = str(existing_profile["longterm_updated_at"] or "") if existing_profile else ""
+    if new_longterm and longterm_updated_at_str:
+        try:
+            last_lt_update = datetime.strptime(longterm_updated_at_str, "%Y-%m-%d %H:%M:%S")
+            if (datetime.now() - last_lt_update).total_seconds() < 86400:
+                new_longterm = ""
+        except (ValueError, TypeError):
+            pass
+
+    if new_longterm:
+        final_longterm = new_longterm
+        final_longterm_updated_at = timestamp
+    else:
+        final_longterm = str(existing_profile["longterm_profile"]) if existing_profile else ""
+        final_longterm_updated_at = longterm_updated_at_str if longterm_updated_at_str else None
+
     profile_values = {
         "summary": str(result.get("summary") or "").strip()[:500],
         "current_activity": str(result.get("current_activity") or "").strip()[:500],
@@ -1242,8 +1260,8 @@ async def write_profile_and_memories(
         "emotional_preferences": str(result.get("emotional_preferences") or "").strip()[:500],
         "topics": dump_json(topics),
         "confidence": normalize_confidence(result.get("confidence")),
-        "longterm_profile": new_longterm,
-        "longterm_updated_at": timestamp if new_longterm else None,
+        "longterm_profile": final_longterm,
+        "longterm_updated_at": final_longterm_updated_at,
     }
 
     memories_value = result.get("memories")
