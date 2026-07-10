@@ -3,7 +3,6 @@ from __future__ import annotations
 from plugins.access_control import FEATURE_AI_CHAT
 from plugins.reminder_service import (
     ReminderScope,
-    ReminderTarget,
     cancel_reminder,
     create_reminder,
     list_reminders_result,
@@ -44,14 +43,17 @@ async def create_reminder_tool(args: dict[str, object], context: AgentToolContex
             "error": "missing_event",
             "message": "缺少当前会话上下文。",
         }
-    target_user_id = str(args.get("target_user_id") or "").strip()
-    target_display_name = str(args.get("target_display_name") or "").strip()
-    target = ReminderTarget(target_user_id, target_display_name) if target_user_id else None
+    current_user_id = str(context.get("_user_id") or "").strip()
+    if not current_user_id or str(scope.user_id) != current_user_id:
+        return {
+            "ok": False,
+            "error": "invalid_identity_scope",
+            "message": "当前用户身份与提醒会话不一致。",
+        }
     content_override = str(args.get("content_override") or "").strip() or None
     return await create_reminder(
         scope,
         str(args.get("text") or ""),
-        target=target,
         content_override=content_override,
     )
 
@@ -99,14 +101,6 @@ REMINDER_TOOLS = [
                 "text": {
                     "type": "string",
                     "description": "Reminder text such as '09:00 喝水', '10分钟后吃饭', or '明天这个时候吃饭'.",
-                },
-                "target_user_id": {
-                    "type": "string",
-                    "description": "Optional QQ user id to remind. Leave empty for reminding the requester.",
-                },
-                "target_display_name": {
-                    "type": "string",
-                    "description": "Optional display name for the reminder target.",
                 },
                 "content_override": {
                     "type": "string",

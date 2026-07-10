@@ -61,7 +61,6 @@ from plugins.group_context_service import (
 from plugins.semantic_graph import build_semantic_graph_result, semantic_graph_summary
 from plugins.reminder_service import (
     ReminderScope,
-    ReminderTarget,
     cancel_reminder,
     clean_reminder_content,
     create_reminder,
@@ -70,12 +69,19 @@ from plugins.reminder_service import (
     strip_request_prefix,
 )
 from plugins.reminder_target_service import (
-    GroupMember,
+    AuthorizedReminderTarget,
     TARGET_ACTION_PREFIXES,
-    TargetMatch,
-    find_target_in_content,
-    group_member_from_payload,
+    TargetResolution,
+    VerifiedGroupMembers,
+    VerifiedReminderTargetCandidate,
+    authorize_confirmed_candidate,
+    authorize_self_target,
+    authorized_target_is_valid,
+    renew_authorized_target,
+    resolve_mentioned_targets,
+    resolve_verified_target_in_content,
     strip_target_pronoun,
+    verified_group_members,
 )
 from plugins.reminder_prompt import reminder_confirmation_prompt, reminder_time_wait_prompt
 from plugins.message_archive import save_ai_reply
@@ -609,7 +615,7 @@ class PendingReminderConfirmation:
     creator_user_id: str
     raw_text: str
     content: str
-    target: ReminderTarget
+    candidate: VerifiedReminderTargetCandidate
     expires_at: datetime
 
 
@@ -617,8 +623,7 @@ class PendingReminderConfirmation:
 class RecentReminderTarget:
     group_id: str
     creator_user_id: str
-    target: ReminderTarget
-    expires_at: datetime
+    authorized_target: AuthorizedReminderTarget
 
 
 @dataclass(frozen=True)
@@ -627,8 +632,8 @@ class PendingReminderSetup:
     creator_user_id: str
     raw_text: str
     content: str
-    target: ReminderTarget
-    target_confirmed: bool
+    authorized_target: AuthorizedReminderTarget | None
+    candidate: VerifiedReminderTargetCandidate | None
     time_text: str
     expires_at: datetime
 
@@ -1232,7 +1237,7 @@ def clear_expired_pending_reminder_confirmations(now: datetime | None = None) ->
 def clear_expired_recent_reminder_targets(now: datetime | None = None) -> None:
     current_time = now or datetime.now()
     for key, recent in list(recent_reminder_targets.items()):
-        if recent.expires_at <= current_time:
+        if recent.authorized_target.expires_at <= current_time:
             recent_reminder_targets.pop(key, None)
 
 
@@ -1243,24 +1248,36 @@ def clear_expired_pending_reminder_setups(now: datetime | None = None) -> None:
             pending_reminder_setups.pop(key, None)
 
 
-def remember_recent_reminder_target(event: MessageEvent, target: ReminderTarget) -> None:
+def remember_recent_reminder_target(event: MessageEvent, authorized_target: AuthorizedReminderTarget) -> None:
     if not isinstance(event, GroupMessageEvent):
         return
-    if not target.user_id or str(target.user_id) == str(event.user_id):
+    if not authorized_target_is_valid(
+        authorized_target,
+        group_id=event.group_id,
+        creator_user_id=event.user_id,
+    ):
+        return
+    if str(authorized_target.target.user_id) == str(event.user_id):
         return
     recent_reminder_targets[recent_reminder_target_key(event)] = RecentReminderTarget(
         group_id=str(event.group_id),
         creator_user_id=str(event.user_id),
-        target=target,
-        expires_at=datetime.now() + RECENT_REMINDER_TARGET_TTL,
+        authorized_target=renew_authorized_target(
+            authorized_target,
+            ttl=RECENT_REMINDER_TARGET_TTL,
+        ),
     )
 
 
-def recent_reminder_target(event: GroupMessageEvent) -> ReminderTarget | None:
+def recent_reminder_target(event: GroupMessageEvent) -> AuthorizedReminderTarget | None:
     clear_expired_recent_reminder_targets()
     recent = recent_reminder_targets.get(recent_reminder_target_key(event))
-    if recent and recent.expires_at > datetime.now():
-        return recent.target
+    if recent and authorized_target_is_valid(
+        recent.authorized_target,
+        group_id=event.group_id,
+        creator_user_id=event.user_id,
+    ) and recent.group_id == str(event.group_id) and recent.creator_user_id == str(event.user_id):
+        return recent.authorized_target
     if recent:
         recent_reminder_targets.pop(recent_reminder_target_key(event), None)
     return None
@@ -1269,7 +1286,15 @@ def recent_reminder_target(event: GroupMessageEvent) -> ReminderTarget | None:
 def pending_reminder_confirmation(event: GroupMessageEvent) -> PendingReminderConfirmation | None:
     clear_expired_pending_reminder_confirmations()
     pending = pending_reminder_confirmations.get(reminder_confirmation_key(event))
-    if pending and pending.expires_at > datetime.now():
+    if (
+        pending
+        and pending.group_id == str(event.group_id)
+        and pending.creator_user_id == str(event.user_id)
+        and pending.candidate.group_id == str(event.group_id)
+        and pending.candidate.creator_user_id == str(event.user_id)
+        and pending.candidate.expires_at > datetime.now()
+        and pending.expires_at > datetime.now()
+    ):
         return pending
     if pending:
         pending_reminder_confirmations.pop(reminder_confirmation_key(event), None)
@@ -1279,7 +1304,32 @@ def pending_reminder_confirmation(event: GroupMessageEvent) -> PendingReminderCo
 def pending_reminder_setup(event: GroupMessageEvent) -> PendingReminderSetup | None:
     clear_expired_pending_reminder_setups()
     pending = pending_reminder_setups.get(reminder_confirmation_key(event))
-    if pending and pending.expires_at > datetime.now():
+    target_binding_valid = bool(
+        pending
+        and (
+            (
+                pending.authorized_target is not None
+                and authorized_target_is_valid(
+                    pending.authorized_target,
+                    group_id=event.group_id,
+                    creator_user_id=event.user_id,
+                )
+            )
+            or (
+                pending.candidate is not None
+                and pending.candidate.group_id == str(event.group_id)
+                and pending.candidate.creator_user_id == str(event.user_id)
+                and pending.candidate.expires_at > datetime.now()
+            )
+        )
+    )
+    if (
+        pending
+        and pending.group_id == str(event.group_id)
+        and pending.creator_user_id == str(event.user_id)
+        and target_binding_valid
+        and pending.expires_at > datetime.now()
+    ):
         return pending
     if pending:
         pending_reminder_setups.pop(reminder_confirmation_key(event), None)
@@ -1291,17 +1341,19 @@ def set_pending_reminder_setup(
     *,
     raw_text: str,
     content: str,
-    target: ReminderTarget,
-    target_confirmed: bool,
+    authorized_target: AuthorizedReminderTarget | None = None,
+    candidate: VerifiedReminderTargetCandidate | None = None,
     time_text: str = "",
 ) -> None:
+    if (authorized_target is None) == (candidate is None):
+        raise ValueError("Pending reminder setup requires exactly one authorized target or candidate.")
     pending_reminder_setups[reminder_confirmation_key(event)] = PendingReminderSetup(
         group_id=str(event.group_id),
         creator_user_id=str(event.user_id),
         raw_text=raw_text,
         content=content,
-        target=target,
-        target_confirmed=target_confirmed,
+        authorized_target=authorized_target,
+        candidate=candidate,
         time_text=time_text,
         expires_at=datetime.now() + PENDING_REMINDER_SETUP_TTL,
     )
@@ -1312,89 +1364,93 @@ def set_pending_reminder_confirmation(
     *,
     raw_text: str,
     content: str,
-    target: ReminderTarget,
+    candidate: VerifiedReminderTargetCandidate,
 ) -> None:
     pending_reminder_confirmations[reminder_confirmation_key(event)] = PendingReminderConfirmation(
         group_id=str(event.group_id),
         creator_user_id=str(event.user_id),
         raw_text=raw_text,
         content=content,
-        target=target,
+        candidate=candidate,
         expires_at=datetime.now() + timedelta(minutes=1),
     )
 
 
-def mentioned_group_targets(event: GroupMessageEvent, bot: Bot) -> list[ReminderTarget]:
-    targets: list[ReminderTarget] = []
+def mentioned_group_target_ids(event: GroupMessageEvent, bot: Bot) -> list[str]:
+    target_user_ids: list[str] = []
     for segment in event.get_message():
         if segment.type != "at":
             continue
         qq = str(segment.data.get("qq", "")).strip()
         if not qq or qq == "all" or qq == str(bot.self_id):
             continue
-        name = str(segment.data.get("name", "") or "").strip()
-        targets.append(ReminderTarget(user_id=qq, display_name=name))
-    return targets
+        if qq not in target_user_ids:
+            target_user_ids.append(qq)
+    return target_user_ids
 
 
-async def group_members(bot: Bot, group_id: int | str) -> list[GroupMember]:
+async def group_member_directory(bot: Bot, group_id: int | str) -> VerifiedGroupMembers | None:
     try:
         raw_members = await bot.get_group_member_list(group_id=int(str(group_id)))
     except Exception:
         logger.exception("Failed to fetch group member list for reminder target matching")
-        return []
-    members: list[GroupMember] = []
-    for item in raw_members or []:
-        if isinstance(item, dict):
-            member = group_member_from_payload(item)
-            if member is not None:
-                members.append(member)
-    return members
+        return None
+    return verified_group_members(group_id, raw_members or [])
 
 
-async def hydrate_group_reminder_target(
-    bot: Bot,
-    event: GroupMessageEvent,
-    target: ReminderTarget,
-) -> ReminderTarget:
-    if target.display_name:
-        return target
-    for member in await group_members(bot, event.group_id):
-        if member.user_id == target.user_id:
-            return ReminderTarget(user_id=target.user_id, display_name=member.display_name)
-    return target
+def target_resolution_name(resolution: TargetResolution) -> str:
+    if resolution.authorized_target is not None:
+        target = resolution.authorized_target.target
+        return target.display_name or target.user_id
+    if resolution.candidate is not None:
+        target = resolution.candidate.target
+        return target.display_name or target.user_id
+    return ""
 
 
 async def direct_group_target_match(
     question: str,
     event: GroupMessageEvent,
     bot: Bot,
-) -> TargetMatch | None:
+) -> TargetResolution | None:
     parsed = parse_reminder(question)
     if parsed is None:
         return None
 
     _, content = parsed
-    at_targets = mentioned_group_targets(event, bot)
-    if at_targets:
-        return TargetMatch(
-            target=await hydrate_group_reminder_target(bot, event, at_targets[0]),
+    at_target_ids = mentioned_group_target_ids(event, bot)
+    if at_target_ids:
+        directory = await group_member_directory(bot, event.group_id)
+        if directory is None:
+            return TargetResolution(content=content, error="暂时无法验证群成员，不能创建提醒他人的提醒。")
+        return resolve_mentioned_targets(
+            at_target_ids,
+            directory,
+            creator_user_id=event.user_id,
             content=content,
-            needs_confirmation=False,
         )
 
     recent_target = recent_reminder_target(event)
     if recent_target is not None:
         pronoun_content, has_pronoun = strip_target_pronoun(content)
         if has_pronoun:
-            return TargetMatch(
-                target=recent_target,
+            return TargetResolution(
+                authorized_target=recent_target,
                 content=pronoun_content,
-                needs_confirmation=False,
             )
 
-    members = await group_members(bot, event.group_id)
-    return find_target_in_content(content, members, allow_fuzzy_without_action=True)
+    if not any(content.startswith(prefix) for prefix in TARGET_ACTION_PREFIXES):
+        return None
+
+    directory = await group_member_directory(bot, event.group_id)
+    if directory is None:
+        return TargetResolution(content=content, error="暂时无法验证群成员，不能创建提醒他人的提醒。")
+    return resolve_verified_target_in_content(
+        content,
+        directory,
+        creator_user_id=event.user_id,
+        allow_fuzzy_without_action=True,
+    )
 
 
 def reminder_intent_without_time_text(question: str) -> str:
@@ -1418,32 +1474,46 @@ async def missing_time_group_reminder_match(
     question: str,
     event: GroupMessageEvent,
     bot: Bot,
-) -> TargetMatch | None:
+) -> TargetResolution | None:
     intent_text = reminder_intent_without_time_text(question)
     if not intent_text:
         return None
 
-    at_targets = mentioned_group_targets(event, bot)
-    if at_targets:
+    at_target_ids = mentioned_group_target_ids(event, bot)
+    if at_target_ids:
         content = clean_reminder_content(intent_text)
-        return TargetMatch(
-            target=await hydrate_group_reminder_target(bot, event, at_targets[0]),
+        directory = await group_member_directory(bot, event.group_id)
+        if directory is None:
+            return TargetResolution(content=content, error="暂时无法验证群成员，不能创建提醒他人的提醒。")
+        return resolve_mentioned_targets(
+            at_target_ids,
+            directory,
+            creator_user_id=event.user_id,
             content=content,
-            needs_confirmation=False,
         )
-
-    members = await group_members(bot, event.group_id)
-    target_match = find_target_in_content(intent_text, members, allow_fuzzy_without_action=True)
-    if target_match is not None:
-        return target_match
 
     content = clean_reminder_content(intent_text)
     if content and intent_text.startswith(("提醒我", "叫我", "让我")):
-        return TargetMatch(
-            target=ReminderTarget(user_id=str(event.user_id), display_name=group_sender_name(event)),
+        return TargetResolution(
             content=content,
-            needs_confirmation=False,
+            authorized_target=authorize_self_target(
+                group_id=event.group_id,
+                creator_user_id=event.user_id,
+                display_name=group_sender_name(event),
+            ),
         )
+
+    directory = await group_member_directory(bot, event.group_id)
+    if directory is None:
+        return TargetResolution(content=content or intent_text, error="暂时无法验证群成员，不能创建提醒他人的提醒。")
+    target_match = resolve_verified_target_in_content(
+        intent_text,
+        directory,
+        creator_user_id=event.user_id,
+        allow_fuzzy_without_action=True,
+    )
+    if target_match is not None:
+        return target_match
     return None
 
 
@@ -1451,17 +1521,27 @@ async def create_targeted_reminder_reply(
     event: MessageEvent,
     *,
     raw_text: str,
-    target: ReminderTarget,
+    authorized_target: AuthorizedReminderTarget,
     content: str,
 ) -> str:
+    if (
+        not isinstance(event, GroupMessageEvent)
+        or not isinstance(authorized_target, AuthorizedReminderTarget)
+        or not authorized_target_is_valid(
+            authorized_target,
+            group_id=event.group_id,
+            creator_user_id=event.user_id,
+        )
+    ):
+        return "提醒对象授权无效或已过期，请重新 @群成员后再试。"
     result = await create_reminder(
         current_scope(event),
         raw_text,
-        target=target,
+        target=authorized_target.target,
         content_override=content,
     )
     if result.get("ok"):
-        remember_recent_reminder_target(event, target)
+        remember_recent_reminder_target(event, authorized_target)
     return str(result.get("message") or "")
 
 
@@ -1471,14 +1551,25 @@ async def handle_pending_reminder_confirmation(bot: Bot, event: GroupMessageEven
         return None
 
     text = event.get_plaintext().strip()
-    at_targets = mentioned_group_targets(event, bot)
+    at_target_ids = mentioned_group_target_ids(event, bot)
     key = reminder_confirmation_key(event)
-    if at_targets:
+    if at_target_ids:
+        directory = await group_member_directory(bot, event.group_id)
+        if directory is None:
+            return "暂时无法验证群成员，不能创建提醒他人的提醒。"
+        resolution = resolve_mentioned_targets(
+            at_target_ids,
+            directory,
+            creator_user_id=event.user_id,
+            content=pending.content,
+        )
+        if resolution.error or resolution.authorized_target is None:
+            return resolution.error or "提醒对象未通过授权。"
         pending_reminder_confirmations.pop(key, None)
         return await create_targeted_reminder_reply(
             event,
             raw_text=pending.raw_text,
-            target=await hydrate_group_reminder_target(bot, event, at_targets[0]),
+            authorized_target=resolution.authorized_target,
             content=pending.content,
         )
 
@@ -1504,11 +1595,20 @@ async def handle_pending_reminder_confirmation(bot: Bot, event: GroupMessageEven
         return None
 
     if normalized in {"对", "是", "是的", "对的", "没错", "确定", "ok", "okay", "yes", "y"}:
+        authorized_target = authorize_confirmed_candidate(
+            pending.candidate,
+            group_id=event.group_id,
+            creator_user_id=event.user_id,
+            target_user_id=pending.candidate.target.user_id,
+        )
+        if authorized_target is None:
+            pending_reminder_confirmations.pop(key, None)
+            return "提醒对象确认状态无效，请重新 @群成员后再试。"
         pending_reminder_confirmations.pop(key, None)
         return await create_targeted_reminder_reply(
             event,
             raw_text=pending.raw_text,
-            target=pending.target,
+            authorized_target=authorized_target,
             content=pending.content,
         )
 
@@ -1516,23 +1616,28 @@ async def handle_pending_reminder_confirmation(bot: Bot, event: GroupMessageEven
         pending_reminder_confirmations.pop(key, None)
         return "好，那这条提醒我先取消。你可以重新 @某人 让我提醒。"
 
-    return reminder_confirmation_prompt(pending.target.display_name or pending.target.user_id, prefix="我还在等你确认。")
+    return reminder_confirmation_prompt(
+        pending.candidate.target.display_name or pending.candidate.target.user_id,
+        prefix="我还在等你确认。",
+    )
 
 
 async def create_pending_reminder_setup_reply(
     event: GroupMessageEvent,
     pending: PendingReminderSetup,
     *,
-    target: ReminderTarget | None = None,
+    authorized_target: AuthorizedReminderTarget | None = None,
     time_text: str | None = None,
 ) -> str:
-    target = target or pending.target
+    authorized_target = authorized_target or pending.authorized_target
+    if authorized_target is None:
+        return "提醒对象还没有确认，请先确认提醒对象。"
     time_text = (time_text if time_text is not None else pending.time_text).strip()
     raw_text = reminder_time_completion_text(time_text, pending.content)
     return await create_targeted_reminder_reply(
         event,
         raw_text=raw_text,
-        target=target,
+        authorized_target=authorized_target,
         content=pending.content,
     )
 
@@ -1543,66 +1648,106 @@ async def handle_pending_reminder_setup(bot: Bot, event: GroupMessageEvent) -> s
         return None
 
     text = event.get_plaintext().strip()
-    at_targets = mentioned_group_targets(event, bot)
+    at_target_ids = mentioned_group_target_ids(event, bot)
     key = reminder_confirmation_key(event)
 
-    if at_targets:
-        target = await hydrate_group_reminder_target(bot, event, at_targets[0])
+    if at_target_ids:
+        directory = await group_member_directory(bot, event.group_id)
+        if directory is None:
+            return "暂时无法验证群成员，不能创建提醒他人的提醒。"
+        resolution = resolve_mentioned_targets(
+            at_target_ids,
+            directory,
+            creator_user_id=event.user_id,
+            content=pending.content,
+        )
+        if resolution.error or resolution.authorized_target is None:
+            return resolution.error or "提醒对象未通过授权。"
+        authorized_target = resolution.authorized_target
         if pending.time_text:
             pending_reminder_setups.pop(key, None)
-            return await create_pending_reminder_setup_reply(event, pending, target=target)
+            return await create_pending_reminder_setup_reply(
+                event,
+                pending,
+                authorized_target=authorized_target,
+            )
         set_pending_reminder_setup(
             event,
             raw_text=pending.raw_text,
             content=pending.content,
-            target=target,
-            target_confirmed=True,
+            authorized_target=authorized_target,
             time_text="",
         )
-        target_name = target.display_name or target.user_id
+        target_name = authorized_target.target.display_name or authorized_target.target.user_id
         return reminder_time_wait_prompt(target_name)
 
     normalized = normalize_text(text).strip("。.!！")
     yes_words = {"对", "是", "是的", "对的", "没错", "确定", "ok", "okay", "yes", "y"}
     no_words = {"不对", "不是", "否", "不", "no", "n"}
     if normalized in yes_words:
+        authorized_target = pending.authorized_target
+        if authorized_target is None and pending.candidate is not None:
+            authorized_target = authorize_confirmed_candidate(
+                pending.candidate,
+                group_id=event.group_id,
+                creator_user_id=event.user_id,
+                target_user_id=pending.candidate.target.user_id,
+            )
+        if authorized_target is None:
+            pending_reminder_setups.pop(key, None)
+            return "提醒对象确认状态无效，请重新 @群成员后再试。"
         if pending.time_text:
             pending_reminder_setups.pop(key, None)
-            return await create_pending_reminder_setup_reply(event, pending)
+            return await create_pending_reminder_setup_reply(
+                event,
+                pending,
+                authorized_target=authorized_target,
+            )
         set_pending_reminder_setup(
             event,
             raw_text=pending.raw_text,
             content=pending.content,
-            target=pending.target,
-            target_confirmed=True,
+            authorized_target=authorized_target,
             time_text="",
         )
-        return reminder_time_wait_prompt(pending.target.display_name or pending.target.user_id)
+        return reminder_time_wait_prompt(
+            authorized_target.target.display_name or authorized_target.target.user_id
+        )
 
     if normalized in no_words:
         pending_reminder_setups.pop(key, None)
         return "好，那这条提醒我先取消。你可以重新 @某人 让我提醒。"
 
     if reminder_time_completion_is_valid(text, pending.content):
-        if pending.target_confirmed:
+        if pending.authorized_target is not None:
             pending_reminder_setups.pop(key, None)
             return await create_pending_reminder_setup_reply(event, pending, time_text=text)
         set_pending_reminder_setup(
             event,
             raw_text=pending.raw_text,
             content=pending.content,
-            target=pending.target,
-            target_confirmed=False,
+            candidate=pending.candidate,
             time_text=text,
         )
-        target_name = pending.target.display_name or pending.target.user_id
+        if pending.candidate is None:
+            pending_reminder_setups.pop(key, None)
+            return "提醒对象确认状态无效，请重新 @群成员后再试。"
+        target_name = pending.candidate.target.display_name or pending.candidate.target.user_id
         return reminder_confirmation_prompt(target_name, prefix="时间收到了，还差确认提醒对象。")
 
     if group_mentions_bot(event, bot):
         return None
 
-    target_name = pending.target.display_name or pending.target.user_id
-    if pending.target_confirmed:
+    target = (
+        pending.authorized_target.target
+        if pending.authorized_target is not None
+        else pending.candidate.target if pending.candidate is not None else None
+    )
+    if target is None:
+        pending_reminder_setups.pop(key, None)
+        return "提醒对象确认状态无效，请重新 @群成员后再试。"
+    target_name = target.display_name or target.user_id
+    if pending.authorized_target is not None:
         return (
             "【提醒时间】\n"
             f"我还在等提醒时间：要什么时候提醒 {target_name}？\n"
@@ -1958,16 +2103,19 @@ async def try_direct_reminder_reply(question: str, event: MessageEvent, bot: Bot
         if isinstance(event, GroupMessageEvent):
             missing_time_match = await missing_time_group_reminder_match(question, event, bot)
             if missing_time_match is not None:
-                target_confirmed = not missing_time_match.needs_confirmation
+                if missing_time_match.error:
+                    return missing_time_match.error
+                if missing_time_match.authorized_target is None and missing_time_match.candidate is None:
+                    return "提醒对象不明确，请只 @一个当前群成员后重试。"
                 set_pending_reminder_setup(
                     event,
                     raw_text=question,
                     content=missing_time_match.content,
-                    target=missing_time_match.target,
-                    target_confirmed=target_confirmed,
+                    authorized_target=missing_time_match.authorized_target,
+                    candidate=missing_time_match.candidate,
                 )
-                target_name = missing_time_match.target.display_name or missing_time_match.target.user_id
-                if target_confirmed:
+                target_name = target_resolution_name(missing_time_match)
+                if missing_time_match.authorized_target is not None:
                     return reminder_time_wait_prompt(target_name, content=missing_time_match.content)
                 return reminder_confirmation_prompt(target_name, prefix="我先确认一下。", allow_time_reply=True)
             if reminder_intent_without_time_text(question):
@@ -1977,19 +2125,23 @@ async def try_direct_reminder_reply(question: str, event: MessageEvent, bot: Bot
     if isinstance(event, GroupMessageEvent):
         target_match = await direct_group_target_match(question, event, bot)
         if target_match is not None:
-            if target_match.needs_confirmation:
+            if target_match.error:
+                return target_match.error
+            if target_match.candidate is not None:
                 set_pending_reminder_confirmation(
                     event,
                     raw_text=question,
                     content=target_match.content,
-                    target=target_match.target,
+                    candidate=target_match.candidate,
                 )
-                target_name = target_match.target.display_name or target_match.target.user_id
+                target_name = target_resolution_name(target_match)
                 return reminder_confirmation_prompt(target_name)
+            if target_match.authorized_target is None:
+                return "提醒对象不明确，请只 @一个当前群成员后重试。"
             return await create_targeted_reminder_reply(
                 event,
                 raw_text=question,
-                target=target_match.target,
+                authorized_target=target_match.authorized_target,
                 content=target_match.content,
             )
 

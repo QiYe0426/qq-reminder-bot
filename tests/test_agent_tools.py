@@ -126,6 +126,7 @@ def test_create_list_and_cancel_reminder_through_agent_registry(tmp_path, monkey
 
     assert created["ok"] is True
     assert created["data"]["content"] == "drink water"
+    assert created["data"]["target_user_id"] == "10001"
     assert listed["ok"] is True
     assert listed["data"]["reminders"][0]["id"] == created["data"]["id"]
     assert cancelled["ok"] is True
@@ -142,6 +143,42 @@ def test_create_reminder_tool_requires_conversation_scope() -> None:
 
     assert result["ok"] is False
     assert result["error"] == "missing_event"
+
+
+def test_create_reminder_tool_rejects_model_controlled_target() -> None:
+    result = asyncio.run(
+        run_registered_agent_tool(
+            "create_reminder",
+            {
+                "text": "2099-01-01 09:00 drink water",
+                "target_user_id": "10002",
+                "target_display_name": "other user",
+            },
+            {
+                "_scope": ReminderScope(user_id="10001", target_type="private"),
+                "_user_id": "10001",
+            },
+        )
+    )
+
+    assert result["ok"] is False
+    assert result["error"] == "invalid_arguments"
+
+
+def test_create_reminder_tool_rejects_mismatched_identity_scope() -> None:
+    result = asyncio.run(
+        run_registered_agent_tool(
+            "create_reminder",
+            {"text": "2099-01-01 09:00 drink water"},
+            {
+                "_scope": ReminderScope(user_id="10002", target_type="private"),
+                "_user_id": "10001",
+            },
+        )
+    )
+
+    assert result["ok"] is False
+    assert result["error"] == "invalid_identity_scope"
 
 
 def test_search_sts2_knowledge_through_agent_registry(tmp_path, monkeypatch) -> None:
