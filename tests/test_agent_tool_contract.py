@@ -2,6 +2,8 @@ import asyncio
 
 import pytest
 
+from plugins import agent_tool_access
+from plugins.agent_tool_access import AgentToolAuthorization
 from plugins.agent_tools import AgentTool, execute_tool, register_tool
 
 
@@ -141,4 +143,63 @@ def test_execute_tool_preserves_explicit_business_failure_code() -> None:
         "message": "not allowed by the business rule",
         "retryable": False,
         "data": {"reason": "closed"},
+    }
+
+
+def test_agent_tool_new_scope_metadata_defaults_are_backward_compatible() -> None:
+    async def handler(args: dict[str, object], context: dict[str, object]) -> dict[str, object]:
+        return {"ok": True}
+
+    name = "contract_metadata_defaults_test"
+    tool = AgentTool(name=name, definition=tool_definition(name), handler=handler)
+
+    assert tool.group_scope == "none"
+    assert tool.requires_target_group_admin is False
+
+
+def test_gateway_injects_effective_group_into_context_copy(monkeypatch) -> None:
+    received_context: dict[str, object] = {}
+
+    async def handler(args: dict[str, object], context: dict[str, object]) -> dict[str, object]:
+        received_context.update(context)
+        return {"ok": True}
+
+    async def authorize(tool_name: str, arguments: dict[str, object], context: dict[str, object]) -> AgentToolAuthorization:
+        return AgentToolAuthorization(allowed=True, effective_group_id="2002")
+
+    monkeypatch.setattr(agent_tool_access, "authorize_agent_tool", authorize)
+    name = "contract_effective_group_context_test"
+    register_tool(AgentTool(name=name, definition=tool_definition(name), handler=handler))
+    original_context = {"_target_type": "group", "_target_id": "1001"}
+
+    result = asyncio.run(execute_tool(name, {"value": "hello"}, original_context))
+
+    assert result["ok"] is True
+    assert original_context == {"_target_type": "group", "_target_id": "1001"}
+    assert received_context["_target_id"] == "1001"
+    assert received_context["_effective_group_id"] == "2002"
+
+
+def test_gateway_returns_standard_group_permission_failure(monkeypatch) -> None:
+    async def handler(args: dict[str, object], context: dict[str, object]) -> dict[str, object]:
+        return {"ok": True}
+
+    async def authorize(tool_name: str, arguments: dict[str, object], context: dict[str, object]) -> AgentToolAuthorization:
+        return AgentToolAuthorization(
+            allowed=False,
+            error="group_permission_denied",
+            message="没有目标群权限。",
+        )
+
+    monkeypatch.setattr(agent_tool_access, "authorize_agent_tool", authorize)
+    name = "contract_group_permission_failure_test"
+    register_tool(AgentTool(name=name, definition=tool_definition(name), handler=handler))
+
+    result = asyncio.run(execute_tool(name, {"value": "hello"}, {}))
+
+    assert result == {
+        "ok": False,
+        "error": "group_permission_denied",
+        "message": "没有目标群权限。",
+        "retryable": False,
     }

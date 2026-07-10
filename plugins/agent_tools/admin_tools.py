@@ -72,13 +72,9 @@ def current_group_id(context: AgentToolContext) -> str:
     return str(context.get("_target_id") or "").strip()
 
 
-def group_id_arg(args: dict[str, object]) -> str:
-    group_id = str(args.get("group_id") or args.get("target_group_id") or "").strip()
-    return group_id if group_id.isdigit() else ""
-
-
 def target_group_id(args: dict[str, object], context: AgentToolContext) -> str:
-    return group_id_arg(args) or current_group_id(context)
+    del args
+    return str(context.get("_effective_group_id") or "").strip() or current_group_id(context)
 
 
 def missing_group_message() -> str:
@@ -586,6 +582,8 @@ ADMIN_TOOLS = [
         category="admin",
         requires_feature=FEATURE_AI_CHAT,
         requires_admin=True,
+        group_scope="private_explicit",
+        requires_target_group_admin=True,
         definition=_tool_definition(
             name="get_group_status",
             description="Get operational status for a QQ group, including feature switches, message archive stats, daily report runs, companion targets, group profile, and Agent tool permissions. Admin only. In private chat, group_id is required.",
@@ -603,6 +601,8 @@ ADMIN_TOOLS = [
         category="daily_report",
         requires_feature=FEATURE_DAILY_REPORT,
         requires_admin=True,
+        group_scope="private_explicit",
+        requires_target_group_admin=True,
         definition=_tool_definition(
             name="generate_daily_report",
             description="Generate or read the daily report / yesterday summary for a QQ group. Admin only. Default date is yesterday. In private chat, group_id is required. Sends progress feedback before generation and records failed/running/sent status.",
@@ -628,6 +628,8 @@ ADMIN_TOOLS = [
         category="profile",
         requires_feature=FEATURE_COMPANION,
         requires_admin=True,
+        group_scope="private_explicit",
+        requires_target_group_admin=True,
         definition=_tool_definition(
             name="get_group_profile",
             description="Get a QQ group's companion/group profile. Admin only. In private chat, group_id is required.",
@@ -645,6 +647,8 @@ ADMIN_TOOLS = [
         category="profile",
         requires_feature=FEATURE_COMPANION,
         requires_admin=True,
+        group_scope="private_explicit",
+        requires_target_group_admin=True,
         definition=_tool_definition(
             name="get_member_profile",
             description="Get a group member's companion profile by QQ user id or exact display-name keyword. Admin only. In private chat, group_id is required.",
@@ -673,6 +677,8 @@ ADMIN_TOOLS = [
         name="set_group_features",
         category="admin",
         requires_admin=True,
+        group_scope="private_explicit",
+        requires_target_group_admin=True,
         definition=_tool_definition(
             name="set_group_features",
             description="Open, close, or adjust feature switches for a QQ group. Admin only. In private chat, group_id is required. Daily report and companion depend on collector; daily_report_auto depends on daily_report.",

@@ -48,13 +48,9 @@ def current_group_id(context: AgentToolContext) -> str:
     return str(context.get("_target_id") or "").strip()
 
 
-def group_id_arg(args: dict[str, object]) -> str:
-    group_id = str(args.get("group_id") or args.get("target_group_id") or "").strip()
-    return group_id if group_id.isdigit() else ""
-
-
 def target_group_id(args: dict[str, object], context: AgentToolContext) -> str:
-    return group_id_arg(args) or current_group_id(context)
+    del args
+    return str(context.get("_effective_group_id") or "").strip() or current_group_id(context)
 
 
 def parse_graph_date(value: object) -> date | None:
@@ -133,6 +129,12 @@ async def get_semantic_graph_tool(args: dict[str, object], context: AgentToolCon
         return await build_semantic_graph_tool(args, context)
 
     graph = await load_semantic_graph(graph_id) if graph_id else await latest_semantic_graph(group_id)
+    if graph is not None and str(graph.get("group_id") or "") != group_id:
+        return {
+            "ok": False,
+            "error": "group_permission_denied",
+            "message": "指定的语义图不属于已授权的目标群。",
+        }
     if graph is None:
         if bool(args.get("auto_build", True)):
             return await build_semantic_graph_tool(args, context)
@@ -238,6 +240,8 @@ SEMANTIC_GRAPH_TOOLS = [
         category="semantic_graph",
         requires_feature=FEATURE_COLLECTOR,
         requires_admin=True,
+        group_scope="private_explicit",
+        requires_target_group_admin=True,
         definition=_tool_definition(
             name="build_semantic_graph",
             description=(
@@ -253,6 +257,8 @@ SEMANTIC_GRAPH_TOOLS = [
         category="semantic_graph",
         requires_feature=FEATURE_COLLECTOR,
         requires_admin=True,
+        group_scope="private_explicit",
+        requires_target_group_admin=True,
         definition=_tool_definition(
             name="get_semantic_graph",
             description=(
@@ -278,6 +284,8 @@ SEMANTIC_GRAPH_TOOLS = [
         category="semantic_graph_visual",
         requires_feature=FEATURE_COLLECTOR,
         requires_admin=True,
+        group_scope="private_explicit",
+        requires_target_group_admin=True,
         definition=_tool_definition(
             name="render_semantic_graph",
             description=(

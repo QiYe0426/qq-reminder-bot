@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 import aiosqlite
+from nonebot.log import logger
 
 from plugins.access_control import DB_PATH as ACCESS_DB_PATH, init_access_db, is_group_feature_enabled
 from plugins.agent_tools import get_agent_tool, list_agent_tools
@@ -20,8 +21,18 @@ class AgentToolCapability:
     requires_feature: str | None = None
     requires_admin: bool = False
     requires_group: bool = False
+    group_scope: str = "none"
+    requires_target_group_admin: bool = False
     configurable: bool = True
     default_enabled: bool = True
+
+
+@dataclass(frozen=True)
+class AgentToolAuthorization:
+    allowed: bool
+    error: str = ""
+    message: str = ""
+    effective_group_id: str = ""
 
 
 BUILTIN_TOOL_LABELS = {
@@ -116,6 +127,8 @@ def registered_tool_capabilities() -> list[AgentToolCapability]:
                 requires_feature=tool.requires_feature,
                 requires_admin=tool.requires_admin,
                 requires_group=tool.requires_group,
+                group_scope=tool.group_scope,
+                requires_target_group_admin=tool.requires_target_group_admin,
             )
         )
     return capabilities
@@ -146,6 +159,8 @@ def get_agent_tool_capability(name: str) -> AgentToolCapability | None:
         requires_feature=tool.requires_feature,
         requires_admin=tool.requires_admin,
         requires_group=tool.requires_group,
+        group_scope=tool.group_scope,
+        requires_target_group_admin=tool.requires_target_group_admin,
     )
 
 
@@ -159,6 +174,8 @@ def capability_to_dict(capability: AgentToolCapability) -> dict[str, object]:
         "requires_feature": capability.requires_feature or "",
         "requires_admin": capability.requires_admin,
         "requires_group": capability.requires_group,
+        "group_scope": capability.group_scope,
+        "requires_target_group_admin": capability.requires_target_group_admin,
         "configurable": capability.configurable,
         "default_enabled": capability.default_enabled,
     }
@@ -273,6 +290,118 @@ async def is_agent_tool_allowed(tool_name: str, context: dict[str, object]) -> t
             return False, f"当前群未开启功能：{capability.requires_feature}。"
 
     return True, ""
+
+
+async def target_group_admin_authorized(
+    user_id: str,
+    group_id: str,
+    context: dict[str, object],
+) -> bool:
+    if not user_id.isdigit() or not group_id.isdigit():
+        return False
+
+    if (
+        str(context.get("_target_type") or "") == "group"
+        and str(context.get("_target_id") or "") == group_id
+    ):
+        event = context.get("_event")
+        sender = getattr(event, "sender", None)
+        role = str(getattr(sender, "role", "") or "").strip().lower()
+        if role:
+            return role in {"owner", "admin"}
+
+    try:
+        from nonebot import get_bot
+
+        bot = get_bot()
+        member = await bot.call_api(
+            "get_group_member_info",
+            group_id=int(group_id),
+            user_id=int(user_id),
+            no_cache=True,
+        )
+    except Exception:
+        logger.warning(f"Unable to verify target group admin role: group={group_id} user={user_id}")
+        return False
+
+    if not isinstance(member, dict):
+        return False
+    return str(member.get("role") or "").strip().lower() in {"owner", "admin"}
+
+
+def resolve_effective_group_id(
+    capability: AgentToolCapability,
+    arguments: dict[str, object],
+    context: dict[str, object],
+) -> AgentToolAuthorization:
+    target_type = str(context.get("_target_type") or "")
+    current_group_id = str(context.get("_target_id") or "").strip() if target_type == "group" else ""
+    argument_group_id = str(arguments.get("group_id") or "").strip()
+
+    if capability.group_scope == "current":
+        if not current_group_id:
+            return AgentToolAuthorization(False, "missing_group_id", "这个工具只能使用当前群资源。")
+        if argument_group_id and argument_group_id != current_group_id:
+            return AgentToolAuthorization(False, "group_permission_denied", "不能从当前群切换到其他群。")
+        return AgentToolAuthorization(True, effective_group_id=current_group_id)
+
+    if capability.group_scope == "private_explicit":
+        if target_type == "group":
+            if not current_group_id:
+                return AgentToolAuthorization(False, "missing_group_id", "缺少当前群上下文。")
+            if argument_group_id and argument_group_id != current_group_id:
+                return AgentToolAuthorization(False, "group_permission_denied", "不能从当前群切换到其他群。")
+            return AgentToolAuthorization(True, effective_group_id=current_group_id)
+        if target_type == "private":
+            if not argument_group_id:
+                return AgentToolAuthorization(False, "missing_group_id", "私聊调用群工具时必须提供 group_id。")
+            if not argument_group_id.isdigit():
+                return AgentToolAuthorization(False, "invalid_group_id", "group_id 必须是有效的 QQ 群号。")
+            return AgentToolAuthorization(True, effective_group_id=argument_group_id)
+        return AgentToolAuthorization(False, "missing_group_id", "缺少可用的群会话上下文。")
+
+    return AgentToolAuthorization(True)
+
+
+async def authorize_agent_tool(
+    tool_name: str,
+    arguments: dict[str, object],
+    context: dict[str, object],
+) -> AgentToolAuthorization:
+    capability = get_agent_tool_capability(tool_name)
+    if capability is None:
+        return AgentToolAuthorization(False, "tool_not_found", f"未知 Agent 工具：{tool_name}")
+
+    if capability.group_scope == "none":
+        allowed, reason = await is_agent_tool_allowed(tool_name, context)
+        return AgentToolAuthorization(allowed, "" if allowed else "tool_not_allowed", reason)
+
+    target_type = str(context.get("_target_type") or "")
+    if capability.requires_group and target_type != "group":
+        return AgentToolAuthorization(False, "group_permission_denied", f"{capability.label}只能在群聊中使用。")
+    if capability.requires_admin and not bool(context.get("_is_admin")):
+        return AgentToolAuthorization(False, "group_permission_denied", f"{capability.label}需要管理员权限。")
+
+    scope = resolve_effective_group_id(capability, arguments, context)
+    if not scope.allowed:
+        return scope
+    group_id = scope.effective_group_id
+
+    if capability.requires_target_group_admin:
+        user_id = str(context.get("_user_id") or "").strip()
+        if not await target_group_admin_authorized(user_id, group_id, context):
+            return AgentToolAuthorization(
+                False,
+                "group_permission_denied",
+                "你不是目标群的群主或管理员，无法操作该群资源。",
+            )
+
+    if not await agent_tool_enabled_for_group(group_id, tool_name):
+        return AgentToolAuthorization(False, "tool_not_allowed", f"目标群未允许 Agent 工具：{capability.label}。")
+    if capability.requires_feature and not await is_group_feature_enabled(group_id, capability.requires_feature):
+        return AgentToolAuthorization(False, "feature_disabled", f"目标群未开启功能：{capability.requires_feature}。")
+
+    return AgentToolAuthorization(True, effective_group_id=group_id)
 
 
 async def filter_allowed_agent_tool_definitions(

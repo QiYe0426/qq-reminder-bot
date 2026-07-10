@@ -3,8 +3,7 @@ from datetime import datetime
 
 import aiosqlite
 
-from plugins import knowledge_service, reminder_service
-from plugins import access_control
+from plugins import access_control, agent_tool_access, knowledge_service, reminder_service
 from plugins.agent_tools.admin_tools import mentioned_user_ids
 from plugins.agent_tools import group_context_tools
 from plugins.agent_tools import (
@@ -212,6 +211,13 @@ def test_get_group_context_through_agent_registry(monkeypatch) -> None:
 def test_admin_set_group_features_through_agent_registry(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(access_control, "DB_PATH", tmp_path / "bot_settings.db")
     monkeypatch.setattr(access_control, "_db_ready", False)
+    monkeypatch.setattr(agent_tool_access, "ACCESS_DB_PATH", tmp_path / "bot_settings.db")
+    monkeypatch.setattr(agent_tool_access, "_db_ready", False)
+
+    async def allow_target_group(user_id: str, group_id: str, context: dict[str, object]) -> bool:
+        return True
+
+    monkeypatch.setattr(agent_tool_access, "target_group_admin_authorized", allow_target_group)
 
     async def run() -> tuple[dict[str, object], bool, bool]:
         result = await run_registered_agent_tool(
@@ -233,6 +239,13 @@ def test_admin_set_group_features_through_agent_registry(tmp_path, monkeypatch) 
 def test_admin_set_group_features_rejects_missing_dependency(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(access_control, "DB_PATH", tmp_path / "bot_settings.db")
     monkeypatch.setattr(access_control, "_db_ready", False)
+    monkeypatch.setattr(agent_tool_access, "ACCESS_DB_PATH", tmp_path / "bot_settings.db")
+    monkeypatch.setattr(agent_tool_access, "_db_ready", False)
+
+    async def allow_target_group(user_id: str, group_id: str, context: dict[str, object]) -> bool:
+        return True
+
+    monkeypatch.setattr(agent_tool_access, "target_group_admin_authorized", allow_target_group)
 
     result = asyncio.run(
         run_registered_agent_tool(

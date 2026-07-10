@@ -4,7 +4,7 @@ import asyncio
 
 from PIL import Image
 
-from plugins import access_control, message_archive, semantic_graph
+from plugins import access_control, agent_tool_access, message_archive, semantic_graph
 from plugins.access_control import FEATURE_COLLECTOR, set_group_feature
 from plugins.agent_tools import run_registered_agent_tool
 from plugins.message_archive import insert_collected_message
@@ -21,6 +21,8 @@ def reset_paths(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(semantic_graph, "DB_PATH", graph_db)
     monkeypatch.setattr(access_control, "DB_PATH", access_db)
     monkeypatch.setattr(access_control, "_db_ready", False)
+    monkeypatch.setattr(agent_tool_access, "ACCESS_DB_PATH", access_db)
+    monkeypatch.setattr(agent_tool_access, "_db_ready", False)
 
 
 async def seed_messages(group_id: str) -> None:
@@ -91,6 +93,11 @@ def test_semantic_graph_agent_tools(tmp_path, monkeypatch) -> None:
     reset_paths(tmp_path, monkeypatch)
     monkeypatch.setattr("plugins.semantic_graph_visual.GRAPH_DIR", tmp_path / "graphs")
 
+    async def allow_target_group(user_id: str, group_id: str, context: dict[str, object]) -> bool:
+        return True
+
+    monkeypatch.setattr(agent_tool_access, "target_group_admin_authorized", allow_target_group)
+
     async def run() -> tuple[dict[str, object], dict[str, object], dict[str, object]]:
         await seed_messages("1003")
         await set_group_feature("1003", FEATURE_COLLECTOR, True)
@@ -119,3 +126,29 @@ def test_semantic_graph_agent_tools(tmp_path, monkeypatch) -> None:
     assert rendered["ok"] is True
     assert rendered["data"]["sent"] is False
     assert str(rendered["data"]["image_filename"]).endswith(".png")
+
+
+def test_semantic_graph_id_must_belong_to_effective_group(tmp_path, monkeypatch) -> None:
+    reset_paths(tmp_path, monkeypatch)
+
+    async def allow_target_group(user_id: str, group_id: str, context: dict[str, object]) -> bool:
+        return True
+
+    monkeypatch.setattr(agent_tool_access, "target_group_admin_authorized", allow_target_group)
+
+    async def run() -> dict[str, object]:
+        await seed_messages("2001")
+        await seed_messages("2002")
+        await set_group_feature("2001", FEATURE_COLLECTOR, True)
+        await set_group_feature("2002", FEATURE_COLLECTOR, True)
+        other_group_graph = await build_semantic_graph_result(group_id="2002", limit=20)
+        return await run_registered_agent_tool(
+            "get_semantic_graph",
+            {"group_id": "2001", "graph_id": other_group_graph["graph_id"], "auto_build": False},
+            {"_target_type": "private", "_user_id": "42", "_is_admin": True},
+        )
+
+    result = asyncio.run(run())
+
+    assert result["ok"] is False
+    assert result["error"] == "group_permission_denied"

@@ -37,14 +37,21 @@ async def execute_tool(tool_name: str, arguments: object, context: dict[str, obj
         return validation_error
 
     # Imported lazily to keep registry metadata independent from the access layer.
-    from plugins.agent_tool_access import is_agent_tool_allowed
+    from plugins.agent_tool_access import authorize_agent_tool
 
-    allowed, reason = await is_agent_tool_allowed(tool_name, context)
-    if not allowed:
-        return tool_failure("tool_not_allowed", reason)
+    authorization = await authorize_agent_tool(tool_name, parsed_arguments, context)
+    if not authorization.allowed:
+        return tool_failure(
+            authorization.error or "tool_not_allowed",
+            authorization.message,
+        )
+
+    tool_context = dict(context)
+    if authorization.effective_group_id:
+        tool_context["_effective_group_id"] = authorization.effective_group_id
 
     try:
-        result = await tool.handler(parsed_arguments, context)
+        result = await tool.handler(parsed_arguments, tool_context)
     except Exception:
         logger.exception(f"Agent tool handler failed: {tool_name}")
         return tool_failure(

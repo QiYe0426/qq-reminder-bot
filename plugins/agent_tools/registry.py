@@ -3,12 +3,14 @@ from __future__ import annotations
 import copy
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
+from typing import Literal
 
 
 AgentToolContext = dict[str, object]
 AgentToolArguments = dict[str, object]
 AgentToolResult = dict[str, object]
 AgentToolHandler = Callable[[AgentToolArguments, AgentToolContext], Awaitable[AgentToolResult]]
+AgentToolGroupScope = Literal["none", "current", "private_explicit"]
 
 
 @dataclass(frozen=True)
@@ -22,6 +24,8 @@ class AgentTool:
     requires_feature: str | None = None
     requires_admin: bool = False
     requires_group: bool = False
+    group_scope: AgentToolGroupScope = "none"
+    requires_target_group_admin: bool = False
 
 
 class AgentToolNotFound(LookupError):
