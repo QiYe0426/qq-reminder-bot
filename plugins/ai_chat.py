@@ -13,8 +13,6 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.error import URLError
-import ipaddress
-import socket
 
 from dataclasses import dataclass
 from dotenv import load_dotenv
@@ -85,6 +83,7 @@ from plugins.reminder_target_service import (
 )
 from plugins.reminder_prompt import reminder_confirmation_prompt, reminder_time_wait_prompt
 from plugins.message_archive import save_ai_reply
+from plugins.safe_http_fetch import SafeFetchError, fetch_public_url
 
 
 load_dotenv(".env.local")
@@ -1040,91 +1039,39 @@ def normalize_search_url(url: str, base_url: str) -> str:
     return url
 
 
-def is_private_host(hostname: str) -> bool:
-    if not hostname:
-        return True
-    lowered = hostname.lower().strip("[]")
-    if lowered in {"localhost", "127.0.0.1", "::1"}:
-        return True
-    try:
-        ip = ipaddress.ip_address(lowered)
-        return ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved
-    except ValueError:
-        pass
-
-    try:
-        addresses = socket.getaddrinfo(lowered, None)
-    except OSError:
-        return False
-    for address in addresses:
-        sockaddr = address[4]
-        if not sockaddr:
-            continue
-        try:
-            ip = ipaddress.ip_address(sockaddr[0])
-        except ValueError:
-            continue
-        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved:
-            return True
-    return False
-
-
-def safe_url_for_fetch(url: str) -> tuple[bool, str]:
-    parsed = urllib.parse.urlparse(url.strip())
-    if parsed.scheme not in {"http", "https"}:
-        return False, "只允许抓取 http/https 网页。"
-    if not parsed.hostname:
-        return False, "URL 缺少主机名。"
-    if parsed.username or parsed.password:
-        return False, "URL 不能包含用户名或密码。"
-    if is_private_host(parsed.hostname):
-        return False, "出于安全原因，不能抓取内网、localhost 或保留地址。"
-    return True, ""
-
-
 def extract_html_title(html_text: str) -> str:
     match = re.search(r"<title[^>]*>(.*?)</title>", html_text, re.S | re.I)
     return strip_html_tags(match.group(1)) if match else ""
 
 
-def fetch_url_sync(url: str, timeout_seconds: int, max_chars: int) -> dict[str, str]:
-    safe, reason = safe_url_for_fetch(url)
-    if not safe:
-        return {"url": url, "title": "", "content": "", "error": reason}
-    domain = result_domain(url)
-    if is_search_engine_or_redirect_domain(domain):
-        return {"url": url, "title": "", "content": "", "error": "这是搜索引擎或跳转链接，不适合作为资料来源；请改抓真实来源网页。"}
-
-    request = urllib.request.Request(
-        url,
-        headers={
-            "User-Agent": WEB_SEARCH_BROWSER_USER_AGENT,
-            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.7",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,text/plain;q=0.8,*/*;q=0.5",
-        },
-    )
-    try:
-        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
-            content_type = response.headers.get("Content-Type", "")
-            body = response.read(1024 * 1024 * 2)
-    except Exception as exc:
-        return {"url": url, "title": "", "content": "", "error": f"网页抓取失败：{exc}"}
-
-    if not any(kind in content_type.lower() for kind in ("text/", "html", "xml", "json")):
-        return {"url": url, "title": "", "content": "", "error": f"不支持的内容类型：{content_type}"}
-
-    html_text = body.decode("utf-8", "ignore")
-    title = extract_html_title(html_text)
-    cleaned_text = re.sub(r"(?is)<(script|style|noscript|svg|canvas).*?</\1>", " ", html_text)
-    content = strip_html_tags(cleaned_text)
-    content = shorten_text(content, max_chars)
-    return {"url": url, "title": title, "content": content, "error": ""}
-
-
 async def fetch_url_for_agent(url: str) -> dict[str, str]:
     timeout_seconds = get_int_env("AI_AGENT_FETCH_TIMEOUT_SECONDS", get_int_env("AI_WEB_SEARCH_TIMEOUT_SECONDS", DEFAULT_WEB_SEARCH_TIMEOUT_SECONDS))
     max_chars = get_int_env("AI_AGENT_FETCH_MAX_CHARS", DEFAULT_AGENT_FETCH_MAX_CHARS)
-    return await asyncio.to_thread(fetch_url_sync, url, timeout_seconds, max_chars)
+    domain = result_domain(url)
+    if is_search_engine_or_redirect_domain(domain):
+        return {"url": url, "title": "", "content": "", "error": "这是搜索引擎或跳转链接，不适合作为资料来源；请改抓真实来源网页。"}
+    try:
+        response = await fetch_public_url(
+            url,
+            timeout_seconds=timeout_seconds,
+            headers={
+                "User-Agent": WEB_SEARCH_BROWSER_USER_AGENT,
+                "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.7",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,text/plain;q=0.8,*/*;q=0.5",
+            },
+        )
+    except SafeFetchError as exc:
+        return {"url": url, "title": "", "content": "", "error": str(exc)}
+
+    content_type = response.content_type
+    if not any(kind in content_type.lower() for kind in ("text/", "html", "xml", "json")):
+        return {"url": url, "title": "", "content": "", "error": f"不支持的内容类型：{content_type}"}
+
+    html_text = response.body.decode("utf-8", "ignore")
+    title = extract_html_title(html_text)
+    cleaned_text = re.sub(r"(?is)<(script|style|noscript|svg|canvas).*?</\1>", " ", html_text)
+    content = shorten_text(strip_html_tags(cleaned_text), max_chars)
+    return {"url": url, "title": title, "content": content, "error": ""}
 
 
 def fetch_arknights_news_sync(timeout_seconds: int) -> list[dict[str, str]]:
