@@ -32,6 +32,12 @@ class AgentTool:
     risk_level: AgentToolRiskLevel = "low"
     requires_confirmation: bool = False
     confirmation_timeout: int = 120
+    idempotency_enabled: bool = False
+    idempotency_ttl: int = 120
+    idempotency_lease_timeout: int = 60
+    idempotency_temporary_failure_ttl: int = 15
+    idempotency_temporary_errors: frozenset[str] = frozenset()
+    idempotency_unknown_errors: frozenset[str] = frozenset()
 
 
 class AgentToolNotFound(LookupError):

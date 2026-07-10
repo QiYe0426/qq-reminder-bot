@@ -9,11 +9,17 @@ from .contracts import (
     tool_failure,
     validate_tool_arguments,
 )
+from .call_identity import canonical_arguments
 from .confirmation import (
-    canonical_arguments,
     consume_confirmation,
     create_pending_confirmation,
     validate_confirmation,
+)
+from .idempotency import (
+    classify_failure,
+    claim_execution,
+    complete_execution,
+    create_execution_binding,
 )
 from .registry import get_agent_tool
 
@@ -107,12 +113,84 @@ async def execute_tool(tool_name: str, arguments: object, context: dict[str, obj
             return tool_failure(consumption.error or "confirmation_invalid", consumption.message)
         tool_context.pop("_tool_confirmation_token", None)
 
+    execution_binding = None
+    execution_owner_token = ""
+    if tool.idempotency_enabled:
+        execution_binding = create_execution_binding(
+            tool_name=tool_name,
+            arguments=parsed_arguments,
+            user_id=str(tool_context.get("_user_id") or ""),
+            target_type=str(tool_context.get("_target_type") or ""),
+            target_id=str(tool_context.get("_target_id") or ""),
+            effective_group_id=str(tool_context.get("_effective_group_id") or ""),
+        )
+        try:
+            claim = await claim_execution(
+                execution_binding,
+                ttl_seconds=tool.idempotency_ttl,
+                lease_seconds=tool.idempotency_lease_timeout,
+            )
+        except Exception:
+            logger.exception(f"Unable to claim Agent tool execution: {tool_name}")
+            return tool_failure(
+                "idempotency_unavailable",
+                "无法建立工具重复执行保护，操作未执行。",
+                retryable=True,
+            )
+        if claim.action == "cached" and claim.record is not None and claim.record.result is not None:
+            return claim.record.result
+        if claim.action == "running":
+            return tool_failure(
+                "already_running",
+                "相同工具调用正在执行，请稍后查看结果。",
+                retryable=True,
+            )
+        if claim.action == "unknown":
+            return tool_failure(
+                "execution_state_unknown",
+                "相同工具调用的执行状态无法确定，为避免重复副作用，未再次执行。",
+            )
+        if claim.action != "execute" or not claim.owner_token:
+            return tool_failure(
+                "idempotency_claim_failed",
+                "无法取得工具执行权，操作未执行。",
+                retryable=True,
+            )
+        execution_owner_token = claim.owner_token
+
+    handler_exception = False
     try:
         result = await tool.handler(parsed_arguments, tool_context)
     except Exception:
+        handler_exception = True
         logger.exception(f"Agent tool handler failed: {tool_name}")
-        return tool_failure(
+        normalized_result = tool_failure(
             "tool_execution_failed",
             "工具执行失败。",
         )
-    return normalize_tool_result(result)
+    else:
+        normalized_result = normalize_tool_result(result)
+
+    if execution_binding is not None:
+        failure_class = classify_failure(
+            normalized_result,
+            handler_exception=handler_exception,
+            temporary_errors=tool.idempotency_temporary_errors,
+            unknown_errors=tool.idempotency_unknown_errors,
+        )
+        try:
+            saved = await complete_execution(
+                execution_binding,
+                owner_token=execution_owner_token,
+                result=normalized_result,
+                failure_class=failure_class,
+                ttl_seconds=tool.idempotency_ttl,
+                temporary_failure_ttl_seconds=tool.idempotency_temporary_failure_ttl,
+            )
+        except Exception:
+            logger.exception(f"Unable to save Agent tool execution result: {tool_name}")
+        else:
+            if not saved:
+                logger.error(f"Agent tool execution result lost its idempotency lease: {tool_name}")
+
+    return normalized_result

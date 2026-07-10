@@ -88,6 +88,18 @@ def test_reminder_tools_are_registered() -> None:
     }:
         assert get_agent_tool(name).risk_level == "high"
         assert get_agent_tool(name).requires_confirmation is True
+    for name in {
+        "create_reminder",
+        "cancel_reminder",
+        "set_group_features",
+        "set_chime",
+        "build_semantic_graph",
+        "render_semantic_graph",
+        "generate_daily_report",
+    }:
+        assert get_agent_tool(name).idempotency_enabled is True
+    assert get_agent_tool("list_reminders").idempotency_enabled is False
+    assert get_agent_tool("get_semantic_graph").idempotency_enabled is False
 
 
 def test_member_profile_tool_can_read_non_bot_mentions() -> None:
@@ -128,6 +140,13 @@ def test_create_list_and_cancel_reminder_through_agent_registry(tmp_path, monkey
             context,
         )
     )
+    duplicate_created = asyncio.run(
+        run_registered_agent_tool(
+            "create_reminder",
+            {"text": "2099-01-01 09:00 drink water"},
+            context,
+        )
+    )
     listed = asyncio.run(run_registered_agent_tool("list_reminders", {"limit": 5}, context))
     cancelled = asyncio.run(
         run_registered_agent_tool(
@@ -140,7 +159,9 @@ def test_create_list_and_cancel_reminder_through_agent_registry(tmp_path, monkey
     assert created["ok"] is True
     assert created["data"]["content"] == "drink water"
     assert created["data"]["target_user_id"] == "10001"
+    assert duplicate_created == created
     assert listed["ok"] is True
+    assert len(listed["data"]["reminders"]) == 1
     assert listed["data"]["reminders"][0]["id"] == created["data"]["id"]
     assert cancelled["ok"] is True
 

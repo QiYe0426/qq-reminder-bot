@@ -10,6 +10,8 @@ from pathlib import Path
 
 import aiosqlite
 
+from .call_identity import arguments_digest, canonical_arguments
+
 
 DB_PATH = Path("data/agent_tool_confirmations.db")
 
@@ -56,14 +58,6 @@ def now_utc() -> datetime:
 
 def timestamp(value: datetime) -> str:
     return value.isoformat(timespec="microseconds")
-
-
-def canonical_arguments(arguments: dict[str, object]) -> str:
-    return json.dumps(arguments, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-
-
-def arguments_digest(arguments: dict[str, object]) -> str:
-    return hashlib.sha256(canonical_arguments(arguments).encode("utf-8")).hexdigest()
 
 
 def token_digest(token: str) -> str:

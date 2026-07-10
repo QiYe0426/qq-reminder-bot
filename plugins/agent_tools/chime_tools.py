@@ -56,6 +56,9 @@ CHIME_TOOLS = [
         risk_level="high",
         requires_confirmation=True,
         confirmation_timeout=120,
+        idempotency_enabled=True,
+        idempotency_ttl=120,
+        idempotency_lease_timeout=30,
         definition=SET_CHIME_DEFINITION,
         handler=set_chime_tool,
     )

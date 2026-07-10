@@ -159,6 +159,12 @@ def test_agent_tool_new_scope_metadata_defaults_are_backward_compatible() -> Non
     assert tool.risk_level == "low"
     assert tool.requires_confirmation is False
     assert tool.confirmation_timeout == 120
+    assert tool.idempotency_enabled is False
+    assert tool.idempotency_ttl == 120
+    assert tool.idempotency_lease_timeout == 60
+    assert tool.idempotency_temporary_failure_ttl == 15
+    assert tool.idempotency_temporary_errors == frozenset()
+    assert tool.idempotency_unknown_errors == frozenset()
 
 
 def test_gateway_injects_effective_group_into_context_copy(monkeypatch) -> None:
