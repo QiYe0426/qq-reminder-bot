@@ -115,7 +115,12 @@ async def build_semantic_graph_tool(args: dict[str, object], context: AgentToolC
     }
 
 
-async def get_semantic_graph_tool(args: dict[str, object], context: AgentToolContext) -> AgentToolResult:
+async def load_authorized_semantic_graph(
+    args: dict[str, object],
+    context: AgentToolContext,
+    *,
+    not_found_error: str,
+) -> AgentToolResult:
     group_id = target_group_id(args, context)
     if not group_id:
         return {"ok": False, "error": "missing_group_id", "message": "请提供要操作的群号，例如 group_id=722290838。"}
@@ -124,10 +129,6 @@ async def get_semantic_graph_tool(args: dict[str, object], context: AgentToolCon
         return {"ok": False, "error": "feature_unavailable", "message": reason}
 
     graph_id = str(args.get("graph_id") or "").strip()
-    wants_specific_scope = bool(str(args.get("date") or "").strip() or str(args.get("keyword") or "").strip())
-    if not graph_id and wants_specific_scope and bool(args.get("auto_build", True)):
-        return await build_semantic_graph_tool(args, context)
-
     graph = await load_semantic_graph(graph_id) if graph_id else await latest_semantic_graph(group_id)
     if graph is not None and str(graph.get("group_id") or "") != group_id:
         return {
@@ -136,13 +137,18 @@ async def get_semantic_graph_tool(args: dict[str, object], context: AgentToolCon
             "message": "指定的语义图不属于已授权的目标群。",
         }
     if graph is None:
-        if bool(args.get("auto_build", True)):
-            return await build_semantic_graph_tool(args, context)
         return {
             "ok": False,
-            "error": "not_found",
+            "error": not_found_error,
             "message": "还没有这个群的语义图。可以先调用 build_semantic_graph 生成。",
         }
+    return graph
+
+
+async def get_semantic_graph_tool(args: dict[str, object], context: AgentToolContext) -> AgentToolResult:
+    graph = await load_authorized_semantic_graph(args, context, not_found_error="not_found")
+    if not graph.get("ok"):
+        return graph
     summary = semantic_graph_summary(graph)
     return {
         **graph,
@@ -184,7 +190,7 @@ async def send_graph_image_to_context(
 
 
 async def render_semantic_graph_tool(args: dict[str, object], context: AgentToolContext) -> AgentToolResult:
-    graph_result = await get_semantic_graph_tool({**args, "auto_build": args.get("auto_build", True)}, context)
+    graph_result = await load_authorized_semantic_graph(args, context, not_found_error="graph_not_found")
     if not graph_result.get("ok"):
         return graph_result
 
@@ -214,11 +220,15 @@ async def render_semantic_graph_tool(args: dict[str, object], context: AgentTool
     }
 
 
-COMMON_GRAPH_PROPERTIES = {
+GROUP_ID_PROPERTY = {
     "group_id": {
         "type": "string",
         "description": "QQ group id. Required in private chat; optional in a group chat.",
     },
+}
+
+BUILD_GRAPH_PROPERTIES = {
+    **GROUP_ID_PROPERTY,
     "date": {
         "type": "string",
         "description": "Optional graph date: 今天, 昨天, 前天, or YYYY-MM-DD. Empty means recent messages.",
@@ -252,7 +262,7 @@ SEMANTIC_GRAPH_TOOLS = [
                 "Build or refresh a semantic graph for a QQ group from archived collected messages. "
                 "Admin only. Use it when the user asks to generate/update a topic relationship map, semantic graph, or group knowledge structure."
             ),
-            properties=COMMON_GRAPH_PROPERTIES,
+            properties=BUILD_GRAPH_PROPERTIES,
         ),
         handler=build_semantic_graph_tool,
     ),
@@ -267,17 +277,13 @@ SEMANTIC_GRAPH_TOOLS = [
             name="get_semantic_graph",
             description=(
                 "Read the latest or specified semantic graph for a QQ group. "
-                "Returns important nodes and relationships. Admin only. If no graph exists, it can auto-build one from recent collected messages."
+                "Returns important nodes and relationships. Admin only. If no graph exists, call build_semantic_graph first."
             ),
             properties={
-                **COMMON_GRAPH_PROPERTIES,
+                **GROUP_ID_PROPERTY,
                 "graph_id": {
                     "type": "string",
                     "description": "Optional exact graph id. Leave empty to read the latest graph for the group.",
-                },
-                "auto_build": {
-                    "type": "boolean",
-                    "description": "Whether to build a recent graph when no graph exists. Defaults to true.",
                 },
             },
         ),
@@ -301,14 +307,10 @@ SEMANTIC_GRAPH_TOOLS = [
                 "Admin only. Use it when the user asks for 可视化语义图 / 画出来 / 语义关系图."
             ),
             properties={
-                **COMMON_GRAPH_PROPERTIES,
+                **GROUP_ID_PROPERTY,
                 "graph_id": {
                     "type": "string",
-                    "description": "Optional exact graph id. Leave empty to use the latest graph or auto-build one.",
-                },
-                "auto_build": {
-                    "type": "boolean",
-                    "description": "Whether to build a recent graph when no graph exists. Defaults to true.",
+                    "description": "Optional exact graph id. Leave empty to render the latest existing graph.",
                 },
                 "send_image": {
                     "type": "boolean",

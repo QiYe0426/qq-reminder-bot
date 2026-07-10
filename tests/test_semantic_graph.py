@@ -9,6 +9,7 @@ from plugins.access_control import FEATURE_COLLECTOR, set_group_feature
 from plugins.agent_tools import run_registered_agent_tool
 from plugins.agent_tools import confirmation
 from plugins.agent_tools.confirmation import confirm_pending_confirmation
+from plugins.agent_tools import semantic_graph_tools
 from plugins.message_archive import insert_collected_message
 from plugins.semantic_graph import build_semantic_graph_result, latest_semantic_graph, semantic_graph_summary
 from plugins.semantic_graph_visual import render_semantic_graph_to_file
@@ -171,7 +172,7 @@ def test_semantic_graph_id_must_belong_to_effective_group(tmp_path, monkeypatch)
         other_group_graph = await build_semantic_graph_result(group_id="2002", limit=20)
         return await run_registered_agent_tool(
             "get_semantic_graph",
-            {"group_id": "2001", "graph_id": other_group_graph["graph_id"], "auto_build": False},
+            {"group_id": "2001", "graph_id": other_group_graph["graph_id"]},
             {"_target_type": "private", "_user_id": "42", "_is_admin": True},
         )
 
@@ -179,3 +180,83 @@ def test_semantic_graph_id_must_belong_to_effective_group(tmp_path, monkeypatch)
 
     assert result["ok"] is False
     assert result["error"] == "group_permission_denied"
+
+
+def test_get_semantic_graph_missing_is_read_only(tmp_path, monkeypatch) -> None:
+    reset_paths(tmp_path, monkeypatch)
+
+    async def allow_target_group(user_id: str, group_id: str, context: dict[str, object]) -> bool:
+        return True
+
+    monkeypatch.setattr(agent_tool_access, "target_group_admin_authorized", allow_target_group)
+
+    async def run() -> dict[str, object]:
+        await set_group_feature("3001", FEATURE_COLLECTOR, True)
+        return await run_registered_agent_tool(
+            "get_semantic_graph",
+            {"group_id": "3001"},
+            {"_target_type": "private", "_user_id": "42", "_is_admin": True},
+        )
+
+    result = asyncio.run(run())
+
+    assert result["ok"] is False
+    assert result["error"] == "not_found"
+    assert semantic_graph.DB_PATH.exists() is False
+
+
+def test_get_semantic_graph_rejects_auto_build(tmp_path, monkeypatch) -> None:
+    reset_paths(tmp_path, monkeypatch)
+
+    result = asyncio.run(
+        run_registered_agent_tool(
+            "get_semantic_graph",
+            {"group_id": "3002", "auto_build": True},
+            {"_target_type": "private", "_user_id": "42", "_is_admin": True},
+        )
+    )
+
+    assert result["ok"] is False
+    assert result["error"] == "invalid_arguments"
+    assert semantic_graph.DB_PATH.exists() is False
+
+
+def test_render_missing_graph_does_not_build_or_render(tmp_path, monkeypatch) -> None:
+    reset_paths(tmp_path, monkeypatch)
+    monkeypatch.setattr(confirmation, "DB_PATH", tmp_path / "agent_tool_confirmations.db")
+    render_called = False
+
+    async def allow_target_group(user_id: str, group_id: str, context: dict[str, object]) -> bool:
+        return True
+
+    def fail_render(graph: dict[str, object]) -> tuple[str, object]:
+        nonlocal render_called
+        render_called = True
+        raise AssertionError("render must not run when the graph is missing")
+
+    monkeypatch.setattr(agent_tool_access, "target_group_admin_authorized", allow_target_group)
+    monkeypatch.setattr(semantic_graph_tools, "render_semantic_graph_to_file", fail_render)
+
+    async def run() -> dict[str, object]:
+        await set_group_feature("3003", FEATURE_COLLECTOR, True)
+        args = {"group_id": "3003", "send_image": False}
+        context = {"_target_type": "private", "_user_id": "42", "_is_admin": True}
+        pending = await run_registered_agent_tool("render_semantic_graph", args, context)
+        approval = await confirm_pending_confirmation(
+            pending["data"]["confirmation_code"],
+            user_id="42",
+            target_type="private",
+            target_id="",
+        )
+        return await run_registered_agent_tool(
+            "render_semantic_graph",
+            args,
+            {**context, "_tool_confirmation_token": approval.token},
+        )
+
+    result = asyncio.run(run())
+
+    assert result["ok"] is False
+    assert result["error"] == "graph_not_found"
+    assert render_called is False
+    assert semantic_graph.DB_PATH.exists() is False

@@ -645,9 +645,22 @@ def _decode_json(raw: str, fallback: object) -> object:
 
 
 async def load_semantic_graph(graph_id: str) -> dict[str, object] | None:
-    await init_semantic_graph_db()
-    async with aiosqlite.connect(DB_PATH) as db:
+    if not DB_PATH.is_file():
+        return None
+    database_uri = f"{DB_PATH.resolve().as_uri()}?mode=ro"
+    async with aiosqlite.connect(database_uri, uri=True) as db:
         db.row_factory = aiosqlite.Row
+        schema_cursor = await db.execute(
+            """
+            SELECT COUNT(*)
+            FROM sqlite_master
+            WHERE type = 'table'
+              AND name IN ('semantic_graphs', 'semantic_graph_nodes', 'semantic_graph_edges')
+            """
+        )
+        schema_row = await schema_cursor.fetchone()
+        if not schema_row or int(schema_row[0] or 0) != 3:
+            return None
         graph_cursor = await db.execute(
             """
             SELECT *
@@ -717,8 +730,19 @@ async def load_semantic_graph(graph_id: str) -> dict[str, object] | None:
 
 
 async def latest_semantic_graph(group_id: str) -> dict[str, object] | None:
-    await init_semantic_graph_db()
-    async with aiosqlite.connect(DB_PATH) as db:
+    if not DB_PATH.is_file():
+        return None
+    database_uri = f"{DB_PATH.resolve().as_uri()}?mode=ro"
+    async with aiosqlite.connect(database_uri, uri=True) as db:
+        schema_cursor = await db.execute(
+            """
+            SELECT 1
+            FROM sqlite_master
+            WHERE type = 'table' AND name = 'semantic_graphs'
+            """
+        )
+        if await schema_cursor.fetchone() is None:
+            return None
         cursor = await db.execute(
             """
             SELECT graph_id
