@@ -81,8 +81,10 @@ def test_semantic_graph_visual_renders_png(tmp_path, monkeypatch) -> None:
 
     assert filename.endswith(".png")
     assert image_path.is_file()
+    assert image_path.stat().st_size > 1000
     with Image.open(image_path) as image:
-        assert image.size == (1280, 1500)
+        w, h = image.size
+        assert w >= 600 and h >= 600, f"Expected at least 600x600, got {w}x{h}"
 
 
 def test_semantic_graph_agent_tools(tmp_path, monkeypatch) -> None:

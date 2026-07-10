@@ -25,6 +25,7 @@ class DailyReportVisualData:
     insight_count: int = 0
     peak_hour: str = "无"
     top_speakers: list[tuple[str, int]] = field(default_factory=list)
+    all_speakers: list[tuple[str, int]] = field(default_factory=list)
     highlights: list[str] = field(default_factory=list)
     topics: list[str] = field(default_factory=list)
     keywords: list[str] = field(default_factory=list)
@@ -285,6 +286,7 @@ def build_visual_data(
         insight_count=insight_count,
         peak_hour=peak_hour,
         top_speakers=speaker_counts.most_common(3),
+        all_speakers=speaker_counts.most_common(),
         highlights=highlights[:3],
         topics=topics[:4],
         keywords=keywords[:8],
@@ -490,6 +492,57 @@ def draw_overview(draw: ImageDraw.ImageDraw, y: int, data: DailyReportVisualData
     return y + 420
 
 
+def draw_speaker_breakdown(draw: ImageDraw.ImageDraw, y: int, data: DailyReportVisualData, fonts: dict[str, ImageFont.ImageFont]) -> int:
+    speakers = data.all_speakers or [("暂无", 0)]
+    max_count = max(c for _, c in speakers) if speakers else 1
+    rows_needed = (len(speakers) + 1) // 2
+    row_h = 54
+    header_h = 50
+    padding_y = 36
+    card_h = padding_y * 2 + header_h + rows_needed * row_h + 20
+    card_x0 = MARGIN_X
+    card_x1 = CANVAS_WIDTH - MARGIN_X
+
+    rounded_card(draw, (card_x0, y, card_x1, y + card_h), radius=40, fill="#FFFFFF", outline="#E7F3C3")
+
+    col_widths = [22, 180, 80, 70, 22, 180, 80]
+    col_starts: list[int] = []
+    left = card_x0 + 36
+    for cw in col_widths:
+        col_starts.append(left)
+        left += cw
+
+    draw.text((col_starts[0], y + padding_y), "#", font=fonts["tiny"], fill=TEXT_MUTED)
+    draw.text((col_starts[1], y + padding_y), "群友", font=fonts["tiny"], fill=TEXT_MUTED)
+    draw.text((col_starts[2], y + padding_y), "消息", font=fonts["tiny"], fill=TEXT_MUTED)
+    draw.text((col_starts[4], y + padding_y), "#", font=fonts["tiny"], fill=TEXT_MUTED)
+    draw.text((col_starts[5], y + padding_y), "群友", font=fonts["tiny"], fill=TEXT_MUTED)
+    draw.text((col_starts[6], y + padding_y), "消息", font=fonts["tiny"], fill=TEXT_MUTED)
+    sep_y = y + padding_y + header_h
+    draw.line((card_x0 + 36, sep_y, card_x1 - 36, sep_y), fill=GREEN_200, width=2)
+
+    bar_max_w = 100
+    for idx, (name, count) in enumerate(speakers):
+        col_idx = idx % 2
+        row_idx = idx // 2
+        xx = (col_starts[0] if col_idx == 0 else col_starts[4])
+        nx = (col_starts[1] if col_idx == 0 else col_starts[5])
+        cx = (col_starts[2] if col_idx == 0 else col_starts[6])
+        ny = sep_y + 12 + row_idx * row_h
+
+        draw.text((xx, ny), str(idx + 1), font=fonts["tiny"], fill=TEXT_DARK)
+        name_display = name if len(name) <= 10 else name[:9] + "…"
+        draw.text((nx, ny), name_display, font=fonts["tiny"], fill=TEXT_DARK)
+        draw.text((cx, ny), str(count), font=fonts["tiny"], fill=TEXT_MUTED)
+
+        bar_w = int(bar_max_w * count / max_count) if max_count else 0
+        if bar_w > 0:
+            bar_x = cx + 36
+            draw.rounded_rectangle((bar_x, ny + 6, bar_x + bar_w, ny + 18), radius=6, fill=GREEN_200)
+
+    return y + card_h + 20
+
+
 def draw_highlights(draw: ImageDraw.ImageDraw, y: int, data: DailyReportVisualData, fonts: dict[str, ImageFont.ImageFont]) -> int:
     rounded_card(draw, (MARGIN_X, y, CANVAS_WIDTH - MARGIN_X, y + 470), radius=42, fill="#FBFFF0", outline="#E7F3C3")
     draw_mascot(draw, CANVAS_WIDTH - 345, y + 160, scale=0.82)
@@ -605,6 +658,8 @@ def render_daily_report_image(data: DailyReportVisualData, image_path: Path, *, 
     y = 690
     y = draw_section_pill(draw, y, "概览", fonts["section"]) + 54
     y = draw_overview(draw, y, data, fonts)
+    y = draw_section_pill(draw, y, "活跃发言人", fonts["section"]) + 54
+    y = draw_speaker_breakdown(draw, y, data, fonts)
     y = draw_section_pill(draw, y, "今日重点", fonts["section"]) + 54
     y = draw_highlights(draw, y, data, fonts)
     y = draw_section_pill(draw, y, "分话题总结", fonts["section"]) + 54

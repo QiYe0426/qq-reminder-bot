@@ -203,6 +203,27 @@ AI 对话会先判断当前问题是否需要联网搜索：像最新消息、�
 - `存储状态` / `硬盘状态` / `空间状态`：查看服务器磁盘、`data` 目录、消息数据库、提醒数据库、功能设置库、日报目录、媒体缓存和导出目录占用，仅管理员可用。
 - 运行数据主要保存在 `data/reminders.db`、`data/bot_settings.db`、`data/message_archive.db`、`data/companion_memory.db` 和 `data/reports/`。
 
+## 环境要求
+
+- Python 3.10 或更高版本
+- 可登录 QQ 并提供 OneBot v11 反向 WebSocket 的 NapCat
+- Windows PowerShell 用于仓库内的本地快捷脚本；Linux 服务器可直接使用虚拟环境中的 Python
+- AI 对话需要 OpenAI 兼容 API 密钥；图片识别、语音转写、自动日报等功能需要各自配置并显式开启
+- 控制台随 NoneBot/FastAPI 运行，不需要 Node.js 构建。仓库中的 `package.json` 和 `node_modules/` 不是正式运行依赖
+
+## 安装步骤
+
+```powershell
+git clone https://github.com/QiYe0426/qq-reminder-bot.git
+Set-Location qq-reminder-bot
+py -3.10 -m venv .venv
+.\.venv\Scripts\python -m pip install -U pip
+.\.venv\Scripts\python -m pip install -e ".[dev]"
+Copy-Item .env.example .env.local
+```
+
+随后按“配置”一节填写本机 `.env` 和 `.env.local`。不要把真实密钥写回 `.env.example`。生产服务器的首次部署、备份和恢复步骤见 `DEPLOY.md`。
+
 ## 本地启动
 
 在 PowerShell 里进入项目目录，然后运行：
@@ -258,6 +279,14 @@ AI_WEB_SEARCH_DECIDER_MODEL=deepseek-v4-flash
 AI_WEB_SEARCH_DECIDER_TIMEOUT_SECONDS=10
 AI_WEB_SEARCH_TIMEOUT_SECONDS=15
 AI_WEB_SEARCH_MAX_RESULTS=3
+AI_AGENT_ENABLED=1
+AI_AGENT_MODEL=deepseek-v4-pro
+AI_AGENT_TIMEOUT_SECONDS=90
+AI_AGENT_MAX_TOOL_CALLS=8
+AI_AGENT_SEARCH_MAX_RESULTS=5
+AI_AGENT_FETCH_TIMEOUT_SECONDS=15
+AI_AGENT_FETCH_MAX_CHARS=7000
+AI_AGENT_TEMPERATURE=0.35
 BOT_PERSONA_PATH=data/bot_persona_prompt.txt
 COMPANION_ADMIN_TOKEN=
 REMOTE_APPROVAL_ENABLED=1
@@ -284,12 +313,14 @@ KEYWORD_RETORT_IMAGE_SCAN_MODEL=qwen3-vl-flash
 KEYWORD_RETORT_IMAGE_SCAN_API_KEY=
 KEYWORD_RETORT_IMAGE_SCAN_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 KEYWORD_RETORT_IMAGE_SCAN_TIMEOUT_SECONDS=12
-MEDIA_INSIGHTS_ENABLED=1
+MEDIA_INSIGHTS_ENABLED=0
 MEDIA_INSIGHTS_AUTO_ENABLED=1
-IMAGE_VISION_ENABLED=1
+MEDIA_INSIGHTS_BATCH_SIZE=30
+IMAGE_VISION_ENABLED=0
 IMAGE_VISION_MODEL=qwen3-vl-flash
 IMAGE_VISION_API_KEY=
 IMAGE_VISION_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+IMAGE_VISION_TIMEOUT_SECONDS=45
 LINK_FETCH_TIMEOUT_SECONDS=15
 LINK_FETCH_MAX_BYTES=1048576
 VOICE_TRANSCRIBE_ENABLED=0
@@ -458,12 +489,15 @@ plugins/knowledge_service.py STS2/知识库检索服务，供轻量上下文和 
 plugins/group_context_service.py 群上下文服务，统一处理采集库上下文和未采集时的临时上下文
 plugins/ai_chat.py     AI 对话、联网搜索和工具调用 agent
 plugins/agent_tools/   AI agent 的受控工具注册表；当前承接提醒、STS2 知识库、群上下文、语义图、日报、画像、群状态和群功能管理工具
+plugins/agent_tool_access.py 按管理员身份、群功能和控制台配置过滤 Agent 工具
 plugins/group_reactions.py 群聊附加反应：调戏其他bot、关键词回怼
 plugins/message_archive.py 消息归档写入代码
 plugins/message_collector.py 指定群消息采集代码
 plugins/storage_status.py 存储占用查询代码
 plugins/media_insights.py 媒体识别、链接解析、文件读取、语音转写和素材自动识别代码
 plugins/daily_report.py 日报预览、AI总结、PNG长图、PDF留档和定时发送代码
+plugins/daily_report_visual.py 日报 PNG 长图和 PDF 渲染
+plugins/daily_report_fallback.py AI 总结失败或超时时的日报兜底内容
 plugins/semantic_graph.py 语义图抽取、落库和摘要服务
 plugins/semantic_graph_visual.py 语义图 PNG 可视化渲染服务
 plugins/remote_approval.py Codex 审批请求的 QQ 私聊远程批准插件
@@ -483,6 +517,48 @@ VERSION.md             版本说明
 .\.venv\Scripts\python -m pip install -e ".[dev]"
 .\.venv\Scripts\python -m pytest -q
 ```
+
+## 开发说明
+
+- `bot.py` 是唯一正式入口；NoneBot 只加载 `pyproject.toml` 的 `[tool.nonebot] plugins` 列表。
+- 新插件必须加入该列表。仅创建 Python 文件不会让插件自动运行。
+- 命令 handler 负责 QQ 交互，可复用逻辑应放入对应 service；提醒和常数报时已经采用这种结构。
+- Agent 工具在 `plugins/agent_tools/` 中使用 `AgentTool` 注册，并由 `plugins/agent_tool_access.py` 统一执行权限过滤。
+- 数据库 I/O 使用异步 `aiosqlite`。修改表结构时需兼容服务器已有数据库并增加迁移测试。
+- 控制台是原生 HTML/CSS/JavaScript；修改前阅读 `plugins/admin_console/DESIGN.md`，不需要执行 Node.js 构建。
+- `plugins/storage_cleanup.py` 当前是未跟踪的本地文件，且未注册到 `pyproject.toml`，因此不会随 Bot 自动加载。
+- 提交前至少运行编译检查和完整 pytest。CI 在 push 和 pull request 时执行同样的检查。
+
+```powershell
+.\.venv\Scripts\python -m compileall -q bot.py plugins scripts sts_knowledge_seed.py
+.\.venv\Scripts\python -m pytest -q
+```
+
+## 常见问题
+
+### Bot 启动了，但 QQ 消息没有进入插件
+
+确认 NapCat 已启用 OneBot v11 反向 WebSocket，并连接 `ws://127.0.0.1:8080/onebot/v11/ws`。同时检查目标插件是否列在 `pyproject.toml` 中。
+
+### 新群中日报、采集或传统提醒命令没有反应
+
+新群默认保持业务功能静默。管理员需要在目标群中使用 `开启群功能 ...`；日报和陪伴画像还依赖消息采集。AI 对话里的自然语言提醒跟随 `AI对话` 开关，不跟随传统 `提醒` 开关。
+
+### 群聊中发送生成日报没有回复
+
+这是预期行为。日报命令在群聊中会被静默忽略；管理员应在私聊中发送命令并附带群号。
+
+### 控制台返回未授权或无法打开
+
+确认 `.env.local` 已设置 `COMPANION_ADMIN_TOKEN`。首次访问使用 `?token=管理令牌`，验证后使用不含令牌的地址；生产环境还需检查 Nginx、443 安全组和证书状态。
+
+### AI、日报或媒体识别不可用
+
+检查对应功能开关、API key、Base URL、模型名和超时配置。`.env.example` 中媒体识别与自动日报默认关闭，需要显式开启；不要把真实密钥提交到仓库。
+
+### 重启后找不到画像、提醒或日报
+
+这些内容属于 `data/` 和 `.env.local` 中的服务器本地运行数据，不由 Git 保存。部署、迁移或重建目录前必须按 `DEPLOY.md` 备份并恢复。
 
 ## GitHub 注意事项
 

@@ -1,0 +1,27 @@
+{
+  "name": "qq-reminder-bot",
+  "version": "1.0.0",
+  "description": "猎bot正式发布基线为 v2.0.0「猎bot-初具人形」，当前工作树为 v2.4.0。项目是一个用于学习和自用的 QQ bot，基于 NoneBot2 + OneBot v11。当前版本已经从“命令型提醒 bot”整理成“消息交给 AI agent，再由 agent 调用工具”的雏形，主要支持 AI 对话、联网搜索、提醒工具、常数报时工具、分群消息采集、视觉日报、智能陪伴画像、STS2 知识库、群上下文工具、语义图、语义图可视化、日报/画像/群状态/群功能管理 Agent 工具和猎宝控制台。",
+  "main": "index.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/QiYe0426/qq-reminder-bot.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/QiYe0426/qq-reminder-bot/issues"
+  },
+  "homepage": "https://github.com/QiYe0426/qq-reminder-bot#readme",
+  "devDependencies": {
+    "typescript": "^4.9.5"
+  }
+}
