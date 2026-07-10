@@ -101,10 +101,11 @@ def merge_agent_tool_definitions(
 
 async def run_registered_agent_tool(
     name: str,
-    args: AgentToolArguments,
+    args: object,
     context: AgentToolContext,
 ) -> AgentToolResult:
-    tool = get_agent_tool(name)
-    if tool is None:
-        raise AgentToolNotFound(name)
-    return await tool.handler(args, context)
+    """Compatibility entry point routed through the tool gateway."""
+
+    from .gateway import execute_tool
+
+    return await execute_tool(name, args, context)

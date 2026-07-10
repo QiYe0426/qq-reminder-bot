@@ -117,5 +117,5 @@ def test_semantic_graph_agent_tools(tmp_path, monkeypatch) -> None:
     assert built["ok"] is True
     assert read["ok"] is True
     assert rendered["ok"] is True
-    assert rendered["sent"] is False
-    assert str(rendered["image_filename"]).endswith(".png")
+    assert rendered["data"]["sent"] is False
+    assert str(rendered["data"]["image_filename"]).endswith(".png")

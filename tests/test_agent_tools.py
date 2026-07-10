@@ -120,15 +120,15 @@ def test_create_list_and_cancel_reminder_through_agent_registry(tmp_path, monkey
     cancelled = asyncio.run(
         run_registered_agent_tool(
             "cancel_reminder",
-            {"reminder_id": created["id"]},
+            {"reminder_id": created["data"]["id"]},
             context,
         )
     )
 
     assert created["ok"] is True
-    assert created["content"] == "drink water"
+    assert created["data"]["content"] == "drink water"
     assert listed["ok"] is True
-    assert listed["reminders"][0]["id"] == created["id"]
+    assert listed["data"]["reminders"][0]["id"] == created["data"]["id"]
     assert cancelled["ok"] is True
 
 
@@ -175,8 +175,8 @@ def test_search_sts2_knowledge_through_agent_registry(tmp_path, monkeypatch) -> 
     result = asyncio.run(run())
 
     assert result["ok"] is True
-    assert result["count"] == 1
-    assert result["items"][0]["title"] == "巨像"
+    assert result["data"]["count"] == 1
+    assert result["data"]["items"][0]["title"] == "巨像"
 
 
 def test_get_group_context_through_agent_registry(monkeypatch) -> None:
@@ -204,9 +204,9 @@ def test_get_group_context_through_agent_registry(monkeypatch) -> None:
     )
 
     assert result["ok"] is True
-    assert result["source"] == "transient"
-    assert result["count"] == 1
-    assert "喝水" in result["context"]
+    assert result["data"]["source"] == "transient"
+    assert result["data"]["count"] == 1
+    assert "喝水" in result["data"]["context"]
 
 
 def test_admin_set_group_features_through_agent_registry(tmp_path, monkeypatch) -> None:

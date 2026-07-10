@@ -12,6 +12,7 @@ from .registry import (
     register_tools,
     run_registered_agent_tool,
 )
+from .gateway import execute_tool
 from .group_context_tools import GROUP_CONTEXT_TOOLS
 from .knowledge_tools import KNOWLEDGE_TOOLS
 from .reminder_tools import REMINDER_TOOLS
@@ -37,4 +38,5 @@ __all__ = [
     "register_tool",
     "register_tools",
     "run_registered_agent_tool",
+    "execute_tool",
 ]

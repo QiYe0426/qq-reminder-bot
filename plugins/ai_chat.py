@@ -32,10 +32,15 @@ from plugins.access_control import (
     is_group_feature_enabled,
 )
 from plugins.agent_tools import (
+    execute_tool,
     get_agent_tool_definitions,
     has_agent_tool,
     merge_agent_tool_definitions,
-    run_registered_agent_tool,
+)
+from plugins.agent_tools.contracts import (
+    normalize_tool_result,
+    parse_tool_arguments,
+    validate_tool_arguments,
 )
 from plugins.agent_tool_access import filter_allowed_agent_tool_definitions, is_agent_tool_allowed
 from plugins.chime_service import (
@@ -1740,12 +1745,13 @@ def tool_call_to_message(tool_call: object) -> dict[str, object]:
     }
 
 
-def parse_tool_arguments(arguments: str) -> dict[str, object]:
-    try:
-        value = json.loads(arguments or "{}")
-    except json.JSONDecodeError:
-        return {}
-    return value if isinstance(value, dict) else {}
+def agent_tool_parameters(tool_name: str) -> object:
+    for definition in AGENT_TOOLS:
+        function = definition.get("function")
+        if not isinstance(function, dict) or function.get("name") != tool_name:
+            continue
+        return function.get("parameters")
+    return None
 
 
 def current_scope(event: MessageEvent) -> ReminderScope:
@@ -1823,6 +1829,9 @@ async def agent_web_search(query: str, max_results: int | None = None) -> dict[s
 
 
 async def run_agent_tool(name: str, args: dict[str, object], context: dict[str, object]) -> dict[str, object]:
+    if has_agent_tool(name):
+        return await execute_tool(name, args, context)
+
     allowed, reason = await is_agent_tool_allowed(name, context)
     if not allowed:
         return {"ok": False, "error": "tool_not_allowed", "message": reason}
@@ -1837,9 +1846,6 @@ async def run_agent_tool(name: str, args: dict[str, object], context: dict[str, 
         url = str(args.get("url") or "")
         result = await fetch_url_for_agent(url)
         return result
-
-    if has_agent_tool(name):
-        return await run_registered_agent_tool(name, args, context)
 
     if name == "create_reminder":
         scope = context.get("_scope")
@@ -2038,7 +2044,24 @@ async def ask_ai_with_agent(question: str, *, extra_context: str = "", event: Me
             tool_call_count += 1
             function = getattr(tool_call, "function", None)
             name = getattr(function, "name", "")
-            args = parse_tool_arguments(getattr(function, "arguments", "{}"))
+            args, tool_result = parse_tool_arguments(getattr(function, "arguments", ""))
+            if tool_result is None and args is not None:
+                parameters = agent_tool_parameters(name)
+                if parameters is not None:
+                    tool_result = validate_tool_arguments(args, parameters)
+
+            if tool_result is not None:
+                logger.info(f"AI agent tool call {tool_call_count}/{max_tool_calls}: {name} invalid arguments")
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": getattr(tool_call, "id", ""),
+                        "content": json.dumps(tool_result, ensure_ascii=False),
+                    }
+                )
+                continue
+
+            assert args is not None
             if name == "web_search":
                 log_args = {"query": args.get("query"), "max_results": args.get("max_results")}
             elif name == "fetch_url":
@@ -2057,6 +2080,8 @@ async def ask_ai_with_agent(question: str, *, extra_context: str = "", event: Me
                 return shorten_text(message_text + format_sources_for_reply(args.get("sources")), max_reply_length)
 
             tool_result = await run_agent_tool(name, args, tool_context)
+            if not has_agent_tool(name):
+                tool_result = normalize_tool_result(tool_result)
             if direct_reply := direct_tool_reply(name, tool_result):
                 return shorten_text(direct_reply, max_reply_length)
             messages.append(
