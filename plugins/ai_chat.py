@@ -24,7 +24,6 @@ from plugins.access_control import (
     FEATURE_AI_CHAT,
     FEATURE_COLLECTOR,
     FEATURE_REMINDER,
-    admin_denial,
     admin_user_ids,
     is_feature_allowed,
     is_group_feature_enabled,
@@ -40,11 +39,10 @@ from plugins.agent_tools.contracts import (
     parse_tool_arguments,
     validate_tool_arguments,
 )
+from plugins.agent_tools.confirmation import confirm_pending_confirmation
 from plugins.agent_tool_access import filter_allowed_agent_tool_definitions, is_agent_tool_allowed
 from plugins.chime_service import (
-    CHIME_MODE_HOURLY,
     get_chime_state,
-    set_chime_state,
 )
 from plugins.companion_memory import (
     bot_persona_prompt,
@@ -1873,12 +1871,6 @@ def current_tool_context(event: MessageEvent) -> dict[str, object]:
     }
 
 
-def coerce_bool(value: object) -> bool:
-    if isinstance(value, str):
-        return value.strip().lower() in {"1", "true", "yes", "on", "enabled"}
-    return bool(value)
-
-
 async def agent_web_search(query: str, max_results: int | None = None) -> dict[str, object]:
     cleaned_query = clean_search_query(query)
     if not cleaned_query:
@@ -1979,18 +1971,6 @@ async def run_agent_tool(name: str, args: dict[str, object], context: dict[str, 
             return {"ok": False, "error": "missing_target", "message": "缺少当前会话信息。"}
         return await get_chime_state(target_type, target_id)
 
-    if name == "set_chime":
-        target_type = str(context.get("_target_type") or "")
-        target_id = str(context.get("_target_id") or "")
-        if not target_type or not target_id:
-            return {"ok": False, "error": "missing_target", "message": "缺少当前会话信息。"}
-        event = context.get("_event")
-        if isinstance(event, MessageEvent) and (denial := admin_denial(event)):
-            return {"ok": False, "error": "permission_denied", "message": denial}
-        enabled = coerce_bool(args.get("enabled"))
-        mode = str(args.get("mode") or CHIME_MODE_HOURLY)
-        return await set_chime_state(target_type, target_id, enabled, mode)
-
     return {"error": f"未知工具：{name}"}
 
 
@@ -2043,6 +2023,44 @@ def direct_tool_reply(name: str, tool_result: dict[str, object]) -> str:
     if name not in DIRECT_REPLY_AGENT_TOOLS:
         return ""
     return str(tool_result.get("message") or "").strip()
+
+
+def tool_confirmation_code(text: str) -> str:
+    normalized = " ".join(text.split()).strip()
+    prefixed = strip_ai_prefix(normalized)
+    if prefixed is not None:
+        normalized = prefixed
+    match = re.fullmatch(r"确认\s+([23456789A-HJ-NP-Z]{8})", normalized, flags=re.IGNORECASE)
+    return match.group(1).upper() if match else ""
+
+
+async def handle_tool_confirmation_reply(event: MessageEvent) -> str | None:
+    confirmation_code = tool_confirmation_code(event.get_plaintext())
+    if not confirmation_code:
+        return None
+
+    context = current_tool_context(event)
+    confirmation_result = await confirm_pending_confirmation(
+        confirmation_code,
+        user_id=str(context.get("_user_id") or ""),
+        target_type=str(context.get("_target_type") or ""),
+        target_id=str(context.get("_target_id") or ""),
+    )
+    if not confirmation_result.ok:
+        return confirmation_result.message or "确认请求无效。"
+
+    confirmation = confirmation_result.confirmation
+    if confirmation is None or not confirmation_result.token:
+        return "确认状态无效，请重新发起操作。"
+
+    confirmed_context = dict(context)
+    confirmed_context["_tool_confirmation_token"] = confirmation_result.token
+    tool_result = await execute_tool(
+        confirmation.tool_name,
+        confirmation.arguments,
+        confirmed_context,
+    )
+    return str(tool_result.get("message") or "工具执行完成。")
 
 
 async def try_direct_reminder_reply(question: str, event: MessageEvent, bot: Bot) -> str:
@@ -2181,6 +2199,8 @@ async def ask_ai_with_agent(question: str, *, extra_context: str = "", event: Me
             tool_result = await run_agent_tool(name, args, tool_context)
             if not has_agent_tool(name):
                 tool_result = normalize_tool_result(tool_result)
+            if tool_result.get("error") == "confirmation_required":
+                return shorten_text(str(tool_result.get("message") or "此操作需要确认。"), max_reply_length)
             if direct_reply := direct_tool_reply(name, tool_result):
                 return shorten_text(direct_reply, max_reply_length)
             messages.append(
@@ -2631,6 +2651,8 @@ async def handle_ai_chat(bot: Bot, event: MessageEvent) -> None:
         remember_transient_group_message(event)
         if not await is_group_feature_enabled(str(event.group_id), FEATURE_AI_CHAT):
             return
+        if confirmation_reply := await handle_tool_confirmation_reply(event):
+            await ai_chat.finish(Message(confirmation_reply))
         if pending_setup_reply := await handle_pending_reminder_setup(bot, event):
             await ai_chat.finish(Message(pending_setup_reply))
         if pending_reply := await handle_pending_reminder_confirmation(bot, event):
@@ -2641,6 +2663,8 @@ async def handle_ai_chat(bot: Bot, event: MessageEvent) -> None:
                 return
             question = triggered_question
     else:
+        if confirmation_reply := await handle_tool_confirmation_reply(event):
+            await ai_chat.finish(Message(confirmation_reply))
         prefixed_question = strip_ai_prefix(question)
         if prefixed_question is None:
             return

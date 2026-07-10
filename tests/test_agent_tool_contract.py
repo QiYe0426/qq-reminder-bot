@@ -155,6 +155,10 @@ def test_agent_tool_new_scope_metadata_defaults_are_backward_compatible() -> Non
 
     assert tool.group_scope == "none"
     assert tool.requires_target_group_admin is False
+    assert tool.side_effect == "none"
+    assert tool.risk_level == "low"
+    assert tool.requires_confirmation is False
+    assert tool.confirmation_timeout == 120
 
 
 def test_gateway_injects_effective_group_into_context_copy(monkeypatch) -> None:

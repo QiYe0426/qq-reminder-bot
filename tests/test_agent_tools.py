@@ -13,6 +13,8 @@ from plugins.agent_tools import (
     merge_agent_tool_definitions,
     run_registered_agent_tool,
 )
+from plugins.agent_tools import confirmation
+from plugins.agent_tools.confirmation import confirm_pending_confirmation
 from plugins.group_context_service import remember_transient_group_message
 from plugins.reminder_service import ReminderScope
 from plugins.access_control import FEATURE_COLLECTOR, FEATURE_DAILY_REPORT, is_group_feature_enabled
@@ -52,6 +54,7 @@ def test_reminder_tools_are_registered() -> None:
     assert has_agent_tool("build_semantic_graph")
     assert has_agent_tool("get_semantic_graph")
     assert has_agent_tool("render_semantic_graph")
+    assert has_agent_tool("set_chime")
     assert {
         "create_reminder",
         "list_reminders",
@@ -66,6 +69,7 @@ def test_reminder_tools_are_registered() -> None:
         "get_group_profile",
         "get_member_profile",
         "set_group_features",
+        "set_chime",
     } <= names
     assert get_agent_tool("create_reminder").requires_feature == "ai_chat"
     assert get_agent_tool("search_sts2_knowledge").requires_feature == "ai_chat"
@@ -75,6 +79,15 @@ def test_reminder_tools_are_registered() -> None:
     assert get_agent_tool("generate_daily_report").requires_admin is True
     assert get_agent_tool("get_member_profile").requires_group is False
     assert get_agent_tool("set_group_features").requires_admin is True
+    for name in {
+        "set_group_features",
+        "set_chime",
+        "build_semantic_graph",
+        "render_semantic_graph",
+        "generate_daily_report",
+    }:
+        assert get_agent_tool(name).risk_level == "high"
+        assert get_agent_tool(name).requires_confirmation is True
 
 
 def test_member_profile_tool_can_read_non_bot_mentions() -> None:
@@ -250,6 +263,7 @@ def test_admin_set_group_features_through_agent_registry(tmp_path, monkeypatch) 
     monkeypatch.setattr(access_control, "_db_ready", False)
     monkeypatch.setattr(agent_tool_access, "ACCESS_DB_PATH", tmp_path / "bot_settings.db")
     monkeypatch.setattr(agent_tool_access, "_db_ready", False)
+    monkeypatch.setattr(confirmation, "DB_PATH", tmp_path / "agent_tool_confirmations.db")
 
     async def allow_target_group(user_id: str, group_id: str, context: dict[str, object]) -> bool:
         return True
@@ -257,10 +271,23 @@ def test_admin_set_group_features_through_agent_registry(tmp_path, monkeypatch) 
     monkeypatch.setattr(agent_tool_access, "target_group_admin_authorized", allow_target_group)
 
     async def run() -> tuple[dict[str, object], bool, bool]:
+        args = {"group_id": "722290838", "collector": True, "daily_report": True}
+        context = {"_target_type": "private", "_user_id": "1261957634", "_is_admin": True}
+        pending = await run_registered_agent_tool(
+            "set_group_features",
+            args,
+            context,
+        )
+        approval = await confirm_pending_confirmation(
+            pending["data"]["confirmation_code"],
+            user_id="1261957634",
+            target_type="private",
+            target_id="",
+        )
         result = await run_registered_agent_tool(
             "set_group_features",
-            {"group_id": "722290838", "collector": True, "daily_report": True},
-            {"_target_type": "private", "_user_id": "1261957634", "_is_admin": True},
+            args,
+            {**context, "_tool_confirmation_token": approval.token},
         )
         collector = await is_group_feature_enabled("722290838", FEATURE_COLLECTOR)
         daily_report = await is_group_feature_enabled("722290838", FEATURE_DAILY_REPORT)
@@ -278,19 +305,34 @@ def test_admin_set_group_features_rejects_missing_dependency(tmp_path, monkeypat
     monkeypatch.setattr(access_control, "_db_ready", False)
     monkeypatch.setattr(agent_tool_access, "ACCESS_DB_PATH", tmp_path / "bot_settings.db")
     monkeypatch.setattr(agent_tool_access, "_db_ready", False)
+    monkeypatch.setattr(confirmation, "DB_PATH", tmp_path / "agent_tool_confirmations.db")
 
     async def allow_target_group(user_id: str, group_id: str, context: dict[str, object]) -> bool:
         return True
 
     monkeypatch.setattr(agent_tool_access, "target_group_admin_authorized", allow_target_group)
 
-    result = asyncio.run(
-        run_registered_agent_tool(
+    async def run() -> dict[str, object]:
+        args = {"group_id": "722290838", "daily_report": True}
+        context = {"_target_type": "private", "_user_id": "1261957634", "_is_admin": True}
+        pending = await run_registered_agent_tool(
             "set_group_features",
-            {"group_id": "722290838", "daily_report": True},
-            {"_target_type": "private", "_user_id": "1261957634", "_is_admin": True},
+            args,
+            context,
         )
-    )
+        approval = await confirm_pending_confirmation(
+            pending["data"]["confirmation_code"],
+            user_id="1261957634",
+            target_type="private",
+            target_id="",
+        )
+        return await run_registered_agent_tool(
+            "set_group_features",
+            args,
+            {**context, "_tool_confirmation_token": approval.token},
+        )
+
+    result = asyncio.run(run())
 
     assert result["ok"] is False
     assert result["error"] == "dependency_failed"

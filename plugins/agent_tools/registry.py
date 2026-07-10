@@ -11,6 +11,8 @@ AgentToolArguments = dict[str, object]
 AgentToolResult = dict[str, object]
 AgentToolHandler = Callable[[AgentToolArguments, AgentToolContext], Awaitable[AgentToolResult]]
 AgentToolGroupScope = Literal["none", "current", "private_explicit"]
+AgentToolSideEffect = Literal["none", "write", "external"]
+AgentToolRiskLevel = Literal["low", "medium", "high"]
 
 
 @dataclass(frozen=True)
@@ -26,6 +28,10 @@ class AgentTool:
     requires_group: bool = False
     group_scope: AgentToolGroupScope = "none"
     requires_target_group_admin: bool = False
+    side_effect: AgentToolSideEffect = "none"
+    risk_level: AgentToolRiskLevel = "low"
+    requires_confirmation: bool = False
+    confirmation_timeout: int = 120
 
 
 class AgentToolNotFound(LookupError):

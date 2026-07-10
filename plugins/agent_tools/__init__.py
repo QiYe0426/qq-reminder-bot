@@ -13,6 +13,7 @@ from .registry import (
     run_registered_agent_tool,
 )
 from .gateway import execute_tool
+from .chime_tools import CHIME_TOOLS
 from .group_context_tools import GROUP_CONTEXT_TOOLS
 from .knowledge_tools import KNOWLEDGE_TOOLS
 from .reminder_tools import REMINDER_TOOLS
@@ -21,6 +22,7 @@ from .admin_tools import ADMIN_TOOLS
 
 
 register_tools(REMINDER_TOOLS)
+register_tools(CHIME_TOOLS)
 register_tools(KNOWLEDGE_TOOLS)
 register_tools(GROUP_CONTEXT_TOOLS)
 register_tools(SEMANTIC_GRAPH_TOOLS)
