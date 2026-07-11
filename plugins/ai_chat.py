@@ -2688,10 +2688,16 @@ async def fetch_single_web_search(query: str, max_results: int, timeout_seconds:
             timeout_seconds + 10,
         )
     except (asyncio.TimeoutError, ET.ParseError, URLError, OSError, ValueError):
-        logger.exception("Web search failed for query: %s", query)
+        logger.exception(
+            "Web search failed: query_fingerprint=%s",
+            agent_tool_audit.safe_fingerprint("query", query),
+        )
         return []
     except Exception:
-        logger.exception("Unexpected web search failure for query: %s", query)
+        logger.exception(
+            "Unexpected web search failure: query_fingerprint=%s",
+            agent_tool_audit.safe_fingerprint("query", query),
+        )
         return []
 
 
@@ -2843,7 +2849,12 @@ async def handle_ai_chat(bot: Bot, event: MessageEvent) -> None:
     if not question:
         await ai_chat.finish(Message("你叫我啦？把问题写在猎宝后面就行。"))
 
-    logger.info(f"AI chat triggered by {event.get_user_id()}: {question[:60]}")
+    actor_fingerprint = agent_tool_audit.safe_fingerprint("user_id", event.get_user_id())
+    logger.info(
+        "AI chat triggered: actor_fingerprint=%s question_length=%d",
+        actor_fingerprint,
+        len(question),
+    )
 
     max_question_length = get_int_env("AI_MAX_QUESTION_LENGTH", DEFAULT_MAX_QUESTION_LENGTH)
     if len(question) > max_question_length:
@@ -2851,7 +2862,11 @@ async def handle_ai_chat(bot: Bot, event: MessageEvent) -> None:
 
     try:
         if prompt_injection_enabled() and looks_like_prompt_injection(question):
-            logger.warning(f"Blocked prompt injection attempt from {event.get_user_id()}: {question[:120]}")
+            logger.warning(
+                "Blocked prompt injection attempt: actor_fingerprint=%s question_length=%d",
+                actor_fingerprint,
+                len(question),
+            )
             answer = PROMPT_INJECTION_REPLY
         else:
             if direct_reminder_reply := await try_direct_reminder_reply(question, event, bot):
@@ -2870,7 +2885,11 @@ async def handle_ai_chat(bot: Bot, event: MessageEvent) -> None:
                 need_search, search_queries = await decide_web_search(question, local_context)
                 extra_context_parts = [part for part in (local_context,) if part]
                 if need_search and os.getenv("AI_WEB_SEARCH_ENABLED", "1").strip() in {"1", "true", "True", "yes", "on"}:
-                    logger.info(f"AI web search enabled for {event.get_user_id()}, queries={search_queries}")
+                    logger.info(
+                        "AI web search enabled: actor_fingerprint=%s query_count=%d",
+                        actor_fingerprint,
+                        len(search_queries),
+                    )
                     web_context = await fetch_web_search_context(search_queries or [question])
                     if web_context:
                         extra_context_parts.append(web_context)

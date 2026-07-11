@@ -24,6 +24,7 @@ from plugins.companion_registry import (
     init_companion_db,
 )
 from plugins.message_archive import DB_PATH as ARCHIVE_DB_PATH
+from plugins.sensitive_logging import log_fingerprint
 
 
 load_dotenv(".env.local")
@@ -1486,10 +1487,19 @@ async def process_companion_updates() -> None:
                 changed, reason = await summarize_companion_target(group_id, user_id)
                 if changed:
                     processed += 1
-                    logger.info(f"Companion profile updated for {group_id}/{user_id}: {reason}")
+                    logger.info(
+                        "Companion profile updated: scope_fingerprint=%s actor_fingerprint=%s reason_length=%d",
+                        log_fingerprint("group_id", group_id),
+                        log_fingerprint("user_id", user_id),
+                        len(str(reason)),
+                    )
             except Exception:
                 processed += 1
-                logger.exception(f"Companion profile update failed for {group_id}/{user_id}")
+                logger.exception(
+                    "Companion profile update failed: scope_fingerprint=%s actor_fingerprint=%s",
+                    log_fingerprint("group_id", group_id),
+                    log_fingerprint("user_id", user_id),
+                )
 
 
 def memory_score(memory: aiosqlite.Row, question: str) -> int:

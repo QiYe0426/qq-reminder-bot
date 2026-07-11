@@ -321,7 +321,13 @@ async def target_group_admin_authorized(
             no_cache=True,
         )
     except Exception:
-        logger.warning(f"Unable to verify target group admin role: group={group_id} user={user_id}")
+        from plugins.sensitive_logging import log_fingerprint
+
+        logger.warning(
+            "Unable to verify target group admin role: scope_fingerprint=%s actor_fingerprint=%s",
+            log_fingerprint("group_id", group_id),
+            log_fingerprint("user_id", user_id),
+        )
         return False
 
     if not isinstance(member, dict):

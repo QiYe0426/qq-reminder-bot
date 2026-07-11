@@ -26,7 +26,7 @@ from plugins.access_control import (
 from plugins.ai_chat import ask_ai
 from plugins.companion_registry import DB_PATH as COMPANION_DB_PATH, init_companion_db
 from plugins.message_archive import message_segments, render_plain_text
-
+from plugins.sensitive_logging import log_fingerprint
 
 DEFAULT_RETORT_IMAGE_PATH = "data/assets/constant_retort_158.jpg"
 KEYWORD_RETORT_DB_PATH = Path("data/keyword_retorts.db")
@@ -803,8 +803,9 @@ async def matching_keyword_retort_rule(group_id: str, event: MessageEvent) -> di
         image_matches = sorted_matching_rules(image_rules, image_text)
         if image_matches:
             logger.info(
-                f"Keyword retort image OCR matched: group={group_id}, "
-                f"rule_id={image_matches[0].get('id')}, keyword={image_matches[0].get('keyword')}"
+                f"Keyword retort image OCR matched: scope_fingerprint={log_fingerprint('group_id', group_id)}, "
+                f"rule_id={image_matches[0].get('id')}, "
+                f"keyword_fingerprint={log_fingerprint('keyword', image_matches[0].get('keyword'))}"
             )
             return image_matches[0]
     return None
@@ -819,7 +820,10 @@ def image_segment_from_reply_content(content: str) -> MessageSegment | None:
     if not image_path.is_absolute():
         image_path = project_root() / image_path
     if not image_path.exists() or not image_path.is_file():
-        logger.warning(f"Keyword retort image reply is missing: {image_path}")
+        logger.warning(
+            "Keyword retort image reply is missing: path_fingerprint=%s",
+            log_fingerprint("image_path", image_path),
+        )
         return None
     image_data = base64.b64encode(image_path.read_bytes()).decode("ascii")
     return MessageSegment.image(f"base64://{image_data}")
@@ -864,11 +868,17 @@ async def maybe_keyword_retort(bot: Bot, event: MessageEvent) -> bool:
     if rule_id <= 0:
         return False
     if not await consume_keyword_retort_rule_usage(group_id, rule_id):
-        logger.info(f"Keyword retort skipped by rule rate limit: group={group_id}, rule_id={rule_id}")
+        logger.info(
+            f"Keyword retort skipped by rule rate limit: "
+            f"scope_fingerprint={log_fingerprint('group_id', group_id)}, rule_id={rule_id}"
+        )
         return False
     if not await send_keyword_retort(bot, event, rule):
         return False
-    logger.info(f"Keyword retort sent: group={group_id}, rule_id={rule_id}, keyword={rule.get('keyword')}")
+    logger.info(
+        f"Keyword retort sent: scope_fingerprint={log_fingerprint('group_id', group_id)}, "
+        f"rule_id={rule_id}, keyword_fingerprint={log_fingerprint('keyword', rule.get('keyword'))}"
+    )
     return True
 
 

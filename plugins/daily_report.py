@@ -35,6 +35,7 @@ from plugins.daily_report_visual import (
     render_daily_report_image,
     write_daily_report_pdf_from_image,
 )
+from plugins.sensitive_logging import log_fingerprint
 
 
 load_dotenv(".env.local")
@@ -415,7 +416,10 @@ async def get_group_name(bot: Bot | None, group_id: str) -> str:
     try:
         info = await bot.call_api("get_group_info", group_id=int(group_id), no_cache=False)
     except Exception:
-        logger.warning(f"Failed to get group info for {group_id}")
+        logger.warning(
+            "Failed to get group info: scope_fingerprint=%s",
+            log_fingerprint("group_id", group_id),
+        )
         return f"群{group_id}"
     if isinstance(info, dict):
         name = str(info.get("group_name") or info.get("group_remark") or "").strip()
@@ -874,7 +878,8 @@ async def call_summary_ai(messages: list[dict[str, str]]) -> str:
             if attempt >= attempts:
                 break
             logger.warning(
-                f"Summary AI call failed on attempt {attempt}/{attempts}: {type(exc).__name__}: {exc!s}; retrying"
+                f"Summary AI call failed on attempt {attempt}/{attempts}: "
+                f"exception_type={type(exc).__name__}; retrying"
             )
             backoff_seconds = summary_retry_backoff_seconds()
             if backoff_seconds:
@@ -1171,7 +1176,13 @@ async def generate_ai_daily_report_markdown(
         try:
             chunk_summaries.append(await summarize_chunk(chunk, index, len(chunks)))
         except Exception as exc:
-            logger.exception(f"Daily report chunk summary failed: group={group_id}, date={target_date}, chunk={index}/{len(chunks)}")
+            logger.exception(
+                "Daily report chunk summary failed: scope_fingerprint=%s date=%s chunk=%d/%d",
+                log_fingerprint("group_id", group_id),
+                target_date,
+                index,
+                len(chunks),
+            )
             chunk_summaries.append(fallback_chunk_summary(chunk, index, len(chunks), exc))
 
     try:
@@ -1182,7 +1193,11 @@ async def generate_ai_daily_report_markdown(
             chunk_summaries=chunk_summaries,
         )
     except Exception as exc:
-        logger.exception(f"Daily report final synthesis failed; using fallback report: group={group_id}, date={target_date}")
+        logger.exception(
+            "Daily report final synthesis failed; using fallback report: scope_fingerprint=%s date=%s",
+            log_fingerprint("group_id", group_id),
+            target_date,
+        )
         final_summary = fallback_final_report(
             group_id=group_id,
             target_date=target_date,
@@ -1267,7 +1282,10 @@ def write_pdf_report(markdown: str, pdf_path: Path) -> None:
             font_name = "HunterBotFont"
             pdfmetrics.registerFont(TTFont(font_name, font_path))
         except Exception:
-            logger.warning(f"Failed to register PDF font {font_path}; falling back to STSong-Light")
+            logger.warning(
+                "Failed to register PDF font: path_fingerprint=%s; falling back to STSong-Light",
+                log_fingerprint("font_path", font_path),
+            )
             font_name = "STSong-Light"
     if font_name == "STSong-Light":
         pdfmetrics.registerFont(UnicodeCIDFont(font_name))
@@ -1362,7 +1380,10 @@ async def send_daily_report_notice(bot: Bot, message: str) -> None:
         try:
             await bot.call_api("send_private_msg", user_id=int(admin_id), message=message)
         except Exception:
-            logger.exception(f"Failed to send daily report notice to admin {admin_id}")
+            logger.exception(
+                "Failed to send daily report notice: actor_fingerprint=%s",
+                log_fingerprint("user_id", admin_id),
+            )
 
 
 async def send_daily_report_to_admins(
@@ -1399,7 +1420,10 @@ async def send_daily_report_to_admins(
             try:
                 await bot.call_api("send_private_msg", user_id=int(admin_id), message=message)
             except Exception:
-                logger.exception(f"Failed to send daily report failure notice to admin {admin_id}")
+                logger.exception(
+                    "Failed to send daily report failure notice: actor_fingerprint=%s",
+                    log_fingerprint("user_id", admin_id),
+                )
         raise RuntimeError("长图/PDF 未生成")
 
     for admin_id in admin_ids:
@@ -1418,7 +1442,10 @@ async def send_daily_report_to_admins(
                 ),
             )
         except Exception:
-            logger.exception(f"Failed to send daily report to admin {admin_id}")
+            logger.exception(
+                "Failed to send daily report: actor_fingerprint=%s",
+                log_fingerprint("user_id", admin_id),
+            )
     return pdf_filename
 
 
@@ -1442,7 +1469,7 @@ async def run_automatic_daily_reports(target_date: date, reason: str) -> None:
 
     logger.info(
         f"Daily report automatic run started: reason={reason}, "
-        f"target_date={target_date.isoformat()}, groups={','.join(groups)}"
+        f"target_date={target_date.isoformat()}, group_count={len(groups)}"
     )
     source_text = "环境变量 DAILY_REPORT_GROUP_IDS" if automatic_report_group_source() == "env" else "控制台自动发送开关"
     await send_daily_report_notice(
@@ -1467,7 +1494,8 @@ async def run_automatic_daily_reports(target_date: date, reason: str) -> None:
         if skip_reason:
             skipped_count += 1
             logger.info(
-                f"Daily report skipped: status={skip_reason}, group={group_id}, "
+                f"Daily report skipped: status={skip_reason}, "
+                f"scope_fingerprint={log_fingerprint('group_id', group_id)}, "
                 f"target_date={target_date.isoformat()}"
             )
             await send_daily_report_notice(
@@ -1483,11 +1511,17 @@ async def run_automatic_daily_reports(target_date: date, reason: str) -> None:
             await send_daily_report_to_admins(bot, group_id, target_date, group_name=group_name)
             await mark_daily_report_run(group_id, target_date, "sent")
             sent_count += 1
-            logger.info(f"Daily report sent: group={group_id}, target_date={target_date.isoformat()}")
+            logger.info(
+                f"Daily report sent: scope_fingerprint={log_fingerprint('group_id', group_id)}, "
+                f"target_date={target_date.isoformat()}"
+            )
         except Exception as exc:
             await mark_daily_report_run(group_id, target_date, "failed", repr(exc))
             failed_count += 1
-            logger.exception(f"Daily report job failed for group {group_id}")
+            logger.exception(
+                "Daily report job failed: scope_fingerprint=%s",
+                log_fingerprint("group_id", group_id),
+            )
             await send_daily_report_notice(
                 bot,
                 f"自动日报失败：{group_name}（{group_id}）\n日期：{target_date.isoformat()}\n错误：{repr(exc)[:500]}",
