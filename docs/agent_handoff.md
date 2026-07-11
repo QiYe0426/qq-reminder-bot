@@ -1,5 +1,19 @@
 # Agent Runtime 项目交接
 
+## Phase 2.5 Checkpoint Commit
+
+- Checkpoint commit: `56db056c9b8d795764dd818214cca4108eeb3c6f`
+- Commit message: `feat(agent-runtime): complete metadata v2 output governance foundation`
+- Branch: `feature/agent-runtime-v3`
+- Push status: successfully pushed to `origin/feature/agent-runtime-v3`
+- Included stages: resolved policy and Authorization foundation, execution timeout,
+  Output Budget B0 measurement, B1.0 framework, B1.1 TextReducer, B1.1.5
+  capability model, and B1.1.6 capability inventory.
+- Validation: `git diff --check` passed; 187 Phase 2 targeted tests passed in
+  9.03s; full test suite was not run.
+- Checkpoint working tree status: clean, with local and remote branch counts `0 0`.
+- Next entry point: Phase 2.5-B1.2 Shadow Reduction; it has not started.
+
 ## Current Phase 2 handoff update (2026-07-11)
 
 本节记录当前工作区的实际后续进展，并取代本文后续“尚未进入 Phase 2”的旧基线说明；
