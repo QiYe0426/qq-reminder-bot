@@ -56,10 +56,12 @@ SAFE_STRING_KEYS = {
     "failure_class",
     "feature",
     "graph_id",
+    "host_fingerprint",
     "id",
     "mode",
     "outcome",
     "scope",
+    "scheme",
     "source",
     "stage",
     "status",
@@ -140,6 +142,11 @@ def fingerprint_arguments(arguments: Mapping[str, object]) -> str:
         allow_nan=False,
     ).encode("utf-8")
     return hmac.new(_get_fingerprint_key(), payload, hashlib.sha256).hexdigest()
+
+
+def safe_fingerprint(namespace: str, value: object, *, length: int = 16) -> str:
+    digest = fingerprint_arguments({str(namespace): str(value)})
+    return digest[: max(8, min(int(length), len(digest)))]
 
 
 def sanitize_url(value: str) -> str:

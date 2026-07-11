@@ -34,6 +34,7 @@ from plugins.agent_tools import (
     has_agent_tool,
     merge_agent_tool_definitions,
 )
+from plugins.agent_tools import audit as agent_tool_audit
 from plugins.agent_tools.contracts import (
     normalize_tool_result,
     parse_tool_arguments,
@@ -1912,24 +1913,187 @@ async def agent_web_search(query: str, max_results: int | None = None) -> dict[s
     return {"query": cleaned_query, "expanded_queries": expanded_queries, "results": merged, "error": "" if merged else "没有拿到可靠搜索结果。"}
 
 
+BUILTIN_AUDITED_TOOLS = {"web_search", "fetch_url", "get_chime"}
+
+
+def builtin_audit_profile(name: str, args: dict[str, object]) -> tuple[str, dict[str, object]]:
+    if name == "web_search":
+        return agent_tool_audit.fingerprint_arguments({"query": str(args.get("query") or "")}), {}
+    if name == "fetch_url":
+        raw_url = str(args.get("url") or "")
+        try:
+            parsed = urllib.parse.urlsplit(raw_url)
+            scheme = parsed.scheme.lower()
+            hostname = parsed.hostname or ""
+            port = parsed.port
+        except ValueError:
+            scheme = ""
+            hostname = ""
+            port = None
+        host_fingerprint = agent_tool_audit.safe_fingerprint("host", hostname) if hostname else ""
+        return host_fingerprint, {
+            "scheme": scheme,
+            "host_fingerprint": host_fingerprint,
+            "port": port,
+        }
+    return "", {}
+
+
+async def append_builtin_audit_event(
+    *,
+    invocation_id: str,
+    event_type: str,
+    name: str,
+    context: dict[str, object],
+    arguments_fingerprint: str = "",
+    execution_stage: str = "",
+    outcome: str = "",
+    error_code: str = "",
+    retryable: bool = False,
+    failure_class: str = "",
+    duration_ms: int = 0,
+    safe_details: dict[str, object] | None = None,
+) -> None:
+    try:
+        await agent_tool_audit.append_event(
+            invocation_id=invocation_id,
+            event_type=event_type,
+            tool_call_id=str(context.get("_tool_call_id") or ""),
+            tool_name=name,
+            invocation_source=str(context.get("_invocation_source") or "agent"),
+            actor_user_id=str(context.get("_user_id") or ""),
+            session_target_type=str(context.get("_target_type") or ""),
+            session_target_id=str(context.get("_target_id") or ""),
+            effective_group_id=str(context.get("_effective_group_id") or ""),
+            arguments_fingerprint=arguments_fingerprint,
+            risk_level="low",
+            side_effect="none",
+            execution_stage=execution_stage,
+            outcome=outcome,
+            error_code=error_code,
+            retryable=retryable,
+            failure_class=failure_class,
+            duration_ms=duration_ms,
+            safe_details=safe_details,
+        )
+    except Exception:
+        logger.exception(f"Unable to append built-in Agent tool audit event: {event_type} ({name})")
+
+
+async def run_audited_builtin_tool(
+    name: str,
+    args: dict[str, object],
+    context: dict[str, object],
+) -> dict[str, object]:
+    invocation_id = agent_tool_audit.create_invocation_id()
+    started_at = time.monotonic()
+    arguments_fingerprint, safe_profile = builtin_audit_profile(name, args)
+    await append_builtin_audit_event(
+        invocation_id=invocation_id,
+        event_type="tool_requested",
+        name=name,
+        context=context,
+        arguments_fingerprint=arguments_fingerprint,
+        execution_stage="requested",
+        outcome="pending",
+        safe_details=safe_profile,
+    )
+
+    allowed, reason = await is_agent_tool_allowed(name, context)
+    if not allowed:
+        result = {"ok": False, "error": "tool_not_allowed", "message": reason}
+        await append_builtin_audit_event(
+            invocation_id=invocation_id,
+            event_type="execution_failed",
+            name=name,
+            context=context,
+            arguments_fingerprint=arguments_fingerprint,
+            execution_stage="authorization",
+            outcome="failure",
+            error_code="tool_not_allowed",
+            failure_class="permanent",
+            duration_ms=max(0, int((time.monotonic() - started_at) * 1000)),
+            safe_details=safe_profile,
+        )
+        return result
+
+    await append_builtin_audit_event(
+        invocation_id=invocation_id,
+        event_type="execution_started",
+        name=name,
+        context=context,
+        arguments_fingerprint=arguments_fingerprint,
+        execution_stage="handler",
+        outcome="pending",
+        safe_details=safe_profile,
+    )
+    try:
+        if name == "web_search":
+            raw_max_results = args.get("max_results")
+            max_results = (
+                int(raw_max_results)
+                if isinstance(raw_max_results, (int, float, str)) and str(raw_max_results).isdigit()
+                else None
+            )
+            result = await agent_web_search(str(args.get("query") or ""), max_results)
+        elif name == "fetch_url":
+            result = await fetch_url_for_agent(str(args.get("url") or ""))
+        else:
+            target_type = str(context.get("_target_type") or "")
+            target_id = str(context.get("_target_id") or "")
+            if not target_type or not target_id:
+                result = {"ok": False, "error": "missing_target", "message": "缺少当前会话信息。"}
+            else:
+                result = await get_chime_state(target_type, target_id)
+    except Exception:
+        await append_builtin_audit_event(
+            invocation_id=invocation_id,
+            event_type="execution_failed",
+            name=name,
+            context=context,
+            arguments_fingerprint=arguments_fingerprint,
+            execution_stage="handler",
+            outcome="failure",
+            error_code="tool_execution_failed",
+            failure_class="unknown",
+            duration_ms=max(0, int((time.monotonic() - started_at) * 1000)),
+            safe_details=safe_profile,
+        )
+        raise
+
+    failed = result.get("ok") is False or bool(result.get("error"))
+    terminal_details = dict(safe_profile)
+    if name == "web_search":
+        results = result.get("results")
+        terminal_details["result_count"] = len(results) if isinstance(results, list) else 0
+    elif name == "fetch_url":
+        terminal_details["result_size"] = len(str(result.get("content") or ""))
+    await append_builtin_audit_event(
+        invocation_id=invocation_id,
+        event_type="execution_failed" if failed else "execution_completed",
+        name=name,
+        context=context,
+        arguments_fingerprint=arguments_fingerprint,
+        execution_stage="handler",
+        outcome="failure" if failed else "success",
+        error_code="builtin_tool_failed" if failed else "",
+        failure_class="permanent" if failed else "",
+        duration_ms=max(0, int((time.monotonic() - started_at) * 1000)),
+        safe_details=terminal_details,
+    )
+    return result
+
+
 async def run_agent_tool(name: str, args: dict[str, object], context: dict[str, object]) -> dict[str, object]:
     if has_agent_tool(name):
         return await execute_tool(name, args, context)
 
+    if name in BUILTIN_AUDITED_TOOLS:
+        return await run_audited_builtin_tool(name, args, context)
+
     allowed, reason = await is_agent_tool_allowed(name, context)
     if not allowed:
         return {"ok": False, "error": "tool_not_allowed", "message": reason}
-
-    if name == "web_search":
-        query = str(args.get("query") or "")
-        raw_max_results = args.get("max_results")
-        max_results = int(raw_max_results) if isinstance(raw_max_results, (int, float, str)) and str(raw_max_results).isdigit() else None
-        return await agent_web_search(query, max_results)
-
-    if name == "fetch_url":
-        url = str(args.get("url") or "")
-        result = await fetch_url_for_agent(url)
-        return result
 
     if name == "create_reminder":
         scope = context.get("_scope")
@@ -1963,13 +2127,6 @@ async def run_agent_tool(name: str, args: dict[str, object], context: dict[str, 
         if not isinstance(reminder_id, (int, float, str)) or not str(reminder_id).isdigit():
             return {"ok": False, "error": "invalid_id", "message": "提醒编号无效。"}
         return await cancel_reminder(user_id, int(reminder_id))
-
-    if name == "get_chime":
-        target_type = str(context.get("_target_type") or "")
-        target_id = str(context.get("_target_id") or "")
-        if not target_type or not target_id:
-            return {"ok": False, "error": "missing_target", "message": "缺少当前会话信息。"}
-        return await get_chime_state(target_type, target_id)
 
     return {"error": f"未知工具：{name}"}
 
@@ -2055,6 +2212,8 @@ async def handle_tool_confirmation_reply(event: MessageEvent) -> str | None:
 
     confirmed_context = dict(context)
     confirmed_context["_tool_confirmation_token"] = confirmation_result.token
+    confirmed_context["_tool_call_id"] = f"confirmation:{confirmation.confirmation_id}"
+    confirmed_context["_invocation_source"] = "confirmation"
     tool_result = await execute_tool(
         confirmation.tool_name,
         confirmation.arguments,
@@ -2161,6 +2320,10 @@ async def ask_ai_with_agent(question: str, *, extra_context: str = "", event: Me
             tool_call_count += 1
             function = getattr(tool_call, "function", None)
             name = getattr(function, "name", "")
+            tool_call_id = str(getattr(tool_call, "id", "") or "")
+            call_context = dict(tool_context)
+            call_context["_tool_call_id"] = tool_call_id
+            call_context["_invocation_source"] = "agent"
             args, tool_result = parse_tool_arguments(getattr(function, "arguments", ""))
             if tool_result is None and args is not None:
                 parameters = agent_tool_parameters(name)
@@ -2179,24 +2342,31 @@ async def ask_ai_with_agent(question: str, *, extra_context: str = "", event: Me
                 continue
 
             assert args is not None
-            if name == "web_search":
-                log_args = {"query": args.get("query"), "max_results": args.get("max_results")}
-            elif name == "fetch_url":
-                log_args = {"url": args.get("url")}
-            elif name == "respond":
-                sources = args.get("sources")
-                log_args = {"has_message": bool(str(args.get("message") or "").strip()), "sources": len(sources) if isinstance(sources, list) else 0}
-            else:
-                log_args = args
-            logger.info(f"AI agent tool call {tool_call_count}/{max_tool_calls}: {name} {log_args}")
+            logger.info(
+                f"AI agent tool call {tool_call_count}/{max_tool_calls}: "
+                f"name={name} tool_call_id={tool_call_id or 'missing'}"
+            )
 
             if name == "respond":
                 message_text = str(args.get("message") or "").strip()
                 if not message_text:
                     return "AI没有返回内容。"
+                sources = args.get("sources")
+                await append_builtin_audit_event(
+                    invocation_id=agent_tool_audit.create_invocation_id(),
+                    event_type="response_emitted",
+                    name="respond",
+                    context=call_context,
+                    execution_stage="response",
+                    outcome="success",
+                    safe_details={
+                        "response_length": len(message_text),
+                        "source_count": len(sources) if isinstance(sources, list) else 0,
+                    },
+                )
                 return shorten_text(message_text + format_sources_for_reply(args.get("sources")), max_reply_length)
 
-            tool_result = await run_agent_tool(name, args, tool_context)
+            tool_result = await run_agent_tool(name, args, call_context)
             if not has_agent_tool(name):
                 tool_result = normalize_tool_result(tool_result)
             if tool_result.get("error") == "confirmation_required":

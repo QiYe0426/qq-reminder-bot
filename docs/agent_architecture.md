@@ -150,7 +150,7 @@ stale running    -> unknown
 - 未配置密钥时使用运行期随机密钥，并明确告警该指纹不能跨重启关联。
 - `safe_details_json` 写入前始终再次经过 `sanitize_details()`。
 
-当前限制：`ai_chat.py:2199` 调用 `run_agent_tool()` 时没有把模型 `tool_call.id` 注入 context，因此真实 Agent 调用的 `tool_call_id` 字段暂为空。修复该问题属于后续 `ai_chat.py` 入口整理，不应在 Gateway 内猜测 ID。
+`ai_chat.py` 现在会把模型 `tool_call.id` 注入每次调用的 context。确认恢复没有新的模型 Tool Call，因此使用 `confirmation:<confirmation_id>` 作为服务端调用标识，并通过 `confirmation_id` 与原始调用关联。幂等回放保留每次模型调用各自的 `tool_call_id`，同时通过相同 `idempotency_key` 关联。
 
 ## 7. 故障恢复策略
 
@@ -170,17 +170,17 @@ stale running    -> unknown
 
 ## 8. ai_chat Tool 入口审计
 
-`run_agent_tool()` 位于 `plugins/ai_chat.py:1915-1974`。注册工具在函数开头通过 `has_agent_tool()` 进入 Gateway；其余工具继续使用本地分支。
+注册工具在 `run_agent_tool()` 开头通过 `has_agent_tool()` 进入 Gateway。`web_search`、`fetch_url` 和 `get_chime` 保留本地执行，但统一经过内建 Audit adapter；`respond` 在 Agent 循环发出 `response_emitted` 事件。
 
 | 工具 | 当前路径 | 风险 | 建议 |
 |---|---|---|---|
-| `web_search` | `ai_chat.py:1923-1927` 直接调用 `agent_web_search()` | 绕过统一 Audit、超时元数据和 ToolResult 异常边界 | 迁移为低风险、外部读取型注册工具 |
-| `fetch_url` | `ai_chat.py:1929-1932` 直接调用 SSRF 安全 fetch | SSRF 边界已存在，但绕过 Audit 和统一异常处理 | 迁移适配层，必须复用 `safe_http_fetch`，不能重写网络边界 |
-| `get_chime` | `ai_chat.py:1967-1972` 直接调用 service | 读取路径未审计，参数/上下文错误码不统一 | 迁移为低风险读取工具 |
-| `respond` | `ai_chat.py:2193-2197` 直接终止 Agent 循环 | 既是 Tool 又是控制流，完全绕过 Gateway/Audit | 设计 terminal ToolResult 后迁移，仍由循环负责最终发送 |
+| `web_search` | 本地调用 `agent_web_search()`，由 adapter 记录 requested/started/terminal、query HMAC 和结果数 | 不经过 Gateway 的统一超时和异常协议 | 保持 adapter；未来如迁移 Gateway，应维持不保存 query 的边界 |
+| `fetch_url` | 本地调用 SSRF 安全 fetch，由 adapter 记录 scheme、host HMAC、port 和结果大小 | 不经过 Gateway，但 SSRF 实现未被复制或绕过 | 保持 adapter，必须继续复用 `safe_http_fetch` |
+| `get_chime` | 本地 service 调用，由 adapter 记录 requested/started/terminal | 参数与结果协议仍由循环层负责 | 低风险，可保持当前 adapter |
+| `respond` | Agent 循环直接终止并记录 `response_emitted` | 它是控制流而非普通 Handler | 保持循环控制，不保存回复正文 |
 | `set_chime` | 已注册于 `chime_tools.py:51-64` | 不再绕过 Gateway | 保持现状 |
 
-`ai_chat.py:2164-2168` 与 Gateway 存在重复参数解析和 Schema 验证。建议在所有内建工具迁移后，让循环只提取 Tool Call envelope，并把原始 arguments、`tool_call_id` 和 invocation source 交给 Gateway。
+Agent 循环与 Gateway 对注册工具仍存在重复参数解析和 Schema 验证。内建工具仍依赖循环层校验，因此清理重复逻辑前必须先拆分注册工具和内建工具的 envelope 路径。
 
 ## 9. 旧分发代码清理建议
 
@@ -257,13 +257,11 @@ stale running    -> unknown
 
 ## 13. 测试覆盖缺口
 
-现有测试覆盖 Contract、目标群权限、Confirmation 绑定与重放、Idempotency 状态、Audit 存储与并发、Reminder 授权、SSRF 和 Semantic Graph 边界。当前全量基线为 165 passed。
+现有测试覆盖 Contract、目标群权限、Confirmation 绑定与重放、Idempotency 状态、Audit 存储与并发、内建 Tool Audit、Tool Call 关联、Reminder 授权、SSRF 和 Semantic Graph 边界。本次提交的实际测试结果以提交前验证记录为准，不在文档中固化易过期的全量通过数量。
 
 ### P0
 
-- 内建 `web_search`、`fetch_url`、`get_chime`、`respond` 绕过 Gateway/Audit 的端到端测试缺失。
-- `ai_chat.py` 没有验证真实 `tool_call.id` 进入 Audit；当前字段为空。
-- 日志测试没有断言提醒正文、用户原文、URL query、QQ 和 nickname 不被记录。
+- 日志测试尚未直接捕获 logger sink 并断言 QQ、用户原文和关键词不会输出；Audit 数据库测试已覆盖 query、URL 和回复正文不落库。
 - Audit 数据库不可写时仅覆盖高风险 `execution_started`；没有覆盖磁盘满、数据库损坏和锁超时。
 
 ### P1
