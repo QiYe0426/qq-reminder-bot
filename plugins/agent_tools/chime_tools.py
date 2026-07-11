@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from plugins.chime_service import CHIME_MODE_HOURLY, set_chime_state
 
-from .registry import AgentTool, AgentToolContext, AgentToolResult
+from .registry import AgentTool, AgentToolContext, AgentToolMetadata, AgentToolResult
 
 
 SET_CHIME_DEFINITION: dict[str, object] = {
@@ -50,6 +50,13 @@ async def set_chime_tool(args: dict[str, object], context: AgentToolContext) -> 
 CHIME_TOOLS = [
     AgentTool(
         name="set_chime",
+        metadata=AgentToolMetadata(
+            risk_level="high",
+            side_effect="external_write",
+            resource_scope="current_group",
+            confirmation_policy="required",
+            idempotency_policy="result_cache",
+        ),
         category="chime",
         requires_admin=True,
         side_effect="external",

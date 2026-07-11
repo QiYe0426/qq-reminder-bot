@@ -25,7 +25,7 @@ from plugins.access_control import (
 )
 from plugins.message_archive import DB_PATH as ARCHIVE_DB_PATH
 
-from .registry import AgentTool, AgentToolContext, AgentToolResult
+from .registry import AgentTool, AgentToolContext, AgentToolMetadata, AgentToolResult
 
 
 MAX_TOOL_REPORT_CHARS = 6000
@@ -579,6 +579,7 @@ async def set_group_features_tool(args: dict[str, object], context: AgentToolCon
 ADMIN_TOOLS = [
     AgentTool(
         name="get_group_status",
+        metadata=AgentToolMetadata(side_effect="read", resource_scope="target_group"),
         category="admin",
         requires_feature=FEATURE_AI_CHAT,
         requires_admin=True,
@@ -598,6 +599,14 @@ ADMIN_TOOLS = [
     ),
     AgentTool(
         name="generate_daily_report",
+        metadata=AgentToolMetadata(
+            risk_level="medium",
+            side_effect="mixed",
+            resource_scope="target_group",
+            confirmation_policy="required",
+            idempotency_policy="result_cache",
+            timeout_seconds=120,
+        ),
         category="daily_report",
         requires_feature=FEATURE_DAILY_REPORT,
         requires_admin=True,
@@ -634,6 +643,7 @@ ADMIN_TOOLS = [
     ),
     AgentTool(
         name="get_group_profile",
+        metadata=AgentToolMetadata(side_effect="read", resource_scope="target_group"),
         category="profile",
         requires_feature=FEATURE_COMPANION,
         requires_admin=True,
@@ -653,6 +663,7 @@ ADMIN_TOOLS = [
     ),
     AgentTool(
         name="get_member_profile",
+        metadata=AgentToolMetadata(side_effect="read", resource_scope="target_group"),
         category="profile",
         requires_feature=FEATURE_COMPANION,
         requires_admin=True,
@@ -684,6 +695,13 @@ ADMIN_TOOLS = [
     ),
     AgentTool(
         name="set_group_features",
+        metadata=AgentToolMetadata(
+            risk_level="high",
+            side_effect="external_write",
+            resource_scope="target_group",
+            confirmation_policy="required",
+            idempotency_policy="result_cache",
+        ),
         category="admin",
         requires_admin=True,
         group_scope="private_explicit",

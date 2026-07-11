@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from .registry import (
     AgentTool,
+    AgentToolMetadata,
     AgentToolNotFound,
+    BUILTIN_TOOL_METADATA,
+    all_tools,
     get_agent_tool,
     get_agent_tool_definitions,
     has_agent_tool,
@@ -31,7 +34,10 @@ register_tools(ADMIN_TOOLS)
 
 __all__ = [
     "AgentTool",
+    "AgentToolMetadata",
     "AgentToolNotFound",
+    "BUILTIN_TOOL_METADATA",
+    "all_tools",
     "get_agent_tool",
     "get_agent_tool_definitions",
     "has_agent_tool",

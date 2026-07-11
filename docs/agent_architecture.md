@@ -196,22 +196,21 @@ Agent 循环与 Gateway 对注册工具仍存在重复参数解析和 Schema 验
 
 ## 10. Tool Metadata v2
 
-当前 `AgentTool` 字段位于 `registry.py:18-40`：`name`、`definition`、`handler`、`category`、功能/管理员/群 scope 字段、`side_effect`、`risk_level`、Confirmation 开关与超时、Idempotency 开关与 TTL/lease/失败分类集合。
+Phase 1 在 `registry.py` 中增加冻结的 `AgentToolMetadata`，统一声明以下策略字段：
 
-缺失或表达不足的字段：
-
-| v2 字段 | 目的 | 迁移建议 |
+| 字段 | 允许值或单位 | 作用 |
 |---|---|---|
-| `description` | UI 与说明生成的稳定文本 | 第一阶段从 `definition.function.description` 派生，避免双份维护 |
-| `required_scope` | 统一表达 none/session/group/target-group | 由现有 `requires_group`、`group_scope` 和 target admin 字段映射，稳定后弃用旧字段 |
-| `confirmation_policy` | none/always/conditional | 先映射 `requires_confirmation`，不要改变现有状态机 |
-| `idempotency_policy` | none/result-cache/external-action | 先映射 `idempotency_enabled` 和 TTL 字段 |
-| `timeout_seconds` | Gateway 统一执行预算 | 新增但先不强制，逐工具评估后启用 |
-| `output_budget` | 限制 ToolResult 回灌大小 | 以字符或序列化字节定义，超限返回标准错误 |
-| `external_side_effect` | 区分本地写入与外部发送 | 可由 `side_effect == external` 初始映射 |
-| `mutates_state` | UI、确认和审计的明确写标识 | 可由 `side_effect != none` 初始映射 |
+| `risk_level` | low / medium / high / critical | 风险分级 |
+| `side_effect` | none / read / database_write / external_write / message_send / file_write / mixed | 副作用类型 |
+| `resource_scope` | none / user / session / current_group / target_group / global | 资源作用域 |
+| `confirmation_policy` | never / optional / required / conditional | 确认策略声明 |
+| `idempotency_policy` | none / single_flight / result_cache | 幂等策略声明 |
+| `timeout_seconds` | 正整数秒或空 | 工具执行预算 |
+| `output_budget` | 正整数字符数或空 | ToolResult 输出预算 |
 
-`category`、`side_effect`、`risk_level`、`requires_confirmation` 已存在，不应重复新增。推荐先增加只读派生属性和注册时一致性校验，再逐步替换布尔字段；同一阶段不要同时改 Tool Schema 和 Handler。
+每个注册工具通过 `AgentTool.metadata` 保存声明；仍在 `ai_chat.py` 本地执行的内建工具使用 registry 中的 metadata catalog。旧的 `requires_admin`、`requires_group`、`requires_confirmation`、`side_effect`、`risk_level`、Confirmation 和 Idempotency 配置继续保留，以兼容现有 Runtime。
+
+Phase 1 只负责声明、枚举校验和覆盖检查。Gateway、Authorization、Confirmation、Idempotency、Audit 和 Handler 均不读取 Metadata v2，因此执行顺序与行为不变。Phase 2 才会让 Gateway 逐步消费 Metadata v2，并在兼容迁移完成后淘汰旧布尔字段。
 
 ## 11. 错误码体系审计
 

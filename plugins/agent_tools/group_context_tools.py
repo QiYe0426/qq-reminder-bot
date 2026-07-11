@@ -3,7 +3,7 @@ from __future__ import annotations
 from plugins.access_control import FEATURE_AI_CHAT, FEATURE_COLLECTOR, is_group_feature_enabled
 from plugins.group_context_service import group_context_result
 
-from .registry import AgentTool, AgentToolContext, AgentToolResult
+from .registry import AgentTool, AgentToolContext, AgentToolMetadata, AgentToolResult
 
 
 def _tool_definition(
@@ -58,6 +58,7 @@ async def get_group_context_tool(args: dict[str, object], context: AgentToolCont
 GROUP_CONTEXT_TOOLS = [
     AgentTool(
         name="get_group_context",
+        metadata=AgentToolMetadata(side_effect="read", resource_scope="current_group"),
         category="group_context",
         requires_feature=FEATURE_AI_CHAT,
         requires_group=True,

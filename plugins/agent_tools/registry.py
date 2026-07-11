@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import copy
 from collections.abc import Awaitable, Callable, Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 
@@ -13,6 +13,46 @@ AgentToolHandler = Callable[[AgentToolArguments, AgentToolContext], Awaitable[Ag
 AgentToolGroupScope = Literal["none", "current", "private_explicit"]
 AgentToolSideEffect = Literal["none", "write", "external"]
 AgentToolRiskLevel = Literal["low", "medium", "high"]
+
+METADATA_RISK_LEVELS = frozenset({"low", "medium", "high", "critical"})
+METADATA_SIDE_EFFECTS = frozenset(
+    {"none", "read", "database_write", "external_write", "message_send", "file_write", "mixed"}
+)
+METADATA_RESOURCE_SCOPES = frozenset({"none", "user", "session", "current_group", "target_group", "global"})
+METADATA_CONFIRMATION_POLICIES = frozenset({"never", "optional", "required", "conditional"})
+METADATA_IDEMPOTENCY_POLICIES = frozenset({"none", "single_flight", "result_cache"})
+
+
+@dataclass(frozen=True)
+class AgentToolMetadata:
+    """Declarative Runtime policy metadata.
+
+    Phase 1 stores and validates declarations only. The Gateway continues to
+    consume the legacy AgentTool fields until the Phase 2 migration.
+    """
+
+    risk_level: str = "low"
+    side_effect: str = "none"
+    resource_scope: str = "none"
+    confirmation_policy: str = "never"
+    idempotency_policy: str = "none"
+    timeout_seconds: int | None = None
+    output_budget: int | None = None
+
+    def __post_init__(self) -> None:
+        allowed_values = (
+            ("risk_level", self.risk_level, METADATA_RISK_LEVELS),
+            ("side_effect", self.side_effect, METADATA_SIDE_EFFECTS),
+            ("resource_scope", self.resource_scope, METADATA_RESOURCE_SCOPES),
+            ("confirmation_policy", self.confirmation_policy, METADATA_CONFIRMATION_POLICIES),
+            ("idempotency_policy", self.idempotency_policy, METADATA_IDEMPOTENCY_POLICIES),
+        )
+        for field_name, value, allowed in allowed_values:
+            if value not in allowed:
+                raise ValueError(f"Invalid AgentToolMetadata {field_name}: {value!r}")
+        for field_name, value in (("timeout_seconds", self.timeout_seconds), ("output_budget", self.output_budget)):
+            if value is not None and (isinstance(value, bool) or not isinstance(value, int) or value <= 0):
+                raise ValueError(f"AgentToolMetadata {field_name} must be a positive integer or None.")
 
 
 @dataclass(frozen=True)
@@ -38,6 +78,41 @@ class AgentTool:
     idempotency_temporary_failure_ttl: int = 15
     idempotency_temporary_errors: frozenset[str] = frozenset()
     idempotency_unknown_errors: frozenset[str] = frozenset()
+    metadata: AgentToolMetadata = field(default_factory=AgentToolMetadata)
+
+
+BUILTIN_TOOL_METADATA: dict[str, AgentToolMetadata] = {
+    "web_search": AgentToolMetadata(
+        risk_level="low",
+        side_effect="none",
+        resource_scope="none",
+        confirmation_policy="never",
+        idempotency_policy="none",
+        timeout_seconds=15,
+        output_budget=7000,
+    ),
+    "fetch_url": AgentToolMetadata(
+        risk_level="low",
+        side_effect="none",
+        resource_scope="none",
+        confirmation_policy="never",
+        idempotency_policy="none",
+        timeout_seconds=15,
+        output_budget=7000,
+    ),
+    "get_chime": AgentToolMetadata(
+        risk_level="low",
+        side_effect="read",
+        resource_scope="session",
+        confirmation_policy="never",
+    ),
+    "respond": AgentToolMetadata(
+        risk_level="low",
+        side_effect="message_send",
+        resource_scope="session",
+        confirmation_policy="never",
+    ),
+}
 
 
 class AgentToolNotFound(LookupError):
@@ -68,6 +143,11 @@ def has_agent_tool(name: str) -> bool:
 
 def list_agent_tools() -> list[AgentTool]:
     return list(_TOOLS.values())
+
+
+def all_tools() -> list[AgentTool]:
+    """Return all registered tools; compatibility-friendly metadata test hook."""
+    return list_agent_tools()
 
 
 def get_agent_tool_definitions(names: Iterable[str] | None = None) -> list[dict[str, object]]:

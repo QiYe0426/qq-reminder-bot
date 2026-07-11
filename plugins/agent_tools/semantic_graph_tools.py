@@ -15,7 +15,7 @@ from plugins.semantic_graph import (
 )
 from plugins.semantic_graph_visual import render_semantic_graph_to_file
 
-from .registry import AgentTool, AgentToolContext, AgentToolResult
+from .registry import AgentTool, AgentToolContext, AgentToolMetadata, AgentToolResult
 
 
 def _tool_definition(
@@ -247,6 +247,13 @@ BUILD_GRAPH_PROPERTIES = {
 SEMANTIC_GRAPH_TOOLS = [
     AgentTool(
         name="build_semantic_graph",
+        metadata=AgentToolMetadata(
+            risk_level="medium",
+            side_effect="database_write",
+            resource_scope="target_group",
+            confirmation_policy="required",
+            idempotency_policy="single_flight",
+        ),
         category="semantic_graph",
         requires_feature=FEATURE_COLLECTOR,
         requires_admin=True,
@@ -272,6 +279,11 @@ SEMANTIC_GRAPH_TOOLS = [
     ),
     AgentTool(
         name="get_semantic_graph",
+        metadata=AgentToolMetadata(
+            side_effect="read",
+            resource_scope="target_group",
+            output_budget=5000,
+        ),
         category="semantic_graph",
         requires_feature=FEATURE_COLLECTOR,
         requires_admin=True,
@@ -295,6 +307,14 @@ SEMANTIC_GRAPH_TOOLS = [
     ),
     AgentTool(
         name="render_semantic_graph",
+        metadata=AgentToolMetadata(
+            risk_level="high",
+            side_effect="mixed",
+            resource_scope="target_group",
+            confirmation_policy="required",
+            idempotency_policy="result_cache",
+            output_budget=5000,
+        ),
         category="semantic_graph_visual",
         requires_feature=FEATURE_COLLECTOR,
         requires_admin=True,

@@ -8,7 +8,7 @@ from plugins.reminder_service import (
     list_reminders_result,
 )
 
-from .registry import AgentTool, AgentToolContext, AgentToolResult
+from .registry import AgentTool, AgentToolContext, AgentToolMetadata, AgentToolResult
 
 
 def _tool_definition(
@@ -92,6 +92,13 @@ async def cancel_reminder_tool(args: dict[str, object], context: AgentToolContex
 REMINDER_TOOLS = [
     AgentTool(
         name="create_reminder",
+        metadata=AgentToolMetadata(
+            risk_level="medium",
+            side_effect="database_write",
+            resource_scope="user",
+            confirmation_policy="optional",
+            idempotency_policy="result_cache",
+        ),
         category="reminder",
         requires_feature=FEATURE_AI_CHAT,
         side_effect="write",
@@ -118,6 +125,7 @@ REMINDER_TOOLS = [
     ),
     AgentTool(
         name="list_reminders",
+        metadata=AgentToolMetadata(side_effect="read", resource_scope="user"),
         category="reminder",
         requires_feature=FEATURE_AI_CHAT,
         definition=_tool_definition(
@@ -134,6 +142,13 @@ REMINDER_TOOLS = [
     ),
     AgentTool(
         name="cancel_reminder",
+        metadata=AgentToolMetadata(
+            risk_level="medium",
+            side_effect="database_write",
+            resource_scope="user",
+            confirmation_policy="optional",
+            idempotency_policy="result_cache",
+        ),
         category="reminder",
         requires_feature=FEATURE_AI_CHAT,
         side_effect="write",

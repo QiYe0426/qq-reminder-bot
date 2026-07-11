@@ -3,7 +3,7 @@ from __future__ import annotations
 from plugins.access_control import FEATURE_AI_CHAT
 from plugins.knowledge_service import search_knowledge_result
 
-from .registry import AgentTool, AgentToolContext, AgentToolResult
+from .registry import AgentTool, AgentToolContext, AgentToolMetadata, AgentToolResult
 
 
 def _tool_definition(
@@ -47,6 +47,7 @@ async def search_sts2_knowledge_tool(args: dict[str, object], context: AgentTool
 KNOWLEDGE_TOOLS = [
     AgentTool(
         name="search_sts2_knowledge",
+        metadata=AgentToolMetadata(side_effect="read", resource_scope="none"),
         category="knowledge",
         requires_feature=FEATURE_AI_CHAT,
         definition=_tool_definition(
