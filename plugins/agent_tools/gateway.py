@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import time
 
 from nonebot.log import logger
@@ -25,6 +26,20 @@ from .idempotency import (
     complete_execution,
     create_execution_binding,
 )
+from .policy import resolve_agent_tool_policy
+from .output_budget import (
+    OUTPUT_BUDGET_REDUCERS,
+    apply_output_budget_framework,
+    output_budget_enforcement_enabled,
+    serialized_tool_result_size_bytes,
+)
+from .authorization_policy import resolve_authorization_policy
+from .authorization_shadow import (
+    authorization_v2_enforcement_enabled,
+    compare_authorization_decisions,
+    evaluate_metadata_authorization,
+    log_authorization_shadow_comparison,
+)
 from .registry import get_agent_tool
 
 
@@ -47,6 +62,72 @@ def _arguments_fingerprint(arguments: object) -> str:
     except Exception:
         logger.exception("Unable to fingerprint Agent tool arguments for audit")
         return ""
+
+
+def _serialized_tool_result_size_bytes(result: ToolResult) -> int:
+    return serialized_tool_result_size_bytes(result)
+
+
+def _record_output_budget_shadow(
+    *,
+    tool_name: str,
+    size_bytes: int,
+    budget_bytes: int,
+    exceeded: bool,
+) -> None:
+    logger.info(
+        "Agent tool output budget shadow: tool_name=%s size_bytes=%d budget_bytes=%d exceeded=%s",
+        tool_name,
+        size_bytes,
+        budget_bytes,
+        exceeded,
+    )
+
+
+def _observe_output_budget_shadow(
+    *,
+    tool_name: str,
+    result: ToolResult,
+    output_budget: int | None,
+) -> int | None:
+    if output_budget is None:
+        return None
+    try:
+        size_bytes = _serialized_tool_result_size_bytes(result)
+        _record_output_budget_shadow(
+            tool_name=tool_name,
+            size_bytes=size_bytes,
+            budget_bytes=output_budget,
+            exceeded=size_bytes > output_budget,
+        )
+        return size_bytes
+    except Exception:
+        # Never include the result or exception text: either may contain output.
+        logger.warning("Agent tool output budget shadow failed: tool_name=%s", tool_name)
+        return None
+
+
+def _record_output_budget_framework(
+    *,
+    tool_name: str,
+    status: str,
+    budget_bytes: int,
+    before_size_bytes: int,
+    after_size_bytes: int,
+) -> None:
+    try:
+        logger.info(
+            "Agent tool output budget framework: tool_name=%s status=%s budget_bytes=%d "
+            "before_size_bytes=%d after_size_bytes=%d",
+            tool_name,
+            status,
+            budget_bytes,
+            before_size_bytes,
+            after_size_bytes,
+        )
+    except Exception:
+        # Telemetry must never affect the ToolResult or include output content.
+        return
 
 
 async def _append_audit_event(
@@ -105,8 +186,9 @@ async def execute_tool(tool_name: str, arguments: object, context: dict[str, obj
     started_at = time.monotonic()
     invocation_id = audit.create_invocation_id()
     tool = get_agent_tool(tool_name)
-    risk_level = tool.risk_level if tool is not None else ""
-    side_effect = tool.side_effect if tool is not None else ""
+    resolved_policy = resolve_agent_tool_policy(tool) if tool is not None else None
+    risk_level = resolved_policy.risk_level if resolved_policy is not None else ""
+    side_effect = resolved_policy.side_effect if resolved_policy is not None else ""
     arguments_fingerprint = _arguments_fingerprint(arguments)
     await _append_audit_event(
         invocation_id=invocation_id,
@@ -182,6 +264,31 @@ async def execute_tool(tool_name: str, arguments: object, context: dict[str, obj
     from plugins.agent_tool_access import authorize_agent_tool
 
     authorization = await authorize_agent_tool(tool_name, parsed_arguments, context)
+    metadata_authorization = None
+    try:
+        authorization_shadow_policy = resolve_authorization_policy(tool)
+        metadata_authorization = await evaluate_metadata_authorization(
+            tool_name=tool_name,
+            arguments=parsed_arguments,
+            context=context,
+            policy=authorization_shadow_policy,
+        )
+        authorization_comparison = compare_authorization_decisions(
+            legacy_allowed=authorization.allowed,
+            metadata_result=metadata_authorization,
+            policy=authorization_shadow_policy,
+        )
+        log_authorization_shadow_comparison(
+            invocation_id=invocation_id,
+            tool_name=tool_name,
+            comparison=authorization_comparison,
+        )
+    except Exception:
+        logger.exception(
+            "Agent authorization shadow setup failed: invocation_id=%s tool_name=%s",
+            invocation_id,
+            tool_name,
+        )
     if not authorization.allowed:
         result = tool_failure(
             authorization.error or "tool_not_allowed",
@@ -204,13 +311,41 @@ async def execute_tool(tool_name: str, arguments: object, context: dict[str, obj
         )
         return result
 
+    if authorization_v2_enforcement_enabled() and (
+        metadata_authorization is None or not metadata_authorization.allowed
+    ):
+        result = tool_failure(
+            "tool_not_allowed",
+            "工具授权未通过。",
+        )
+        await _append_audit_event(
+            invocation_id=invocation_id,
+            event_type="authorization_denied",
+            tool_name=tool_name,
+            context=context,
+            risk_level=risk_level,
+            side_effect=side_effect,
+            arguments_fingerprint=arguments_fingerprint,
+            effective_group_id=(
+                metadata_authorization.effective_group_id
+                if metadata_authorization is not None
+                else ""
+            ),
+            execution_stage="authorization",
+            outcome="failure",
+            error_code="tool_not_allowed",
+            failure_class="permanent",
+            duration_ms=_duration_ms(started_at),
+        )
+        return result
+
     tool_context = dict(context)
     if authorization.effective_group_id:
         tool_context["_effective_group_id"] = authorization.effective_group_id
 
     audit_confirmation_id: int | None = None
     audit_confirmation_status = ""
-    if tool.requires_confirmation:
+    if resolved_policy.requires_confirmation:
         confirmation_binding = {
             "tool_name": tool_name,
             "arguments": parsed_arguments,
@@ -357,7 +492,7 @@ async def execute_tool(tool_name: str, arguments: object, context: dict[str, obj
 
     execution_binding = None
     execution_owner_token = ""
-    if tool.idempotency_enabled:
+    if resolved_policy.idempotency_enabled:
         execution_binding = create_execution_binding(
             tool_name=tool_name,
             arguments=parsed_arguments,
@@ -564,8 +699,22 @@ async def execute_tool(tool_name: str, arguments: object, context: dict[str, obj
         return normalized_result
 
     handler_exception = False
+    handler_timed_out = False
     try:
-        result = await tool.handler(parsed_arguments, tool_context)
+        if resolved_policy.timeout_seconds is None:
+            result = await tool.handler(parsed_arguments, tool_context)
+        else:
+            result = await asyncio.wait_for(
+                tool.handler(parsed_arguments, tool_context),
+                timeout=resolved_policy.timeout_seconds,
+            )
+    except asyncio.TimeoutError:
+        handler_timed_out = True
+        logger.warning(f"Agent tool handler timed out: {tool_name}")
+        normalized_result = tool_failure(
+            "tool_execution_timeout",
+            "工具执行超时，执行结果无法确认。",
+        )
     except Exception:
         handler_exception = True
         logger.exception(f"Agent tool handler failed: {tool_name}")
@@ -576,9 +725,44 @@ async def execute_tool(tool_name: str, arguments: object, context: dict[str, obj
     else:
         normalized_result = normalize_tool_result(result)
 
+    output_size_bytes = _observe_output_budget_shadow(
+        tool_name=tool_name,
+        result=normalized_result,
+        output_budget=resolved_policy.output_budget,
+    )
+    if (
+        resolved_policy.output_budget is not None
+        and output_size_bytes is not None
+        and output_size_bytes > resolved_policy.output_budget
+        and output_budget_enforcement_enabled()
+    ):
+        framework_result = await apply_output_budget_framework(
+            tool_name=tool_name,
+            result=normalized_result,
+            budget_bytes=resolved_policy.output_budget,
+            reducers=OUTPUT_BUDGET_REDUCERS,
+        )
+        final_size_bytes = output_size_bytes
+        if framework_result.status == "reduced":
+            normalized_result = framework_result.result
+            measured_size = _observe_output_budget_shadow(
+                tool_name=tool_name,
+                result=normalized_result,
+                output_budget=resolved_policy.output_budget,
+            )
+            if measured_size is not None:
+                final_size_bytes = measured_size
+        _record_output_budget_framework(
+            tool_name=tool_name,
+            status=framework_result.status,
+            budget_bytes=resolved_policy.output_budget,
+            before_size_bytes=output_size_bytes,
+            after_size_bytes=final_size_bytes,
+        )
+
     failure_class = classify_failure(
         normalized_result,
-        handler_exception=handler_exception,
+        handler_exception=handler_exception or handler_timed_out,
         temporary_errors=tool.idempotency_temporary_errors,
         unknown_errors=tool.idempotency_unknown_errors,
     )

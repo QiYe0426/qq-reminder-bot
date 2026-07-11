@@ -1,193 +1,223 @@
-# Agent Runtime 开发交接
+# Agent Runtime 项目交接
 
-本文记录 `qq-reminder-bot` 当前 Agent Runtime 的真实架构、安全边界和后续事项。后续开发应先阅读仓库根目录的 `AGENTS.md`，再结合当前代码与测试确认行为；不要从旧提交说明推断现状。
+## Current Phase 2 handoff update (2026-07-11)
 
-## 1. 当前完成状态
+本节记录当前工作区的实际后续进展，并取代本文后续“尚未进入 Phase 2”的旧基线说明；
+相关修改仍未提交。
 
-### P0-1：SSRF hardened `fetch_url`
+已完成：Compatibility Resolver、Audit policy source、Confirmation decision source、
+Idempotency enable source、带默认关闭 feature flag 的 legacy AND metadata
+Authorization、Handler execution timeout、Output Budget shadow measurement、默认关闭的
+enforcement framework、隔离 `TextReducer`、capability model，以及 Phase 2.5-B1.1.6
+Output Reducer Capability Inventory。
 
-- `safe_http_fetch` 模块统一承载 Agent URL 抓取。
-- 使用受控解析与连接流程校验目标地址。
-- 防止 DNS rebinding 导致已校验域名连接到私有或保留地址。
-- 重定向目标继续经过安全校验，不绕过 SSRF 边界。
+本阶段新增 `plugins/agent_tools/output_reducer_inventory.py` 和
+`tests/test_agent_tool_output_reducer_inventory.py`。Inventory 显式覆盖当前 14 个注册
+AgentTool，记录 canonical `data` 输出结构、候选文本路径、禁止路径、风险和 review
+status。它不扫描 Handler 输出，不创建 reducer，也不写入 capability registry。
 
-### P0-3：Agent Tool 目标群授权
+当前 `OUTPUT_BUDGET_REDUCERS` 和 `OUTPUT_REDUCER_CAPABILITIES` 均为空，
+`AGENT_OUTPUT_BUDGET_ENFORCEMENT` 默认关闭。测试状态：本阶段 inventory、capability
+与 TextReducer 定向测试已通过；未运行全量测试。
 
-- Gateway 授权阶段解析并验证 `effective_group_id`。
-- 群聊不能通过模型参数切换到其他群。
-- 私聊中的目标群访问必须满足对应授权条件。
-- 工具权限以实际目标资源为准，不只依赖当前会话或全局管理员身份。
-- 群资源在 Agent Tool 层完成隔离。
+未完成事项：候选路径的真实样本 Shadow Reduction、画像嵌套 schema 人工复核、逐工具
+capability 审批和 production reducer 注册。下一阶段入口是 Phase 2.5-B1.2 Shadow
+Reduction；在完成结构差异与 replay 一致性审计前，不得启用 reducer。
 
-### P1-3：Reminder Target Authorization
+本文记录 `qq-reminder-bot` 当前 Agent Runtime 的真实安全治理状态、执行架构和 Metadata v2 后续迁移边界。后续开发应先阅读仓库根目录的 `AGENTS.md`，并以当前 checkout 的代码为准。
 
-- 使用 `AuthorizedReminderTarget` 表达服务端已授权的提醒目标。
-- Agent Tool 不信任模型直接给出的 `target_user_id`。
-- 模型不能通过构造参数为其他用户创建提醒。
-- 提醒目标授权位于 Tool adapter / 目标解析边界；Reminder 核心服务不承担模型来源判断。
+## 1. 当前 Git baseline
 
-### P2-1：Confirmation Workflow
+- 分支：`feature/agent-runtime-v3`
+- Git HEAD：`c8deccc12fed19c213b74e23819e06213884fe7b`
+- Commit：`c8deccc add agent tool metadata v2 foundation`
+- 基线状态：Metadata v2 Phase 1 已完成；本交接阶段不进入 Phase 2 编码。
 
-- 高风险 Tool 在执行前进入 Confirmation 流程。
-- 确认状态绑定调用者、目标、工具和参数。
-- 确认令牌一次性使用；不能作为长期授权或跨调用复用。
-- 确认后的恢复执行仍经过 Runtime 执行链。
+## 2. 已完成的安全治理阶段
 
-### P2-2：Idempotency Layer
+### P0-1 SSRF Hardening
 
-- SQLite 保存 Tool execution state。
-- 支持首次 claim、完成结果 replay、运行中状态和 unknown 状态。
-- 已完成结果可复用缓存，防止相同写操作被模型重复执行。
-- stale running 不会被静默当作成功或安全重试，而是进入 unknown 处理。
+- `fetch_url` 使用安全隔离的 `aiohttp` fetcher。
+- 对 DNS 解析结果和实际连接目标执行安全检查，防止 DNS rebinding。
+- 每次 redirect 都重新执行目标安全检查。
+- 禁止继承环境代理。
+- 限制响应体大小。
 
-### P2-3：Audit Runtime
+### P0-3 / P1-3 Reminder Authorization
 
-- Audit database 保存结构化 Runtime 事件。
-- Gateway 记录请求、授权、确认、幂等和执行终态事件链。
-- 模型 `tool_call.id` 进入内部 context，并与 Audit 事件关联。
-- Confirmation 恢复调用使用服务端 invocation source，并通过 confirmation 记录关联原调用。
-- Idempotency replay 保留各自 Tool Call 标识，同时通过相同 idempotency key 关联。
-- `web_search`、`fetch_url`、`get_chime` 使用内建 Audit adapter；`respond` 记录 `response_emitted`。
+- Agent Tool 只能创建当前用户提醒，或创建经过服务端授权的群成员提醒。
+- 群成员目标需要通过当前群上下文验证。
+- `@` 成员、候选确认和 recent target 均绑定授权上下文。
+- 不信任模型直接提供的 `target_user_id`。
 
-### Sensitive operational logging
+### P2-1 Confirmation Workflow
 
-- 生产日志不再直接输出 QQ号、群号、用户输入、搜索关键词、画像关键词或文件绝对路径。
-- 标识符使用安全指纹；自由文本使用长度、类型或指纹保留调试价值。
-- URL 日志去除 userinfo、query 和 fragment。
-- Audit 与普通运行日志均不应保存提醒正文、回复正文或其他敏感原文。
+- 高风险 Agent Tool 在执行前进入确认门。
+- SQLite 保存 confirmation 状态机。
+- confirmation token 一次性使用。
+- 确认记录绑定参数、用户、群和工具作用域。
 
-## 2. 当前 Runtime 架构
+### P2-2 Idempotency Layer
+
+- Agent Tool 通过 execution claim 控制幂等执行。
+- 支持结果 replay。
+- 执行状态包括 `running`、`succeeded`、`failed` 和 `unknown`。
+- 避免重试或重复 Tool Call 重复产生副作用。
+
+### P2-3 Audit Runtime
+
+- Agent Tool 使用结构化 Audit Event。
+- `invocation_id` 贯穿调用关联。
+- 记录 execution lifecycle。
+- Audit details 对敏感字段脱敏。
+- 内建工具通过 audit adapter 接入审计链路。
+
+### Sensitive Logging Hardening
+
+- 用户输入不直接写入普通运行日志。
+- QQ 号、群号、关键词和 URL 敏感信息经过保护或脱敏。
+- 日志不保存隐私原文。
+
+### Metadata v2 Phase 1
+
+- 新增不可变 `AgentToolMetadata`。
+- 注册工具增加 metadata 声明。
+- 内建工具增加 metadata catalog。
+- 增加 metadata 枚举校验。
+- 保留 legacy policy 字段兼容。
+- 未改变 Runtime 行为。
+
+## 3. 当前 Runtime 架构
 
 ```text
-LLM
- ↓
-ai_chat
- ↓
-Tool Gateway
- ↓
-Schema
- ↓
+AgentTool
+  ↓
+Metadata v2 declaration
+  ↓
+Legacy compatibility layer
+  ↓
 Authorization
- ↓
+  ↓
 Confirmation
- ↓
+  ↓
 Idempotency
- ↓
+  ↓
 Audit
- ↓
+  ↓
 Handler
 ```
 
-`plugins/ai_chat.py` 负责模型 Tool Call envelope、单次调用 context 和结果回灌。注册工具通过 `plugins/agent_tools/gateway.py` 的统一入口执行。Gateway 在调用业务 Handler 前完成服务端约束；模型输出和 Prompt 都不能替代这些检查。
+Metadata v2 Phase 1 只完成声明层建设。当前 Runtime 尚未消费以下 metadata 字段：
 
-部分内建工具仍由 `ai_chat.py` 执行，但已经接入专用 Audit adapter。它们不等同于完整迁入 Gateway，后续迁移需要保持现有 SSRF、安全日志和结果协议边界。
+- `metadata.risk_level`
+- `metadata.side_effect`
+- `metadata.confirmation_policy`
+- `metadata.idempotency_policy`
+- `metadata.timeout_seconds`
+- `metadata.output_budget`
 
-## 3. 职责边界
+实际执行策略仍来自 legacy policy 字段，包括：
 
-### Gateway
+- `risk_level`
+- `side_effect`
+- `requires_confirmation`
+- `confirmation_timeout`
+- `idempotency_enabled`
+- `idempotency_ttl`
+- `idempotency_lease_timeout`
+- `requires_admin`
+- `requires_feature`
+- `group_scope`
 
-- 执行参数解析和 Schema 验证。
-- 根据当前会话与目标资源完成权限检查。
-- 对需要确认的高风险工具创建或验证 Confirmation。
-- 对启用幂等的工具 claim execution state、处理 replay/running/unknown。
-- 在关键阶段写入 Audit 事件。
-- 只有通过上述边界后才调用 Handler。
+因此，Phase 1 的 metadata 是声明信息，不是 Runtime 的策略事实来源。任何迁移都必须保持现有 fail-closed 行为，不能直接把 Runtime 切换到 metadata。
 
-Gateway 是注册工具的统一执行入口。不得新增直接从 Agent 循环调用注册 Handler 的旁路。
+## 4. 当前风险与迁移约束
 
-### Audit
+### Metadata / Legacy 双策略源
 
-- 记录 Tool invocation 的结构化事件和关联标识。
-- 对允许记录的详情再次执行脱敏。
-- 使用指纹、长度、数量、状态和错误分类代替敏感原文。
-- 不保存 QQ号、群号、提醒正文、用户原文、搜索词、URL query、token 或其他秘密值。
+相同策略同时存在于 metadata 和 legacy 字段中，存在声明与实际执行行为漂移的风险。当前已知冲突包括：
 
-Audit 负责可追溯性，不负责授权决策，也不能因为写入失败而猜测业务是否执行成功。
+| Tool | Metadata | Legacy Runtime |
+|---|---|---|
+| `generate_daily_report` | `medium / mixed` | `high / external` |
+| `build_semantic_graph` | `medium / database_write` | `high / write` |
 
-### Confirmation
+在 resolver 能够安全处理冲突之前，不得直接以 metadata 覆盖 legacy 值，否则可能降低既有高风险工具的保护等级。
 
-- 为高风险调用提供一次性授权。
-- 授权必须绑定具体调用者、工具、目标和规范化参数。
-- 已使用、过期或绑定不匹配的确认不能执行。
+### Confirmation policy 不完整
 
-Confirmation 不是角色权限系统，也不代替 Gateway Authorization。
+当前 Gateway 读取 `tool.requires_confirmation`，确认超时仍来自 legacy 字段。`confirmation_policy` 的 `optional` 尚无 Runtime 语义，`conditional` 也没有条件表达式。
 
-### Idempotency
+Phase 2 只允许先迁移明确等价的语义：
 
-- 防止模型重试或重复 Tool Call 造成业务重复执行。
-- 保存执行状态并缓存已完成结果。
-- 对 replay、running 和 unknown 提供明确分支。
+- `required` → 必须确认
+- `never` → 不需要确认
 
-Idempotency 不能替代 Confirmation，也不能把未知外部状态自动视为可重试。
+`optional` 和 `conditional` 暂不改变 Runtime 行为，并继续使用 legacy fallback。
 
-### Handler
+### Idempotency policy 不完整
 
-- 只处理已授权、已验证参数对应的具体业务。
-- 返回稳定的 ToolResult，由 Runtime 处理执行协议。
-- 不自行实现另一套 Gateway、Confirmation、Idempotency 或 Audit 流程。
-- Handler 内的检查只能作为业务约束或防御性补充，不能成为唯一安全边界。
+当前 Gateway 通过 `tool.idempotency_enabled` 进入 `claim_execution`，已有行为同时包含防并发、结果缓存和结果 replay。
 
-## 4. 核心代码导航
+Metadata 的 `none`、`single_flight`、`result_cache` 不能直接与现有布尔字段一一映射。特别是 `build_semantic_graph` 的现有行为不是单纯 `single_flight`，不得在缺少兼容解析的情况下直接切换。
 
-| 路径 | 当前职责 |
-|---|---|
-| `plugins/ai_chat.py` | Agent 循环、Tool Call context、内建 Tool adapter、结果回灌 |
-| `plugins/agent_tools/gateway.py` | 注册工具统一执行链 |
-| `plugins/agent_tools/contracts.py` | 参数解析、JSON Schema 验证、ToolResult 规范化 |
-| `plugins/agent_tool_access.py` | Tool 与目标群资源授权 |
-| `plugins/agent_tools/confirmation.py` | 一次性确认状态 |
-| `plugins/agent_tools/idempotency.py` | SQLite execution state 与结果 replay |
-| `plugins/agent_tools/audit.py` | Audit database、事件、指纹和详情脱敏 |
-| `plugins/agent_tools/reminder_tools.py` | Reminder Tool adapter 与目标授权接入 |
-| `plugins/reminder_target_service.py` | 服务端提醒目标解析与授权数据结构 |
-| `plugins/safe_http_fetch.py` | Agent URL 抓取的 SSRF 安全边界 |
-| `plugins/sensitive_logging.py` | 普通运行日志的统一脱敏 helper |
+### Authorization metadata 不完整
 
-具体文件名和接口在继续开发前仍应以当前 checkout 为准。
+`resource_scope` 不能替代现有授权字段和语义，包括：
 
-## 5. 当前未解决事项
+- `requires_admin`
+- `requires_feature`
+- `requires_group`
+- `requires_target_group_admin`
+- `group_scope`
 
-以下事项仅记录，不在本文档任务中实施：
+后续 metadata 需要补充类似 `required_permissions` 的授权声明；在此之前，Authorization 必须继续读取现有 Runtime 策略。
 
-### Metadata v2 尚未实施
+### Timeout 与 output budget 未消费
 
-当前 Tool metadata 能支持现有 Runtime，但更完整的 Metadata v2 尚未设计和落地。后续如增加成本、超时、输出预算或更细粒度资源声明，应独立设计并保持兼容。
+`metadata.timeout_seconds` 和 `metadata.output_budget` 当前没有 Runtime 消费点。它们只能作为声明存在，不能被描述为已经具备执行限制能力。
 
-### 错误码体系仍处于兼容阶段
+## 5. 下一阶段计划
 
-Runtime 已有机器可读错误码和 ToolResult 规范化，但注册工具、内建工具及部分旧业务返回仍存在兼容路径。统一错误分类、稳定语义和迁移策略需要单独治理。
+### Metadata v2 Phase 2
 
-### 部分内建工具未来可继续迁移 Gateway
+目标是在保留兼容性和 fail-closed 行为的前提下，让 Runtime 逐步读取解析后的统一策略：
 
-`web_search`、`fetch_url`、`get_chime` 和 `respond` 目前仍有 `ai_chat.py` 内建执行或控制流职责。未来可以评估进一步迁移，但必须保留：
+1. 增加 compatibility resolver，统一解析 metadata 与 legacy policy。
+2. Runtime 改为读取 resolved policy，而不是直接散落读取两套字段。
+3. 迁移 Audit 的策略来源。
+4. 迁移 Confirmation 中语义明确的 `required` / `never`。
+5. 迁移 Idempotency 中语义明确的 `none` / `result_cache`。
+6. 对未迁移、语义不完整或发生冲突的策略保留 legacy fallback。
+7. 对风险等级冲突采用不降低保护等级的 fail-closed 解析规则。
 
-- `fetch_url` 的 `safe_http_fetch` 与 SSRF 防护；
-- 现有 Audit 关联和敏感信息边界；
-- `respond` 作为 Agent 终止控制流的语义；
-- 内建工具当前的参数和结果兼容行为。
+Phase 2 不应顺带修改 Gateway、Authorization、Confirmation、Idempotency、Handler 或 Prompt 的业务行为；执行链改造必须作为后续明确授权的编码任务进行。
 
-### 普通 AI context 的语义图自动构建问题仍待评估
+### Metadata v2 Phase 3
 
-普通 AI context 构建过程中可能触发语义图相关工作。其读取、自动构建、成本和副作用边界仍需评估；在结论明确前不要顺带改变 Context 或 Prompt 策略。
+在所有工具完成迁移、兼容解析稳定且行为得到独立验证后：
 
-## 6. 后续开发约束
+1. 删除 legacy policy 字段。
+2. 删除 legacy fallback 和双写路径。
+3. 由 Metadata v2 成为 Runtime 唯一策略来源。
 
-1. 不信任模型生成的参数、目标 ID 或调用顺序。
-2. JSON 可解析、Schema 合法和资源已授权是三个不同阶段。
-3. 注册工具必须通过 Gateway，不得直接调用 Handler。
-4. 不在其他安全任务中顺带修改 Prompt、Reminder 核心服务或 SSRF 边界。
-5. Confirmation、Idempotency 和 Audit 各自职责独立，不互相替代。
-6. 敏感值不得进入普通日志、Audit details 或异常附加文本。
-7. 修改执行链时应覆盖成功、拒绝、确认、重复调用、异常和恢复路径。
-8. 文档不记录易过期的测试通过数量；测试状态以当前 checkout 的实际运行结果为准。
+## 6. 后续开发禁止事项
 
-## 7. 推荐验证流程
+- 不得把 Phase 1 描述为已经改变 Runtime 行为。
+- 不得在 resolver 落地前直接从 metadata 覆盖 legacy 高风险策略。
+- 不得为 `optional` / `conditional` confirmation 虚构尚未实现的 Runtime 语义。
+- 不得把 `single_flight` 等同于当前全部幂等行为。
+- 不得把 `resource_scope` 描述为完整 Authorization policy。
+- 不得把 `timeout_seconds` 或 `output_budget` 描述为已被 Runtime 执行。
+- 不记录未经当前 checkout 验证的测试数量。
+- 不引用不存在的 commit。
+- 不宣称尚未实现的功能。
+- 未经单独任务授权，不修改 Gateway、Authorization、Confirmation、Idempotency、Handler 或 Prompt。
+
+## 7. 本交接阶段的验证边界
+
+本次只更新交接文档，不运行代码测试，不实施 Metadata v2 Phase 2。提交前仅执行：
 
 ```powershell
-git status --short --branch
-.\.venv\Scripts\python -m compileall -q bot.py plugins scripts sts_knowledge_seed.py
-.\.venv\Scripts\python -m pytest -q
 git diff --check
 ```
-
-发布、推送或服务器更新必须由对应任务明确授权；完成本地代码或文档提交不等于允许 push 或部署。

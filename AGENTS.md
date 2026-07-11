@@ -1,5 +1,23 @@
 # AGENTS.md — 猎bot (qq-reminder-bot)
 
+## Agent Runtime Output Governance
+
+Metadata v2 Phase 2.5 的 output budget 使用 canonical `ToolResult` 的 UTF-8 JSON
+bytes 作为统一单位。当前具备 measurement、默认关闭的 enforcement framework、
+`TextReducer` 原型、capability 声明模型和静态 inventory；production reducer 与
+capability registry 仍为空。
+
+Reducer 开发必须遵守：
+
+- 只能修改显式审计通过的 `data` namespace 路径，禁止递归字符串扫描；
+- 不得修改 `ok`、`error`、`retryable`、execution、idempotency、confirmation、
+  resource/file/task/message ID、URL 或状态字段；
+- reducer 必须 deterministic、无网络、无数据库、无 NoneBot context、无副作用；
+- reducer 结果必须 canonical rebuild，并在 idempotency cache 前确定；
+- inventory 的 candidate path 不等于 capability，更不等于 production enable；
+- 未经逐工具 Shadow Reduction 审核，不得向 `OUTPUT_BUDGET_REDUCERS` 注册实例，
+  不得设置 `enabled=True` capability，也不得默认开启 enforcement flag。
+
 基于 NoneBot2 + OneBot v11 + NapCat 的 QQ bot。AI agent 驱动：用户消息进入 `ai_chat.py`，通过注册在 `agent_tools/` 下的受控工具执行操作。
 
 本文适用于整个仓库。项目当前版本以 `pyproject.toml` 中的 `2.4.0` 为准；行为说明以 `README.md` 和实际代码为准，历史变化查阅 `VERSION.md`。

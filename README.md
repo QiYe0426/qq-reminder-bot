@@ -1,5 +1,24 @@
 # 猎bot
 
+## Metadata v2 Phase 2.5 Output Governance
+
+Phase 2.5 已建立 Handler execution timeout、Output Budget UTF-8 JSON byte
+measurement、默认关闭的 enforcement framework，以及隔离的 `TextReducer`
+原型。`TextReducer` 仅支持显式 `data` 路径，按 Unicode code point 裁剪，并由
+framework 校验 protected fields。
+
+当前增加了静态 Output Reducer Capability Inventory，用于逐工具记录 canonical
+`ToolResult.data` 结构、候选路径、禁止路径和人工复核状态。Inventory 是审计资料，
+不是运行配置：
+
+- `AGENT_OUTPUT_BUDGET_ENFORCEMENT` 默认关闭；
+- `OUTPUT_BUDGET_REDUCERS` 为空；
+- `OUTPUT_REDUCER_CAPABILITIES` 为空；
+- 没有真实工具启用 reducer，用户可见输出不变。
+
+下一阶段 B1.2 只应对已审计候选执行 Shadow Reduction，比较裁剪前后大小和结构；
+在独立审核完成前不得注册 production reducer 或启用 capability。
+
 猎bot正式发布基线为 v2.0.0「猎bot-初具人形」，当前工作树为 v2.4.0。项目是一个用于学习和自用的 QQ bot，基于 NoneBot2 + OneBot v11。当前版本已经从“命令型提醒 bot”整理成“消息交给 AI agent，再由 agent 调用工具”的雏形，主要支持 AI 对话、联网搜索、提醒工具、常数报时工具、分群消息采集、视觉日报、智能陪伴画像、STS2 知识库、群上下文工具、语义图、语义图可视化、日报/画像/群状态/群功能管理 Agent 工具和猎宝控制台。
 
 猎bot加入新群后默认保持业务功能静默。常规 AI 对话、AI 对话里的自然语言提醒、`ping`、`help` 可直接使用；传统 `提醒 ...` 命令、消息采集、日报和陪伴画像需要管理员按群开启。AI 对话独立于消息采集，也可以按群单独关闭。`群功能状态`、采集、日报、存储、媒体识别、日报 Agent 工具、画像 Agent 工具、语义图 Agent 工具、群状态 Agent 工具和群功能管理 Agent 工具等管理能力仅管理员可用，并可在控制台按群配置允许哪些 Agent 工具。管理员也可以私聊猎宝，带群号查看某群状态/日报/画像/语义图或调整某群功能。
