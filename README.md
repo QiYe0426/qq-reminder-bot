@@ -2,6 +2,26 @@
 
 ## Metadata v2 Phase 2.5 Output Governance
 
+### Registry 与 Metadata Inventory 边界
+
+AgentTool registry 现在区分两类 metadata provenance：
+
+- `explicit`：工具显式声明 Metadata v2，进入 `list_agent_tools()` / `all_tools()`
+  提供的 production metadata inventory；
+- `legacy_compatibility`：工具未显式声明 metadata，由 legacy risk、side effect、
+  confirmation 和 idempotency 字段生成兼容 metadata。
+
+两类工具都保留在 executable registry，可通过 `get_agent_tool()` 执行；
+`list_executable_agent_tools()` 可读取完整可执行集合。Legacy compatibility 工具不会进入
+Metadata v2 production inventory，避免运行期或测试期动态工具污染迁移审计。当前生产
+inventory 仍为 14 个显式声明工具，已知 production conflicts 保持不变。
+
+Phase 2.5-B1.2 Runtime Shadow Reduction 已开始：当已声明 `output_budget` 的
+ALLOW inventory 工具输出超限时，Gateway 会使用独立 shadow registry 计算候选结果，
+比较 before/after bytes、protected fields 和 determinism，并只记录安全 telemetry。
+Shadow candidate 不替换 original result，不写入 idempotency cache，也不进入 replay。
+Production `OUTPUT_BUDGET_REDUCERS` 仍为空，enforcement flag 仍默认关闭。
+
 Phase 2.5 已建立 Handler execution timeout、Output Budget UTF-8 JSON byte
 measurement、默认关闭的 enforcement framework，以及隔离的 `TextReducer`
 原型。`TextReducer` 仅支持显式 `data` 路径，按 Unicode code point 裁剪，并由
@@ -16,8 +36,14 @@ framework 校验 protected fields。
 - `OUTPUT_REDUCER_CAPABILITIES` 为空；
 - 没有真实工具启用 reducer，用户可见输出不变。
 
-下一阶段 B1.2 只应对已审计候选执行 Shadow Reduction，比较裁剪前后大小和结构；
-在独立审核完成前不得注册 production reducer 或启用 capability。
+B1.2 已对审计通过的候选接入 Shadow Reduction；在独立审核完成前仍不得注册
+production reducer 或启用 capability。
+
+B1.2.6 已使用真实 handler-shaped fixtures 对齐日报与语义图四个 Shadow PASS 工具的
+canonical `ToolResult.data` schema，并增加 fail-closed drift guard。Inventory 现在区分
+已审核路径与 branch-specific optional paths；fixture 出现未知字段会使测试失败。该对齐
+仍只是 registration 前审计：日报生成和语义图构建的 5000-byte budget 仍需单独审批，
+所有 production reducer、enabled capability 与 enforcement 继续关闭。
 
 猎bot正式发布基线为 v2.0.0「猎bot-初具人形」，当前工作树为 v2.4.0。项目是一个用于学习和自用的 QQ bot，基于 NoneBot2 + OneBot v11。当前版本已经从“命令型提醒 bot”整理成“消息交给 AI agent，再由 agent 调用工具”的雏形，主要支持 AI 对话、联网搜索、提醒工具、常数报时工具、分群消息采集、视觉日报、智能陪伴画像、STS2 知识库、群上下文工具、语义图、语义图可视化、日报/画像/群状态/群功能管理 Agent 工具和猎宝控制台。
 

@@ -33,6 +33,10 @@ from .output_budget import (
     output_budget_enforcement_enabled,
     serialized_tool_result_size_bytes,
 )
+from .output_budget_shadow_reduction import (
+    OUTPUT_BUDGET_SHADOW_REDUCERS,
+    evaluate_output_budget_shadow_reduction,
+)
 from .authorization_policy import resolve_authorization_policy
 from .authorization_shadow import (
     authorization_v2_enforcement_enabled,
@@ -128,6 +132,60 @@ def _record_output_budget_framework(
     except Exception:
         # Telemetry must never affect the ToolResult or include output content.
         return
+
+
+def _record_output_budget_shadow_reduction(
+    *,
+    tool_name: str,
+    reducer_type: str,
+    before_size_bytes: int,
+    after_size_bytes: int,
+    reduction_ratio: float,
+    status: str,
+) -> None:
+    logger.info(
+        "Agent tool output budget shadow reduction: tool_name=%s reducer_type=%s "
+        "before_size_bytes=%d after_size_bytes=%d reduction_ratio=%.6f status=%s",
+        tool_name,
+        reducer_type,
+        before_size_bytes,
+        after_size_bytes,
+        reduction_ratio,
+        status,
+    )
+
+
+async def _observe_output_budget_shadow_reduction(
+    *,
+    tool_name: str,
+    result: ToolResult,
+    output_budget: int,
+    before_size_bytes: int,
+) -> None:
+    try:
+        observation = await evaluate_output_budget_shadow_reduction(
+            tool_name=tool_name,
+            result=result,
+            budget_bytes=output_budget,
+            before_size_bytes=before_size_bytes,
+            reducers=OUTPUT_BUDGET_SHADOW_REDUCERS,
+        )
+        if observation.status == "not_allowed":
+            return
+        _record_output_budget_shadow_reduction(
+            tool_name=tool_name,
+            reducer_type=observation.reducer_type,
+            before_size_bytes=observation.before_size_bytes,
+            after_size_bytes=observation.after_size_bytes,
+            reduction_ratio=observation.reduction_ratio,
+            status=observation.status,
+        )
+    except Exception:
+        # Never log result content or exception text from shadow evaluation.
+        logger.warning(
+            "Agent tool output budget shadow reduction failed: tool_name=%s",
+            tool_name,
+        )
 
 
 async def _append_audit_event(
@@ -730,6 +788,17 @@ async def execute_tool(tool_name: str, arguments: object, context: dict[str, obj
         result=normalized_result,
         output_budget=resolved_policy.output_budget,
     )
+    if (
+        resolved_policy.output_budget is not None
+        and output_size_bytes is not None
+        and output_size_bytes > resolved_policy.output_budget
+    ):
+        await _observe_output_budget_shadow_reduction(
+            tool_name=tool_name,
+            result=normalized_result,
+            output_budget=resolved_policy.output_budget,
+            before_size_bytes=output_size_bytes,
+        )
     if (
         resolved_policy.output_budget is not None
         and output_size_bytes is not None

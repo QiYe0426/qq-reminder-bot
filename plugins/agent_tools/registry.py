@@ -13,6 +13,7 @@ AgentToolHandler = Callable[[AgentToolArguments, AgentToolContext], Awaitable[Ag
 AgentToolGroupScope = Literal["none", "current", "private_explicit"]
 AgentToolSideEffect = Literal["none", "write", "external"]
 AgentToolRiskLevel = Literal["low", "medium", "high"]
+AgentToolMetadataSource = Literal["explicit", "legacy_compatibility"]
 
 METADATA_RISK_LEVELS = frozenset({"low", "medium", "high", "critical"})
 METADATA_SIDE_EFFECTS = frozenset(
@@ -78,7 +79,32 @@ class AgentTool:
     idempotency_temporary_failure_ttl: int = 15
     idempotency_temporary_errors: frozenset[str] = frozenset()
     idempotency_unknown_errors: frozenset[str] = frozenset()
-    metadata: AgentToolMetadata = field(default_factory=AgentToolMetadata)
+    metadata: AgentToolMetadata | None = None
+    metadata_source: AgentToolMetadataSource = field(init=False)
+
+    def __post_init__(self) -> None:
+        if self.metadata is not None:
+            object.__setattr__(self, "metadata_source", "explicit")
+            return
+
+        side_effect_projection = {
+            "none": "none",
+            "write": "database_write",
+            "external": "external_write",
+        }
+        compatibility_metadata = AgentToolMetadata(
+            risk_level=self.risk_level,
+            side_effect=side_effect_projection[self.side_effect],
+            resource_scope="none",
+            confirmation_policy=(
+                "required" if self.requires_confirmation else "never"
+            ),
+            idempotency_policy=(
+                "result_cache" if self.idempotency_enabled else "none"
+            ),
+        )
+        object.__setattr__(self, "metadata", compatibility_metadata)
+        object.__setattr__(self, "metadata_source", "legacy_compatibility")
 
 
 BUILTIN_TOOL_METADATA: dict[str, AgentToolMetadata] = {
@@ -142,6 +168,18 @@ def has_agent_tool(name: str) -> bool:
 
 
 def list_agent_tools() -> list[AgentTool]:
+    """Return tools with explicit Metadata v2 declarations.
+
+    Legacy compatibility tools remain executable through ``get_agent_tool``
+    but are excluded from production metadata inventories.
+    """
+
+    return [tool for tool in _TOOLS.values() if tool.metadata_source == "explicit"]
+
+
+def list_executable_agent_tools() -> list[AgentTool]:
+    """Return every executable tool, including legacy compatibility tools."""
+
     return list(_TOOLS.values())
 
 

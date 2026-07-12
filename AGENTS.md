@@ -2,6 +2,26 @@
 
 ## Agent Runtime Output Governance
 
+### Registry provenance
+
+`plugins/agent_tools/registry.py` 同时维护 executable lookup 与 Metadata v2 inventory
+边界。显式传入 `AgentToolMetadata` 的工具标记为 `metadata_source="explicit"`；未传入
+metadata 的 legacy 工具标记为 `legacy_compatibility`，并从 legacy risk、side effect、
+confirmation、idempotency 字段生成语义一致的兼容 metadata。
+
+- `get_agent_tool()` / `list_executable_agent_tools()` 包含全部可执行工具；
+- `list_agent_tools()` / `all_tools()` 只包含显式 Metadata v2 工具；
+- 不得让 legacy compatibility 或测试临时工具进入 production metadata inventory；
+- 不得通过放宽 resolver、conflict inventory 或 fail-closed 断言解决 registry 污染；
+- `resource_scope` 不从 legacy authorization 自动推断。
+
+Phase 2.5-B1.2 已接入 runtime shadow observation。Shadow reducer 只能来自
+`OUTPUT_BUDGET_SHADOW_REDUCERS` 的显式项，并且必须与 inventory 中 `review_status=allow`
+的 candidate paths 完全一致。Shadow evaluation 执行两次以检查 determinism，但不得
+再次调用 Handler；候选结果不得替换、缓存或返回。Telemetry 只能记录 tool name、
+reducer type、before/after bytes、reduction ratio 和 status，禁止记录结果、参数、身份或
+Prompt。
+
 Metadata v2 Phase 2.5 的 output budget 使用 canonical `ToolResult` 的 UTF-8 JSON
 bytes 作为统一单位。当前具备 measurement、默认关闭的 enforcement framework、
 `TextReducer` 原型、capability 声明模型和静态 inventory；production reducer 与
@@ -15,6 +35,8 @@ Reducer 开发必须遵守：
 - reducer 必须 deterministic、无网络、无数据库、无 NoneBot context、无副作用；
 - reducer 结果必须 canonical rebuild，并在 idempotency cache 前确定；
 - inventory 的 candidate path 不等于 capability，更不等于 production enable；
+- Shadow PASS 工具的 handler-shaped fixture 必须与 inventory `output_structure` 对齐；
+  branch-specific 字段写入 `optional_paths`，未知字段必须 fail closed；
 - 未经逐工具 Shadow Reduction 审核，不得向 `OUTPUT_BUDGET_REDUCERS` 注册实例，
   不得设置 `enabled=True` capability，也不得默认开启 enforcement flag。
 

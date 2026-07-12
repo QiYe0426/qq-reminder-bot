@@ -1,5 +1,89 @@
 # Agent Runtime 项目交接
 
+## Registry / Metadata Inventory Boundary Fix (2026-07-12)
+
+GitHub Actions checkpoint run 曾出现 3 个失败：测试临时工具通过全局 `_TOOLS` 泄漏到
+production Metadata inventory，产生额外 risk、side effect、confirmation 和
+idempotency conflicts，并破坏 14 工具精确 inventory。
+
+修复位于 `plugins/agent_tools/registry.py`，没有修改 resolver、fail-closed 逻辑、生产
+metadata、inventory 测试或 Output Budget/Reducer：
+
+- `metadata_source="explicit"`：显式 Metadata v2 工具；
+- `metadata_source="legacy_compatibility"`：未声明 metadata 的兼容工具；
+- legacy compatibility metadata 从现有 legacy enforcement 字段保守投影；
+- `_TOOLS` / `get_agent_tool()` 继续允许所有工具执行；
+- `list_executable_agent_tools()` 返回完整 executable registry；
+- `list_agent_tools()` / `all_tools()` 只返回显式 metadata production inventory。
+
+生产 inventory 仍为 14 个工具，known conflict inventory 保持不变。验证结果：CI 污染
+顺序测试 43 passed，Phase 2/metadata 定向测试 207 passed，完整 `pytest -q` 为
+383 passed in 42.07s，`git diff --check` 通过。该修复及 B1.2 当前修改均未提交。
+
+## Phase 2.5-B1.2 Runtime Shadow Reduction
+
+B1.2 已开始，当前实现仍是 shadow only。Gateway 在 Handler normalize 和 output budget
+measurement 后，仅对 inventory 标记为 ALLOW、shadow registry 显式配置且实际超限的
+工具执行候选 reduction。Evaluator 对相同 original result 执行两次 reducer，比较
+determinism，并复用 framework 的 canonical/protected-field 校验。
+
+Shadow telemetry 只包含 tool name、reducer type、before/after bytes、reduction ratio
+和 status。Shadow candidate 不替换 `normalized_result`，不参与 failure classification，
+不写入 idempotency cache，也不改变 replay。`AGENT_OUTPUT_BUDGET_ENFORCEMENT` 仍默认
+关闭，`OUTPUT_BUDGET_REDUCERS` 仍为空。B1.2 修改尚未提交。
+早期 B1.2 定向验证为 196 passed；registry boundary 修复后已运行完整测试，最终结果为
+383 passed in 42.07s，`git diff --check` 通过。
+
+B1.2 Shadow Reduction Sample Validation 已完成：新增
+`tests/test_agent_tool_shadow_reduction_samples.py`，人工 canonical 超预算样本覆盖日报
+`data.report` 以及三个语义图工具的 `data.summary`，同时保留长 description、多段列表和
+嵌套 data 作为 candidate 外结构。四个样本 determinism、reduction、protected fields、
+schema boundary 与 cache/replay consistency 均通过，reduction ratio 为 48.78%–54.26%。
+REVIEW、disabled、failure、non-deterministic 和 protected-field violation 负向路径均安全
+回退 original。最新验证：新增测试 14 passed，Output Governance 定向 79 passed，完整
+pytest 397 passed in 31.77s，compileall 与 `git diff --check` 通过。下一入口是四个 ALLOW
+工具的逐工具 disabled capability review；production reducer、capability 和 enforcement
+仍全部关闭。
+
+## Phase 2.5-B1.2.5 Disabled Capability Review
+
+已新增独立审计记录 `plugins/agent_tools/output_reducer_capability_review.py` 和测试
+`tests/test_agent_tool_capability_review.py`。`OUTPUT_REDUCER_CAPABILITY_PROPOSALS` 只包含
+四个 Shadow PASS 工具，与 ALLOW inventory candidate 精确一致，但不接入 Gateway 或
+`OUTPUT_REDUCER_CAPABILITIES`。
+
+审核发现四条 candidate path 当前稳定，但 inventory 的 canonical output structure 尚不
+完整：semantic graph 实际还有 scope/source/title/keyword/count/time 字段，日报两个成功
+分支的 image/pdf 字段不同。`generate_daily_report` 与 `build_semantic_graph` 还没有 metadata
+output budget；`get_semantic_graph` 与 `render_semantic_graph` 已声明 5000 bytes。因此四个
+proposal 均标记 `requires_schema_alignment`，当前不能直接进入 production registration。
+
+预算 A/B/C 边界均已验证：可压缩时 reduction；固定结构超预算时 original fallback；
+candidate 不可缩减且结果仍超预算时 original fallback。最新结果：新增测试 7 passed，
+Output Governance 定向 86 passed，完整 pytest 404 passed in 30.34s，compileall 与
+`git diff --check` 通过。下一步应先补齐逐分支 canonical schema inventory/fixtures，并对
+日报和 build 工具单独审批 output budget；所有 production registry 和 enforcement 继续
+保持关闭。
+
+## Phase 2.5-B1.2.6 Schema Alignment & Drift Guard
+
+已补齐四个 Shadow PASS 工具的真实 canonical `ToolResult.data` inventory，并新增
+`tests/test_agent_tool_output_schema_alignment.py`。Fixture 覆盖日报 existing/new/truncated
+分支，build/get 的 normal/long/optional metadata 分支，以及 render 的 source summary、
+regenerated summary、sent/send failure 分支。
+
+Inventory 新增 `optional_paths`，日报 image/PDF filename 明确为 existing-report branch
+专属；语义图 node/edge metadata 计数明确为可选。嵌套 list schema 使用 `[]` 路径描述。
+Topic/person 不存在独立顶层计数，分别由 `nodes[].kind` 与 metadata 计数表达；当前没有
+media count。Canonical `message` 是 ToolResult 顶层字段，不属于 `data` inventory。
+
+Drift guard 会枚举 fixture 的实际 data paths，任何未进入 `output_structure` 的新字段都
+fail closed。四个 proposal 已更新为 `schema_aligned_pending_registration_review`；日报和
+build 仍额外阻塞于 `declare_and_review_output_budget`，5000 bytes 未获 production 批准。
+验证结果：新增 schema alignment 17 tests；Output Governance 定向 103 passed in 4.31s；
+完整 pytest 421 passed in 29.74s；compileall 与 `git diff --check` 通过。未提交 commit，
+production registry 与 enforcement 保持关闭。
+
 ## Phase 2.5 Checkpoint Commit
 
 - Checkpoint commit: `56db056c9b8d795764dd818214cca4108eeb3c6f`
