@@ -952,7 +952,7 @@ def profile_to_text(profile: aiosqlite.Row | None) -> str:
         value_text = str(value or "").strip()
         if value_text:
             lines.append(f"{label}：{value_text}")
-    longterm = str(profile.get("longterm_profile") or "").strip()
+    longterm = str(profile["longterm_profile"] or "").strip()
     if longterm:
         lines.append(f"长期画像：{longterm}")
     if profile["updated_at"]:
