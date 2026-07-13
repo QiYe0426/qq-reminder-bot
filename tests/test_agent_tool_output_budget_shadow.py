@@ -184,12 +184,15 @@ def test_idempotency_replay_is_unchanged_and_not_remeasured(
 class _SafeLogger:
     def __init__(self) -> None:
         self.messages: list[tuple[str, tuple[object, ...]]] = []
+        self.rendered: list[str] = []
 
     def info(self, message: str, *args: object) -> None:
         self.messages.append((message, args))
+        self.rendered.append(message.format(*args))
 
     def warning(self, message: str, *args: object) -> None:
         self.messages.append((message, args))
+        self.rendered.append(message.format(*args))
 
 
 def test_shadow_telemetry_does_not_log_output_content(monkeypatch) -> None:
@@ -216,6 +219,25 @@ def test_shadow_telemetry_does_not_log_output_content(monkeypatch) -> None:
     assert "output_budget_safe_log" in rendered
     assert "size_bytes" in rendered
     assert "budget_bytes" in rendered
+
+
+def test_shadow_measurement_telemetry_expands_log_values(monkeypatch) -> None:
+    safe_logger = _SafeLogger()
+    monkeypatch.setattr(gateway, "logger", safe_logger)
+
+    gateway._record_output_budget_shadow(
+        tool_name="get_semantic_graph",
+        size_bytes=12345,
+        budget_bytes=5000,
+        exceeded=True,
+    )
+
+    assert safe_logger.rendered == [
+        "Agent tool output budget shadow: tool_name=get_semantic_graph "
+        "size_bytes=12345 budget_bytes=5000 exceeded=true"
+    ]
+    assert "%s" not in safe_logger.rendered[0]
+    assert "%d" not in safe_logger.rendered[0]
 
 
 def test_measurement_failure_does_not_affect_runtime(monkeypatch) -> None:

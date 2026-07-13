@@ -277,3 +277,31 @@ def test_shadow_telemetry_does_not_log_output_arguments_or_identity(monkeypatch)
     assert "SECRET_ARGUMENT" not in rendered
     assert "shadow-user" not in rendered
     assert "before_size_bytes" in rendered
+
+
+def test_shadow_reduction_telemetry_expands_log_values(monkeypatch) -> None:
+    rendered = []
+
+    class FormattingLogger:
+        def info(self, message, *args):
+            rendered.append(message.format(*args))
+
+    monkeypatch.setattr(gateway, "logger", FormattingLogger())
+
+    gateway._record_output_budget_shadow_reduction(
+        tool_name="get_semantic_graph",
+        reducer_type="text",
+        before_size_bytes=12345,
+        after_size_bytes=6000,
+        reduction_ratio=0.513973,
+        status="reduced",
+    )
+
+    assert rendered == [
+        "Agent tool output budget shadow reduction: tool_name=get_semantic_graph "
+        "reducer_type=text before_size_bytes=12345 after_size_bytes=6000 "
+        "reduction_ratio=0.513973 status=reduced"
+    ]
+    assert "%s" not in rendered[0]
+    assert "%d" not in rendered[0]
+    assert "%.6f" not in rendered[0]

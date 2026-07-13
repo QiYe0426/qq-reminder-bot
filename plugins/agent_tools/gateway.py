@@ -80,11 +80,11 @@ def _record_output_budget_shadow(
     exceeded: bool,
 ) -> None:
     logger.info(
-        "Agent tool output budget shadow: tool_name=%s size_bytes=%d budget_bytes=%d exceeded=%s",
+        "Agent tool output budget shadow: tool_name={} size_bytes={} budget_bytes={} exceeded={}",
         tool_name,
         size_bytes,
         budget_bytes,
-        exceeded,
+        str(exceeded).lower(),
     )
 
 
@@ -144,8 +144,8 @@ def _record_output_budget_shadow_reduction(
     status: str,
 ) -> None:
     logger.info(
-        "Agent tool output budget shadow reduction: tool_name=%s reducer_type=%s "
-        "before_size_bytes=%d after_size_bytes=%d reduction_ratio=%.6f status=%s",
+        "Agent tool output budget shadow reduction: tool_name={} reducer_type={} "
+        "before_size_bytes={} after_size_bytes={} reduction_ratio={:.6f} status={}",
         tool_name,
         reducer_type,
         before_size_bytes,
