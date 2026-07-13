@@ -214,9 +214,9 @@ class _ProtectedFieldViolatingTextReducer(TextReducer):
 @pytest.mark.parametrize(
     ("reducer", "expected_status"),
     [
-        (_FailingTextReducer((("data", "summary"),)), "reducer_failed"),
-        (_NonDeterministicTextReducer((("data", "summary"),)), "non_deterministic"),
-        (_ProtectedFieldViolatingTextReducer((("data", "summary"),)), "reducer_invalid"),
+        (_FailingTextReducer((("data", "summary"),)), "fallback"),
+        (_NonDeterministicTextReducer((("data", "summary"),)), "fallback"),
+        (_ProtectedFieldViolatingTextReducer((("data", "summary"),)), "fallback"),
     ],
 )
 def test_shadow_failure_modes_fallback_to_original(

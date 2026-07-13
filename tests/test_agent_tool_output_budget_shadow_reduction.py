@@ -130,10 +130,31 @@ def test_shadow_reducer_failure_and_invalid_result_do_not_affect_original() -> N
         )
     )
 
-    assert failed.status == "reducer_failed"
-    assert invalid.status == "reducer_invalid"
+    assert failed.status == "fallback"
+    assert invalid.status == "fallback"
     assert invalid.protected_fields_preserved is False
     assert original == tool_success({"summary": "text" * 100})
+
+
+def test_shadow_unchanged_result_is_classified() -> None:
+    original = tool_success(
+        {
+            "summary": "short",
+            "fixed_structure": "cannot-be-reduced" * 20,
+        }
+    )
+
+    observation = asyncio.run(
+        evaluate_output_budget_shadow_reduction(
+            tool_name="get_semantic_graph",
+            result=original,
+            budget_bytes=10,
+        )
+    )
+
+    assert observation.status == "unchanged"
+    assert observation.before_size_bytes == observation.after_size_bytes
+    assert observation.reduction_ratio == 0.0
 
 
 def test_shadow_registry_contains_only_allow_inventory_candidates() -> None:
@@ -198,7 +219,7 @@ def test_non_deterministic_reducer_is_classified() -> None:
         )
     )
 
-    assert observation.status == "non_deterministic"
+    assert observation.status == "fallback"
     assert observation.deterministic is False
 
 

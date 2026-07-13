@@ -79,10 +79,18 @@ async def evaluate_output_budget_shadow_reduction(
     )
     deterministic = first.status == second.status and first.result == second.result
     protected_fields_preserved = first.status != "reducer_invalid"
-    status = first.status if deterministic else "non_deterministic"
     after = before
-    if status == "reduced":
-        after = serialized_tool_result_size_bytes(first.result)
+    if not deterministic or not protected_fields_preserved or first.status != "reduced":
+        status = "fallback"
+    else:
+        candidate_size = serialized_tool_result_size_bytes(first.result)
+        if candidate_size < before:
+            status = "reduced"
+            after = candidate_size
+        elif candidate_size == before:
+            status = "unchanged"
+        else:
+            status = "fallback"
     ratio = max(0.0, (before - after) / before) if before else 0.0
     return OutputBudgetShadowReductionResult(
         status,
