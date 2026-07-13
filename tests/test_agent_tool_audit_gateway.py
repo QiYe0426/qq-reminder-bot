@@ -88,7 +88,10 @@ def test_successful_execution_writes_complete_event_chain(monkeypatch) -> None:
     ]
     assert {str(row["invocation_id"]) for row in rows} == {str(rows[0]["invocation_id"])}
     assert [int(row["sequence"]) for row in rows] == [1, 2, 3]
-    assert all(row["arguments_fingerprint"] for row in rows)
+    assert len({str(row["event_id"]) for row in rows}) == len(rows)
+    assert len({(str(row["invocation_id"]), int(row["sequence"])) for row in rows}) == len(rows)
+    assert all(len(str(row["arguments_fingerprint"])) == 64 for row in rows)
+    assert {(str(row["risk_level"]), str(row["side_effect"])) for row in rows} == {("low", "none")}
     assert rows[-1]["outcome"] == "success"
 
 
@@ -309,3 +312,34 @@ def test_execution_started_audit_failure_blocks_high_risk_handler(monkeypatch) -
     assert called is False
     assert [str(row["event_type"]) for row in rows] == ["tool_requested", "execution_failed"]
     assert rows[-1]["execution_stage"] == "audit"
+
+
+def test_invalid_persistent_hmac_key_blocks_high_risk_handler(monkeypatch) -> None:
+    called = False
+
+    async def handler(arguments, tool_context):
+        nonlocal called
+        called = True
+        return {"ok": True}
+
+    allow_tools(monkeypatch)
+    name = "audit_gateway_invalid_hmac_fail_closed_test"
+    register_tool(
+        AgentTool(
+            name=name,
+            definition=tool_definition(name),
+            handler=handler,
+            side_effect="external",
+            risk_level="high",
+        )
+    )
+    monkeypatch.setenv(audit.AUDIT_HMAC_KEY_ENV, "invalid")
+    monkeypatch.setattr(audit, "_fingerprint_key", None)
+    monkeypatch.setattr(audit, "_fingerprint_key_source", "")
+    monkeypatch.setattr(audit, "_fingerprint_key_epoch", "")
+
+    result = asyncio.run(execute_tool(name, {"value": "safe"}, context()))
+
+    assert result["error"] == "audit_unavailable"
+    assert result["retryable"] is True
+    assert called is False

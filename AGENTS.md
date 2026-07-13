@@ -188,7 +188,9 @@ NapCat (QQ) ←→ OneBot v11 WebSocket → NoneBot → plugins/*
 - `.env.example` — 唯一可提交的环境变量模板，不得填入真实值
 - `.env` 和 `.env.local` 都绝不提交
 
-**`.env.local` 管理的内容**：AI 模型（对话、agent、总结、画像、视觉、联网搜索决策）、超时时间、功能开关（媒体识别、自动画像、自动日报）、STS2 数据路径、远程审批令牌。
+**`.env.local` 管理的内容**：AI 模型（对话、agent、总结、画像、视觉、联网搜索决策）、超时时间、功能开关（媒体识别、自动画像、自动日报）、STS2 数据路径、远程审批令牌，以及 64 位十六进制 `AGENT_TOOL_AUDIT_HMAC_KEY`。Audit key 只能安全生成并部署到服务器，不记录、不自动写回、不提交；缺失时只允许兼容性的 ephemeral key warning，无效配置不得静默降级。
+
+生产日志保持 `LOG_PRIVACY_MODE=safe`；`debug` 只用于受控开发排障。POSIX 下新建敏感数据目录与 Agent Tool SQLite 文件分别使用 `0700`/`0600`，既有宽权限只告警并由管理员按 `DEPLOY.md` 人工修复。
 
 ## 测试
 

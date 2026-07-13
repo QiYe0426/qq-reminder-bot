@@ -512,8 +512,8 @@ def log_authorization_shadow_comparison(
     conflict_summary = ",".join(comparison.conflict_fields) or "none"
     reason_summary = ",".join(comparison.reason_codes) or "none"
     message = (
-        "Agent authorization shadow: invocation_id=%s tool_name=%s "
-        "category=%s conflicts=%s reasons=%s"
+        "Agent authorization shadow: invocation_id={} tool_name={} "
+        "category={} conflicts={} reasons={}"
     )
     values = (
         invocation_id,
@@ -561,7 +561,7 @@ def observe_authorization_shadow(
         return comparison
     except Exception:
         logger.exception(
-            "Agent authorization shadow observation failed: invocation_id=%s tool_name=%s",
+            "Agent authorization shadow observation failed: invocation_id={} tool_name={}",
             invocation_id,
             tool_name,
         )

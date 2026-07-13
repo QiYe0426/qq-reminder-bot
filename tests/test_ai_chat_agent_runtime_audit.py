@@ -124,7 +124,11 @@ def test_web_search_audit_keeps_only_query_fingerprint_and_result_count(monkeypa
     assert len(result["results"]) == 2
     assert [row["event_type"] for row in rows] == ["tool_requested", "execution_started", "execution_completed"]
     assert all(row["tool_call_id"] == "web-1" for row in rows)
-    assert all(row["arguments_fingerprint"] for row in rows)
+    assert [int(row["sequence"]) for row in rows] == [1, 2, 3]
+    assert len({str(row["event_id"]) for row in rows}) == len(rows)
+    assert len({(str(row["invocation_id"]), int(row["sequence"])) for row in rows}) == len(rows)
+    assert all(len(str(row["arguments_fingerprint"])) == 64 for row in rows)
+    assert {(str(row["risk_level"]), str(row["side_effect"])) for row in rows} == {("low", "none")}
     assert json.loads(rows[-1]["safe_details_json"])["result_count"] == 2
     assert query not in raw_rows
 
@@ -177,6 +181,9 @@ def test_get_chime_writes_requested_started_and_completed(monkeypatch) -> None:
 
     assert [row["event_type"] for row in rows] == ["tool_requested", "execution_started", "execution_completed"]
     assert all(row["tool_call_id"] == "chime-1" for row in rows)
+    assert all(row["risk_level"] == "low" for row in rows)
+    assert all(row["side_effect"] == "read" for row in rows)
+    assert all(len(row["arguments_fingerprint"]) == 64 for row in rows)
 
 
 def test_respond_emits_audit_without_reply_content(monkeypatch) -> None:
@@ -193,9 +200,12 @@ def test_respond_emits_audit_without_reply_content(monkeypatch) -> None:
     raw_rows = json.dumps([dict(row) for row in rows], ensure_ascii=False)
 
     assert result == message
-    assert [row["event_type"] for row in rows] == ["response_emitted"]
-    assert rows[0]["tool_call_id"] == "respond-1"
-    assert json.loads(rows[0]["safe_details_json"])["response_length"] == len(message)
+    assert [row["event_type"] for row in rows] == ["tool_requested", "execution_started", "response_emitted"]
+    assert all(row["tool_call_id"] == "respond-1" for row in rows)
+    assert all(row["risk_level"] == "low" for row in rows)
+    assert all(row["side_effect"] == "message_send" for row in rows)
+    assert all(len(row["arguments_fingerprint"]) == 64 for row in rows)
+    assert json.loads(rows[-1]["safe_details_json"])["response_length"] == len(message)
     assert message not in raw_rows
 
 

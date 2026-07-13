@@ -29,6 +29,7 @@ from plugins.access_control import (
     is_group_feature_enabled,
 )
 from plugins.agent_tools import (
+    BUILTIN_TOOL_METADATA,
     execute_tool,
     get_agent_tool_definitions,
     has_agent_tool,
@@ -1917,8 +1918,9 @@ BUILTIN_AUDITED_TOOLS = {"web_search", "fetch_url", "get_chime"}
 
 
 def builtin_audit_profile(name: str, args: dict[str, object]) -> tuple[str, dict[str, object]]:
+    arguments_fingerprint = agent_tool_audit.fingerprint_arguments(args)
     if name == "web_search":
-        return agent_tool_audit.fingerprint_arguments({"query": str(args.get("query") or "")}), {}
+        return arguments_fingerprint, {}
     if name == "fetch_url":
         raw_url = str(args.get("url") or "")
         try:
@@ -1931,12 +1933,12 @@ def builtin_audit_profile(name: str, args: dict[str, object]) -> tuple[str, dict
             hostname = ""
             port = None
         host_fingerprint = agent_tool_audit.safe_fingerprint("host", hostname) if hostname else ""
-        return host_fingerprint, {
+        return arguments_fingerprint, {
             "scheme": scheme,
             "host_fingerprint": host_fingerprint,
             "port": port,
         }
-    return "", {}
+    return arguments_fingerprint, {}
 
 
 async def append_builtin_audit_event(
@@ -1954,6 +1956,10 @@ async def append_builtin_audit_event(
     duration_ms: int = 0,
     safe_details: dict[str, object] | None = None,
 ) -> None:
+    metadata = BUILTIN_TOOL_METADATA.get(name)
+    if metadata is None:
+        logger.error("Built-in Agent tool Audit metadata is missing: tool_name={}", name)
+        return
     try:
         await agent_tool_audit.append_event(
             invocation_id=invocation_id,
@@ -1966,8 +1972,8 @@ async def append_builtin_audit_event(
             session_target_id=str(context.get("_target_id") or ""),
             effective_group_id=str(context.get("_effective_group_id") or ""),
             arguments_fingerprint=arguments_fingerprint,
-            risk_level="low",
-            side_effect="none",
+            risk_level=metadata.risk_level,
+            side_effect=metadata.side_effect,
             execution_stage=execution_stage,
             outcome=outcome,
             error_code=error_code,
@@ -2352,11 +2358,34 @@ async def ask_ai_with_agent(question: str, *, extra_context: str = "", event: Me
                 if not message_text:
                     return "AI没有返回内容。"
                 sources = args.get("sources")
+                invocation_id = agent_tool_audit.create_invocation_id()
+                arguments_fingerprint, safe_profile = builtin_audit_profile(name, args)
                 await append_builtin_audit_event(
-                    invocation_id=agent_tool_audit.create_invocation_id(),
+                    invocation_id=invocation_id,
+                    event_type="tool_requested",
+                    name="respond",
+                    context=call_context,
+                    arguments_fingerprint=arguments_fingerprint,
+                    execution_stage="requested",
+                    outcome="pending",
+                    safe_details=safe_profile,
+                )
+                await append_builtin_audit_event(
+                    invocation_id=invocation_id,
+                    event_type="execution_started",
+                    name="respond",
+                    context=call_context,
+                    arguments_fingerprint=arguments_fingerprint,
+                    execution_stage="response",
+                    outcome="pending",
+                    safe_details=safe_profile,
+                )
+                await append_builtin_audit_event(
+                    invocation_id=invocation_id,
                     event_type="response_emitted",
                     name="respond",
                     context=call_context,
+                    arguments_fingerprint=arguments_fingerprint,
                     execution_stage="response",
                     outcome="success",
                     safe_details={
@@ -2689,13 +2718,13 @@ async def fetch_single_web_search(query: str, max_results: int, timeout_seconds:
         )
     except (asyncio.TimeoutError, ET.ParseError, URLError, OSError, ValueError):
         logger.exception(
-            "Web search failed: query_fingerprint=%s",
+            "Web search failed: query_fingerprint={}",
             agent_tool_audit.safe_fingerprint("query", query),
         )
         return []
     except Exception:
         logger.exception(
-            "Unexpected web search failure: query_fingerprint=%s",
+            "Unexpected web search failure: query_fingerprint={}",
             agent_tool_audit.safe_fingerprint("query", query),
         )
         return []
@@ -2851,7 +2880,7 @@ async def handle_ai_chat(bot: Bot, event: MessageEvent) -> None:
 
     actor_fingerprint = agent_tool_audit.safe_fingerprint("user_id", event.get_user_id())
     logger.info(
-        "AI chat triggered: actor_fingerprint=%s question_length=%d",
+        "AI chat triggered: actor_fingerprint={} question_length={}",
         actor_fingerprint,
         len(question),
     )
@@ -2863,7 +2892,7 @@ async def handle_ai_chat(bot: Bot, event: MessageEvent) -> None:
     try:
         if prompt_injection_enabled() and looks_like_prompt_injection(question):
             logger.warning(
-                "Blocked prompt injection attempt: actor_fingerprint=%s question_length=%d",
+                "Blocked prompt injection attempt: actor_fingerprint={} question_length={}",
                 actor_fingerprint,
                 len(question),
             )
@@ -2886,7 +2915,7 @@ async def handle_ai_chat(bot: Bot, event: MessageEvent) -> None:
                 extra_context_parts = [part for part in (local_context,) if part]
                 if need_search and os.getenv("AI_WEB_SEARCH_ENABLED", "1").strip() in {"1", "true", "True", "yes", "on"}:
                     logger.info(
-                        "AI web search enabled: actor_fingerprint=%s query_count=%d",
+                        "AI web search enabled: actor_fingerprint={} query_count={}",
                         actor_fingerprint,
                         len(search_queries),
                     )

@@ -1488,7 +1488,7 @@ async def process_companion_updates() -> None:
                 if changed:
                     processed += 1
                     logger.info(
-                        "Companion profile updated: scope_fingerprint=%s actor_fingerprint=%s reason_length=%d",
+                        "Companion profile updated: scope_fingerprint={} actor_fingerprint={} reason_length={}",
                         log_fingerprint("group_id", group_id),
                         log_fingerprint("user_id", user_id),
                         len(str(reason)),
@@ -1496,7 +1496,7 @@ async def process_companion_updates() -> None:
             except Exception:
                 processed += 1
                 logger.exception(
-                    "Companion profile update failed: scope_fingerprint=%s actor_fingerprint=%s",
+                    "Companion profile update failed: scope_fingerprint={} actor_fingerprint={}",
                     log_fingerprint("group_id", group_id),
                     log_fingerprint("user_id", user_id),
                 )

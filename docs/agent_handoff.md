@@ -1,5 +1,16 @@
 # Agent Runtime 项目交接
 
+## Phase 6.1-A Audit 与日志基线加固（2026-07-13，未提交）
+
+- `AGENT_TOOL_AUDIT_HMAC_KEY` 正式支持严格 64 位十六进制持久配置；HMAC 继续使用配置文本的 UTF-8 字节，保持 fingerprint 算法兼容。
+- 缺失配置时使用当前进程 ephemeral key 并输出 warning；无效配置明确失败，不静默生成替代 key。
+- 初始化日志只记录 `key_source` 和 16 位短 `key_epoch`。epoch 使用独立 domain separator 派生，不输出真实 key 或完整哈希。
+- 新创建的敏感目录和 Audit/Confirmation/Idempotency SQLite 文件在 POSIX 下分别使用 `0700`/`0600`；既有宽权限只告警，不自动递归收紧。
+- NoneBot OneBot V11 默认事件日志在 `LOG_PRIVACY_MODE=safe` 下删除 Bot/QQ/群标识、正文和媒体 URL；`debug` 只能显式启用。
+- 内建工具 Audit policy 统一来自 `BUILTIN_TOOL_METADATA`；`respond` 记录 requested、started、`response_emitted` 完整链，metadata 为 `low/message_send`。
+- 已补持久 key/epoch、跨进程 Confirmation/Idempotency/Audit、Audit 一致性、日志占位符与隐私、POSIX 权限测试。最终全量验证结果以本轮完成报告为准。
+- 本阶段没有启用 Authorization v2 或 Output Budget enforcement，没有注册 production reducer/capability，也没有改变 handler、确认、幂等或业务语义。
+
 ## Registry / Metadata Inventory Boundary Fix (2026-07-12)
 
 GitHub Actions checkpoint run 曾出现 3 个失败：测试临时工具通过全局 `_TOOLS` 泄漏到

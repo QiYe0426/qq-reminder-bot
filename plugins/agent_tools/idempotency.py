@@ -12,6 +12,7 @@ import aiosqlite
 
 from .call_identity import arguments_digest, build_idempotency_key, canonical_arguments
 from .contracts import ToolResult
+from .sensitive_storage import prepare_sensitive_sqlite_path
 
 
 DB_PATH = Path("data/agent_tool_executions.db")
@@ -101,7 +102,7 @@ def create_execution_binding(
 
 
 async def init_idempotency_db() -> None:
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    prepare_sensitive_sqlite_path(DB_PATH)
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
             """

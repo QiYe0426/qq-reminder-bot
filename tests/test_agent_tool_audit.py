@@ -9,10 +9,11 @@ import aiosqlite
 from plugins.agent_tools import audit
 
 
-def reset_audit_state(tmp_path, monkeypatch, *, hmac_key: str | None = "test-audit-key") -> None:
+def reset_audit_state(tmp_path, monkeypatch, *, hmac_key: str | None = "a" * 64) -> None:
     monkeypatch.setattr(audit, "DB_PATH", tmp_path / "agent_tool_audit.db")
     monkeypatch.setattr(audit, "_fingerprint_key", None)
     monkeypatch.setattr(audit, "_fingerprint_key_source", "")
+    monkeypatch.setattr(audit, "_fingerprint_key_epoch", "")
     if hmac_key is None:
         monkeypatch.delenv(audit.AUDIT_HMAC_KEY_ENV, raising=False)
     else:
@@ -160,7 +161,7 @@ def test_sensitive_details_are_redacted_and_url_query_is_removed(tmp_path, monke
 
 
 def test_fingerprint_is_stable_hmac_and_does_not_contain_plaintext(tmp_path, monkeypatch) -> None:
-    reset_audit_state(tmp_path, monkeypatch, hmac_key="stable-key")
+    reset_audit_state(tmp_path, monkeypatch, hmac_key="b" * 64)
     arguments = {"text": "private reminder", "enabled": True}
 
     first = audit.fingerprint_arguments(arguments)
@@ -178,18 +179,23 @@ def test_fingerprint_is_stable_hmac_and_does_not_contain_plaintext(tmp_path, mon
 def test_runtime_random_fingerprint_key_warns_and_is_not_restart_stable(tmp_path, monkeypatch) -> None:
     reset_audit_state(tmp_path, monkeypatch, hmac_key=None)
     warnings: list[str] = []
-    monkeypatch.setattr(audit.logger, "warning", lambda message: warnings.append(str(message)))
+    monkeypatch.setattr(
+        audit.logger,
+        "warning",
+        lambda message, *args: warnings.append(str(message).format(*args)),
+    )
 
     first = audit.fingerprint_arguments({"value": "same"})
     same_runtime = audit.fingerprint_arguments({"value": "same"})
     monkeypatch.setattr(audit, "_fingerprint_key", None)
     monkeypatch.setattr(audit, "_fingerprint_key_source", "")
+    monkeypatch.setattr(audit, "_fingerprint_key_epoch", "")
     simulated_restart = audit.fingerprint_arguments({"value": "same"})
 
     assert first == same_runtime
     assert first != simulated_restart
     assert len(warnings) == 2
-    assert all("cannot be correlated across restarts" in item for item in warnings)
+    assert all("fingerprints_cannot_cross_restarts=true" in item for item in warnings)
 
 
 def test_concurrent_appends_allocate_unique_sequences(tmp_path, monkeypatch) -> None:

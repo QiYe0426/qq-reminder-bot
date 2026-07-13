@@ -324,7 +324,7 @@ async def target_group_admin_authorized(
         from plugins.sensitive_logging import log_fingerprint
 
         logger.warning(
-            "Unable to verify target group admin role: scope_fingerprint=%s actor_fingerprint=%s",
+            "Unable to verify target group admin role: scope_fingerprint={} actor_fingerprint={}",
             log_fingerprint("group_id", group_id),
             log_fingerprint("user_id", user_id),
         )

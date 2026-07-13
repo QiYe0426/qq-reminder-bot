@@ -417,7 +417,7 @@ async def get_group_name(bot: Bot | None, group_id: str) -> str:
         info = await bot.call_api("get_group_info", group_id=int(group_id), no_cache=False)
     except Exception:
         logger.warning(
-            "Failed to get group info: scope_fingerprint=%s",
+            "Failed to get group info: scope_fingerprint={}",
             log_fingerprint("group_id", group_id),
         )
         return f"群{group_id}"
@@ -1177,7 +1177,7 @@ async def generate_ai_daily_report_markdown(
             chunk_summaries.append(await summarize_chunk(chunk, index, len(chunks)))
         except Exception as exc:
             logger.exception(
-                "Daily report chunk summary failed: scope_fingerprint=%s date=%s chunk=%d/%d",
+                "Daily report chunk summary failed: scope_fingerprint={} date={} chunk={}/{}",
                 log_fingerprint("group_id", group_id),
                 target_date,
                 index,
@@ -1194,7 +1194,7 @@ async def generate_ai_daily_report_markdown(
         )
     except Exception as exc:
         logger.exception(
-            "Daily report final synthesis failed; using fallback report: scope_fingerprint=%s date=%s",
+            "Daily report final synthesis failed; using fallback report: scope_fingerprint={} date={}",
             log_fingerprint("group_id", group_id),
             target_date,
         )
@@ -1283,7 +1283,7 @@ def write_pdf_report(markdown: str, pdf_path: Path) -> None:
             pdfmetrics.registerFont(TTFont(font_name, font_path))
         except Exception:
             logger.warning(
-                "Failed to register PDF font: path_fingerprint=%s; falling back to STSong-Light",
+                "Failed to register PDF font: path_fingerprint={}; falling back to STSong-Light",
                 log_fingerprint("font_path", font_path),
             )
             font_name = "STSong-Light"
@@ -1381,7 +1381,7 @@ async def send_daily_report_notice(bot: Bot, message: str) -> None:
             await bot.call_api("send_private_msg", user_id=int(admin_id), message=message)
         except Exception:
             logger.exception(
-                "Failed to send daily report notice: actor_fingerprint=%s",
+                "Failed to send daily report notice: actor_fingerprint={}",
                 log_fingerprint("user_id", admin_id),
             )
 
@@ -1421,7 +1421,7 @@ async def send_daily_report_to_admins(
                 await bot.call_api("send_private_msg", user_id=int(admin_id), message=message)
             except Exception:
                 logger.exception(
-                    "Failed to send daily report failure notice: actor_fingerprint=%s",
+                    "Failed to send daily report failure notice: actor_fingerprint={}",
                     log_fingerprint("user_id", admin_id),
                 )
         raise RuntimeError("长图/PDF 未生成")
@@ -1443,7 +1443,7 @@ async def send_daily_report_to_admins(
             )
         except Exception:
             logger.exception(
-                "Failed to send daily report: actor_fingerprint=%s",
+                "Failed to send daily report: actor_fingerprint={}",
                 log_fingerprint("user_id", admin_id),
             )
     return pdf_filename
@@ -1519,7 +1519,7 @@ async def run_automatic_daily_reports(target_date: date, reason: str) -> None:
             await mark_daily_report_run(group_id, target_date, "failed", repr(exc))
             failed_count += 1
             logger.exception(
-                "Daily report job failed: scope_fingerprint=%s",
+                "Daily report job failed: scope_fingerprint={}",
                 log_fingerprint("group_id", group_id),
             )
             await send_daily_report_notice(

@@ -146,7 +146,9 @@ stale running    -> unknown
 - 不保存 Prompt、用户原文或完整工具参数。
 - 不保存确认 token、确认码或幂等 owner token。
 - 不保存提醒正文、用户昵称或 URL query。
-- 参数指纹使用 HMAC-SHA256；密钥来自 `AGENT_TOOL_AUDIT_HMAC_KEY`。
+- 参数指纹使用 HMAC-SHA256；持久密钥来自 `AGENT_TOOL_AUDIT_HMAC_KEY`，必须是 64 位十六进制字符串。为保持 fingerprint 算法兼容，HMAC 继续使用配置文本的 UTF-8 字节。
+- 未配置时使用当前进程临时 key，并以 `key_source=ephemeral` 输出 warning；无效的持久配置明确失败，不降级到随机 key。
+- `key_epoch` 是 `SHA-256("agent-tool-audit-hmac-key-epoch-v1" || NUL || key)` 的前 16 位十六进制字符，仅用于识别 key 生命周期，不承担认证职责。日志不输出 key 或完整哈希。
 - 未配置密钥时使用运行期随机密钥，并明确告警该指纹不能跨重启关联。
 - `safe_details_json` 写入前始终再次经过 `sanitize_details()`。
 
@@ -166,18 +168,18 @@ stale running    -> unknown
 | Handler 异常 | 转换为 `tool_execution_failed`；幂等状态记为 unknown |
 | 终态审计写入失败 | 记录系统异常；不回滚已经发生的副作用 |
 
-审计表当前没有自动归档、保留期和密钥轮换机制。部署恢复时应同时备份 Confirmation、Idempotency、Audit 数据库；恢复 unknown 记录前必须核对真实外部状态。
+审计表当前没有自动归档、保留期和多 key 无缝轮换机制。更换 key 会产生新 epoch；旧事件保持不变且不能用新 key 重算。部署恢复时应同时备份 Confirmation、Idempotency、Audit 数据库；恢复 unknown 记录前必须核对真实外部状态。
 
 ## 8. ai_chat Tool 入口审计
 
-注册工具在 `run_agent_tool()` 开头通过 `has_agent_tool()` 进入 Gateway。`web_search`、`fetch_url` 和 `get_chime` 保留本地执行，但统一经过内建 Audit adapter；`respond` 在 Agent 循环发出 `response_emitted` 事件。
+注册工具在 `run_agent_tool()` 开头通过 `has_agent_tool()` 进入 Gateway。`web_search`、`fetch_url` 和 `get_chime` 保留本地执行，但统一经过内建 Audit adapter；内建 Audit 的 risk/side effect 来自 `BUILTIN_TOOL_METADATA`。`respond` 在 Agent 循环记录 requested、started、`response_emitted` 完整链路。
 
 | 工具 | 当前路径 | 风险 | 建议 |
 |---|---|---|---|
 | `web_search` | 本地调用 `agent_web_search()`，由 adapter 记录 requested/started/terminal、query HMAC 和结果数 | 不经过 Gateway 的统一超时和异常协议 | 保持 adapter；未来如迁移 Gateway，应维持不保存 query 的边界 |
 | `fetch_url` | 本地调用 SSRF 安全 fetch，由 adapter 记录 scheme、host HMAC、port 和结果大小 | 不经过 Gateway，但 SSRF 实现未被复制或绕过 | 保持 adapter，必须继续复用 `safe_http_fetch` |
 | `get_chime` | 本地 service 调用，由 adapter 记录 requested/started/terminal | 参数与结果协议仍由循环层负责 | 低风险，可保持当前 adapter |
-| `respond` | Agent 循环直接终止并记录 `response_emitted` | 它是控制流而非普通 Handler | 保持循环控制，不保存回复正文 |
+| `respond` | Agent 循环直接终止并记录 requested/started/`response_emitted`，Audit metadata 为 `low/message_send` | 它是控制流而非普通 Handler | 保持循环控制，不保存回复正文 |
 | `set_chime` | 已注册于 `chime_tools.py:51-64` | 不再绕过 Gateway | 保持现状 |
 
 Agent 循环与 Gateway 对注册工具仍存在重复参数解析和 Schema 验证。内建工具仍依赖循环层校验，因此清理重复逻辑前必须先拆分注册工具和内建工具的 envelope 路径。
@@ -236,38 +238,28 @@ Phase 1 只负责声明、枚举校验和覆盖检查。Gateway、Authorization�
 
 建议保留 snake_case 协议并建立中央常量/分类映射：`invalid_arguments`、`authorization_denied`、`confirmation_*`、`resource_not_found`、`dependency_unavailable`、`execution_failed`、`temporary_unavailable`、`rate_limited`。迁移期保留旧码到新分类的兼容映射，不要一次性修改所有 Handler。
 
-## 12. 日志安全扫描
+## 12. 日志安全基线
 
-未发现显式记录 Confirmation token、确认码或 Idempotency owner token 的日志。以下位置存在内容或身份泄露风险：
-
-| 优先级 | 位置 | 风险 |
-|---|---|---|
-| P0 | `ai_chat.py:2191` | 非特殊工具会记录完整 args，可包含提醒正文、查询词、群号和用户 ID |
-| P0 | `ai_chat.py:2184-2185` | `fetch_url` 的完整 URL 被放入日志对象，query 可能包含 token |
-| P0 | `ai_chat.py:2676` | 同时记录 QQ 用户 ID 和用户原文前 60 字 |
-| P0 | `ai_chat.py:2684` | 同时记录 QQ 用户 ID 和疑似 Prompt 注入原文前 120 字 |
-| P1 | `ai_chat.py:2182-2183`、`2521-2524`、`2703` | 搜索 query 和派生查询可能包含用户原文或敏感实体 |
-| P1 | `agent_tool_access.py:324` | 权限查询失败时同时记录目标群号和用户 QQ |
-| P1 | `companion_memory.py:1489-1492` | 记录群号、用户 QQ 和画像更新 reason |
-| P1 | `group_reactions.py:871` | 记录群号与触发关键词 |
-| P2 | `daily_report.py:1174-1490` | 多处记录群号、管理员 QQ、日期和任务进度，主要是可关联标识符 |
-
-推荐用 `invocation_id`、Tool 名、错误码、耗时和 HMAC scope 指纹替代原文及 QQ。URL 日志只保留 scheme/host/path，删除 userinfo、query 和 fragment。`logger.exception` 的固定消息本身较安全，但仍需约束底层异常对象不要包含请求正文或带 query 的 URL。
+- 业务日志使用稳定 fingerprint、组件名、状态码、错误类别和计数，不记录 Confirmation token、Idempotency owner token、完整 QQ/群标识或用户正文。
+- `fetch_url` Audit 只保留 scheme、host fingerprint 和 port；不保存 userinfo、path、query 或 fragment。
+- `LOG_PRIVACY_MODE=safe` 为默认值。项目替换 NoneBot 默认 stdout sink 的事件消息输出，在 OneBot V11 消息事件进入日志前移除 Bot ID、完整事件摘要、正文和媒体 URL，仅保留事件类型、原始事件字符串长度与媒体段数量。
+- `LOG_PRIVACY_MODE=debug` 是显式开发诊断开关，会恢复 NoneBot 原始事件日志，因此不能作为生产默认值。
+- Loguru logger 调用由 AST 守护测试检查，禁止在明确的 logger 调用中重新引入 `%s`、`%d`、`%r` 等标准 logging 占位符。
+- 固定 `logger.exception` 消息继续保留 traceback；底层异常对象仍不得包含请求正文、完整敏感数据库行或带凭据 URL。
 
 ## 13. 测试覆盖缺口
 
-现有测试覆盖 Contract、目标群权限、Confirmation 绑定与重放、Idempotency 状态、Audit 存储与并发、内建 Tool Audit、Tool Call 关联、Reminder 授权、SSRF 和 Semantic Graph 边界。本次提交的实际测试结果以提交前验证记录为准，不在文档中固化易过期的全量通过数量。
+现有测试覆盖 Contract、目标群权限、Confirmation 绑定与跨进程恢复、Idempotency 状态与跨进程 replay、Audit 存储/并发/HMAC epoch/跨进程序列、内建 Tool Audit 一致性、日志隐私、Loguru 占位符、POSIX 敏感路径权限、Tool Call 关联、Reminder 授权、SSRF 和 Semantic Graph 边界。实际测试结果以最终验证报告为准，不在文档中固化易过期的全量通过数量。
 
 ### P0
 
-- 日志测试尚未直接捕获 logger sink 并断言 QQ、用户原文和关键词不会输出；Audit 数据库测试已覆盖 query、URL 和回复正文不落库。
-- Audit 数据库不可写时仅覆盖高风险 `execution_started`；没有覆盖磁盘满、数据库损坏和锁超时。
+- Audit 数据库不可写已覆盖高风险工具 fail closed；仍没有覆盖磁盘满、数据库损坏和锁超时。
 
 ### P1
 
 - Gateway Audit 尚无 `validation_failed` 专项测试。
 - 尚无 `idempotency_running`、`idempotency_unknown` 事件链测试。
-- 尚无低风险 Audit 写失败仍执行，以及终态 Audit 写失败不改变 ToolResult 的测试。
+- 尚无低风险 Audit 写失败仍执行，以及终态 Audit 写失败不改变 ToolResult 的专项测试。
 - Agent Loop 只覆盖 Confirmation 中止；缺少工具调用上限、多 Tool batch、内建工具异常和 ToolResult 过大场景。
 - Reminder 已覆盖授权对象，但缺少 Agent Tool 与服务端授权目标组合的完整消息事件集成测试。
 

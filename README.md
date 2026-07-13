@@ -299,6 +299,7 @@ ws://127.0.0.1:8080/onebot/v11/ws
 HOST=127.0.0.1
 PORT=8080
 LOG_LEVEL=INFO
+LOG_PRIVACY_MODE=safe
 COMMAND_START=["/"]
 BOT_ADMIN_USER_IDS=123456789
 ```
@@ -328,6 +329,7 @@ AI_AGENT_ENABLED=1
 AI_AGENT_MODEL=deepseek-v4-pro
 AI_AGENT_TIMEOUT_SECONDS=90
 AI_AGENT_MAX_TOOL_CALLS=8
+AGENT_TOOL_AUDIT_HMAC_KEY=用安全生成器生成的64位十六进制字符串
 AI_AGENT_SEARCH_MAX_RESULTS=5
 AI_AGENT_FETCH_TIMEOUT_SECONDS=15
 AI_AGENT_FETCH_MAX_CHARS=7000
@@ -387,6 +389,29 @@ DAILY_REPORT_STARTUP_GRACE_MINUTES=120
 ```
 
 `.env.local` 已经被 `.gitignore` 忽略，不会进入 Git。
+
+### Audit HMAC 与生产日志隐私
+
+`AGENT_TOOL_AUDIT_HMAC_KEY` 是正式生产配置，只能写入服务器 `.env.local`。推荐生成方式：
+
+```bash
+openssl rand -hex 32
+# 或
+python -c "import secrets; print(secrets.token_hex(32))"
+```
+
+配置值必须是 64 位十六进制字符串。64 个字符是 32 个随机字节的十六进制编码；安全性来自生成时的 32 字节随机熵，而不是普通字符串恰好有 32 个字符。为兼容已有 fingerprint 算法，Runtime 继续把该配置值的 UTF-8 字节作为 HMAC key，不改变历史算法语义。
+
+- 配置存在且合法：`key_source=persistent`，相同 key 跨进程得到相同 `key_epoch` 和参数 fingerprint。
+- 配置缺失：服务保持兼容并使用当前进程临时 key，输出 `key_source=ephemeral` warning；fingerprint 不能跨重启关联。
+- 配置存在但格式无效：明确报错，不静默降级到另一把临时 key。
+- 初始化日志只包含 `key_source` 和 16 位短 `key_epoch`；不包含 key、完整 key 哈希或环境变量内容。
+
+首次启用持久 key 会形成新的 fingerprint epoch 边界。旧 Audit 事件保持原样，不能用新 key 重新计算，也不应迁移。更换 key 同样会产生新 epoch；轮换前应记录时间和旧 epoch。当前没有多 key 验证或无缝 key rotation 机制。
+
+生产环境保持 `LOG_PRIVACY_MODE=safe`（默认值）：NoneBot OneBot V11 事件日志不输出完整 Bot/QQ/群标识、消息正文或媒体 URL，只保留事件类型、原始事件字符串长度和媒体段数量。仅在受控开发环境可显式设置 `LOG_PRIVACY_MODE=debug`；该模式会恢复原始事件日志，可能包含敏感内容。
+
+服务器建议执行 `chmod 600 .env.local`。新创建的敏感数据目录和 Agent Tool Audit/Confirmation/Idempotency SQLite 文件会在 POSIX 下分别使用 `0700` 和 `0600`；已存在且过宽的权限只告警，不会在启动时静默修改。
 
 ## Codex QQ 远程审批
 

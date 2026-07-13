@@ -821,7 +821,7 @@ def image_segment_from_reply_content(content: str) -> MessageSegment | None:
         image_path = project_root() / image_path
     if not image_path.exists() or not image_path.is_file():
         logger.warning(
-            "Keyword retort image reply is missing: path_fingerprint=%s",
+            "Keyword retort image reply is missing: path_fingerprint={}",
             log_fingerprint("image_path", image_path),
         )
         return None

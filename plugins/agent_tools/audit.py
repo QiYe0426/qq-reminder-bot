@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 import secrets
 import threading
 import uuid
@@ -16,13 +17,23 @@ from urllib.parse import urlsplit, urlunsplit
 import aiosqlite
 from nonebot.log import logger
 
+from .sensitive_storage import prepare_sensitive_sqlite_path
+
 
 DB_PATH = Path("data/agent_tool_audit.db")
 AUDIT_HMAC_KEY_ENV = "AGENT_TOOL_AUDIT_HMAC_KEY"
+AUDIT_HMAC_KEY_EPOCH_DOMAIN = b"agent-tool-audit-hmac-key-epoch-v1"
+AUDIT_HMAC_KEY_HEX_LENGTH = 64
+AUDIT_HMAC_KEY_EPOCH_LENGTH = 16
 
 _fingerprint_key: bytes | None = None
 _fingerprint_key_source = ""
+_fingerprint_key_epoch = ""
 _fingerprint_key_lock = threading.Lock()
+
+
+class AuditHmacKeyConfigurationError(RuntimeError):
+    pass
 
 SENSITIVE_KEY_PARTS = (
     "prompt",
@@ -112,8 +123,25 @@ def create_invocation_id() -> str:
     return str(uuid.uuid4())
 
 
+def _key_epoch(key: bytes) -> str:
+    digest = hashlib.sha256(AUDIT_HMAC_KEY_EPOCH_DOMAIN + b"\x00" + key).hexdigest()
+    return digest[:AUDIT_HMAC_KEY_EPOCH_LENGTH]
+
+
+def _persistent_key_from_environment(value: str) -> bytes:
+    if not re.fullmatch(r"[0-9a-fA-F]{64}", value):
+        raise AuditHmacKeyConfigurationError(
+            f"{AUDIT_HMAC_KEY_ENV} must be exactly {AUDIT_HMAC_KEY_HEX_LENGTH} hexadecimal characters "
+            "generated from 32 random bytes."
+        )
+    # Keep the established UTF-8 environment-value key semantics. A 64-character
+    # hexadecimal value encodes 32 bytes of random material while remaining
+    # compatible with deployments that already used this documented form.
+    return value.encode("ascii")
+
+
 def _get_fingerprint_key() -> bytes:
-    global _fingerprint_key, _fingerprint_key_source
+    global _fingerprint_key, _fingerprint_key_source, _fingerprint_key_epoch
     if _fingerprint_key is not None:
         return _fingerprint_key
     with _fingerprint_key_lock:
@@ -121,16 +149,38 @@ def _get_fingerprint_key() -> bytes:
             return _fingerprint_key
         configured = os.getenv(AUDIT_HMAC_KEY_ENV, "").strip()
         if configured:
-            _fingerprint_key = configured.encode("utf-8")
-            _fingerprint_key_source = "configured"
+            try:
+                _fingerprint_key = _persistent_key_from_environment(configured)
+            except AuditHmacKeyConfigurationError:
+                logger.error(
+                    "Agent tool audit HMAC configuration is invalid: env={} expected_format=64_hex_chars",
+                    AUDIT_HMAC_KEY_ENV,
+                )
+                raise
+            _fingerprint_key_source = "persistent"
+            _fingerprint_key_epoch = _key_epoch(_fingerprint_key)
+            logger.info(
+                "Agent tool audit HMAC initialized: key_source={} key_epoch={}",
+                _fingerprint_key_source,
+                _fingerprint_key_epoch,
+            )
         else:
             _fingerprint_key = secrets.token_bytes(32)
-            _fingerprint_key_source = "runtime"
+            _fingerprint_key_source = "ephemeral"
+            _fingerprint_key_epoch = _key_epoch(_fingerprint_key)
             logger.warning(
-                f"{AUDIT_HMAC_KEY_ENV} is not configured; Agent tool audit fingerprints "
-                "use a runtime-only random key and cannot be correlated across restarts."
+                "Agent tool audit HMAC initialized with an ephemeral key: env={} key_source={} "
+                "key_epoch={} fingerprints_cannot_cross_restarts=true",
+                AUDIT_HMAC_KEY_ENV,
+                _fingerprint_key_source,
+                _fingerprint_key_epoch,
             )
         return _fingerprint_key
+
+
+def fingerprint_key_info() -> tuple[str, str]:
+    _get_fingerprint_key()
+    return _fingerprint_key_source, _fingerprint_key_epoch
 
 
 def fingerprint_arguments(arguments: Mapping[str, object]) -> str:
@@ -208,7 +258,8 @@ def sanitize_details(details: Mapping[str, object] | None) -> dict[str, object]:
 
 
 async def init_audit_db() -> None:
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    fingerprint_key_info()
+    prepare_sensitive_sqlite_path(DB_PATH)
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
             """

@@ -9,5 +9,6 @@ def isolate_agent_tool_execution_db(tmp_path, monkeypatch) -> None:
 
     monkeypatch.setattr(idempotency, "DB_PATH", tmp_path / "agent_tool_executions.db")
     monkeypatch.setattr(audit, "DB_PATH", tmp_path / "agent_tool_audit.db")
-    monkeypatch.setattr(audit, "_fingerprint_key", b"test-agent-tool-audit-key")
+    monkeypatch.setattr(audit, "_fingerprint_key", b"a" * 64)
     monkeypatch.setattr(audit, "_fingerprint_key_source", "test")
+    monkeypatch.setattr(audit, "_fingerprint_key_epoch", "test-epoch")

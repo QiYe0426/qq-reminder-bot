@@ -74,6 +74,8 @@ AI_AGENT_ENABLED=1
 AI_AGENT_MODEL=deepseek-v4-pro
 AI_AGENT_TIMEOUT_SECONDS=90
 AI_AGENT_MAX_TOOL_CALLS=8
+AGENT_TOOL_AUDIT_HMAC_KEY=用安全生成器生成的64位十六进制字符串
+LOG_PRIVACY_MODE=safe
 
 COMPANION_ADMIN_TOKEN=一串很长的随机管理令牌
 COMPANION_MEMORY_AUTO_ENABLED=1
@@ -89,6 +91,32 @@ DAILY_REPORT_SEND_TIME=04:00
 DAILY_REPORT_TIMEZONE=Asia/Shanghai
 DAILY_REPORT_STARTUP_GRACE_MINUTES=120
 ```
+
+首次配置 Audit HMAC key 时，在服务器上生成 32 字节随机值的 64 位十六进制编码，并只写入 `.env.local`：
+
+```bash
+openssl rand -hex 32
+# 或
+python -c "import secrets; print(secrets.token_hex(32))"
+chmod 600 .env.local
+```
+
+不要把生成值输出到工单、日志或 Git。配置缺失时服务仍可启动，但会使用仅当前进程有效的 ephemeral key 并输出 warning；配置存在但不是恰好 64 位十六进制字符串时会明确失败，不会静默换用随机 key。
+
+启用持久 key 的时间点是新的 fingerprint epoch 边界：历史 Audit 事件保持原样，无法用新 key 重算，也不应修改。更换 key 会再次创建新 epoch；轮换前记录时间和旧 `key_epoch`。当前不支持多 key 或无缝轮换。
+
+生产保持 `LOG_PRIVACY_MODE=safe`。只有受控开发排障才可临时显式使用 `debug`，因为该模式可能恢复含 QQ 标识、消息正文和媒体 URL 的 NoneBot 原始事件日志。
+
+现有运行目录权限由管理员人工核对并收紧；应用只对新路径安全创建、对既有宽权限告警：
+
+```bash
+chmod 700 data
+chmod 600 data/agent_tool_audit.db \
+  data/agent_tool_confirmations.db \
+  data/agent_tool_executions.db
+```
+
+若某个数据库尚未创建，应跳过对应路径。启动后可从日志确认 `key_source` 与短 `key_epoch`，但不要打印或搜索真实 key。
 
 `DAILY_REPORT_GROUP_IDS` 留空时，自动日报跟随控制台每个群的「自动发送日报」开关；如果这里写了群号，它会变成白名单，但仍要求该群在控制台开启「消息采集」和「日报」。
 

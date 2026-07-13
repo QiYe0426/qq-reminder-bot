@@ -107,7 +107,7 @@ def _observe_output_budget_shadow(
         return size_bytes
     except Exception:
         # Never include the result or exception text: either may contain output.
-        logger.warning("Agent tool output budget shadow failed: tool_name=%s", tool_name)
+        logger.warning("Agent tool output budget shadow failed: tool_name={}", tool_name)
         return None
 
 
@@ -121,8 +121,8 @@ def _record_output_budget_framework(
 ) -> None:
     try:
         logger.info(
-            "Agent tool output budget framework: tool_name=%s status=%s budget_bytes=%d "
-            "before_size_bytes=%d after_size_bytes=%d",
+            "Agent tool output budget framework: tool_name={} status={} budget_bytes={} "
+            "before_size_bytes={} after_size_bytes={}",
             tool_name,
             status,
             budget_bytes,
@@ -183,7 +183,7 @@ async def _observe_output_budget_shadow_reduction(
     except Exception:
         # Never log result content or exception text from shadow evaluation.
         logger.warning(
-            "Agent tool output budget shadow reduction failed: tool_name=%s",
+            "Agent tool output budget shadow reduction failed: tool_name={}",
             tool_name,
         )
 
@@ -343,7 +343,7 @@ async def execute_tool(tool_name: str, arguments: object, context: dict[str, obj
         )
     except Exception:
         logger.exception(
-            "Agent authorization shadow setup failed: invocation_id=%s tool_name=%s",
+            "Agent authorization shadow setup failed: invocation_id={} tool_name={}",
             invocation_id,
             tool_name,
         )

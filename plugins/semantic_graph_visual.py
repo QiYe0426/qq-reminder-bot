@@ -296,11 +296,11 @@ def _render_graph_via_netgraph(
             with Image.open(tmp) as img:
                 img = img.convert("RGB")
             img.save(output_png)
-            logger.info("Netgraph rendered semantic graph PNG to %s (%d bytes)", output_png, output_png.stat().st_size)
+            logger.info("Netgraph rendered semantic graph PNG to {} ({} bytes)", output_png, output_png.stat().st_size)
         else:
             _render_empty_fallback(output_png, "语义图渲染失败")
     except Exception as exc:
-        logger.exception("Netgraph rendering failed: %s", exc)
+        logger.exception("Netgraph rendering failed: {}", exc)
         _render_empty_fallback(output_png, "图形渲染异常，请稍后重试")
         plt.close(fig)
     finally:
