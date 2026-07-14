@@ -31,3 +31,23 @@ class DuplicateActionError(GameRuntimeError):
 
 class UnknownActionError(GameRuntimeError):
     """Raised when an action ID is not present in the queue."""
+
+
+class PersistenceError(GameRuntimeError):
+    """Base error for Game Runtime persistence failures."""
+
+
+class UnsupportedSchemaVersion(PersistenceError):
+    """Raised when the database schema is newer than this Runtime."""
+
+
+class PersistenceConflict(PersistenceError):
+    """Raised when an expected state version or unique binding conflicts."""
+
+
+class DuplicateEventError(PersistenceError):
+    """Raised when an Event ID conflicts with a persisted Event."""
+
+
+class ActorOwnershipConflict(GameRuntimeError):
+    """Raised when two Actors attempt to own the same game_id."""

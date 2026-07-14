@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from enum import Enum
 
 from game_runtime.errors import InvalidPhaseTransition, InvalidSessionTransition
 from game_runtime.identity import DMIdentity
 from game_runtime.participant import ParticipantReference
+
+
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 class GameSessionStatus(str, Enum):
@@ -63,6 +68,9 @@ class GameSession:
     status: GameSessionStatus = GameSessionStatus.CREATED
     current_phase: GamePhase = GamePhase.LOBBY
     state_version: int = 0
+    last_applied_sequence_no: int = 0
+    created_at: datetime = field(default_factory=utc_now)
+    updated_at: datetime = field(default_factory=utc_now)
 
     def __post_init__(self) -> None:
         if not self.game_id:
@@ -73,6 +81,16 @@ class GameSession:
             raise ValueError("group_id must not be empty")
         if self.state_version < 0:
             raise ValueError("state_version must not be negative")
+        if self.last_applied_sequence_no < 0:
+            raise ValueError("last_applied_sequence_no must not be negative")
+        for name, value in (
+            ("created_at", self.created_at),
+            ("updated_at", self.updated_at),
+        ):
+            if value.tzinfo is None or value.utcoffset() is None:
+                raise ValueError(f"{name} must be timezone-aware")
+        if self.updated_at < self.created_at:
+            raise ValueError("updated_at must not be earlier than created_at")
         self.participant_references = tuple(self.participant_references)
         self._validate_state_pair()
 
@@ -100,6 +118,7 @@ class GameSession:
 
         self.status = target
         self.state_version += 1
+        self.updated_at = utc_now()
         self._validate_state_pair()
 
     def can_transition_phase_to(self, target: GamePhase) -> bool:
@@ -118,6 +137,7 @@ class GameSession:
             )
         self.current_phase = target
         self.state_version += 1
+        self.updated_at = utc_now()
 
     def _validate_state_pair(self) -> None:
         if self.status is GameSessionStatus.CREATED and self.current_phase is not GamePhase.LOBBY:

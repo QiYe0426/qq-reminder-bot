@@ -1,14 +1,18 @@
-"""Game Runtime domain skeleton.
+"""Game Runtime domain contracts and platform-neutral routing surface.
 
-P3-A intentionally exposes only in-memory domain models and interface contracts.
-It has no LLM, QQ, persistence, or Normal Mode integration.
+Persistence and recovery remain explicit subpackages.  No LLM, QQ, production
+message takeover, or Normal Mode integration is enabled here.
 """
 
 from game_runtime.action import ActionQueue, GameAction, GameActionStatus
 from game_runtime.actor import GameSessionActor
 from game_runtime.event import GameEvent, GameEventSource, GameEventType
 from game_runtime.identity import DMIdentity
-from game_runtime.participant import ParticipantReference, ParticipantType
+from game_runtime.participant import (
+    ParticipantMembershipState,
+    ParticipantReference,
+    ParticipantType,
+)
 from game_runtime.routing import (
     ActorGameRuntimeIngress,
     GameModeRouterAdapter,
@@ -39,6 +43,7 @@ __all__ = [
     "IngressMessageEnvelope",
     "MessageType",
     "ModeRouter",
+    "ParticipantMembershipState",
     "ParticipantReference",
     "ParticipantType",
     "RouteDestination",

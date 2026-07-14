@@ -11,6 +11,13 @@ class ParticipantType(str, Enum):
     UNKNOWN = "UNKNOWN"
 
 
+class ParticipantMembershipState(str, Enum):
+    ACTIVE = "ACTIVE"
+    REPLACED = "REPLACED"
+    LEFT = "LEFT"
+    REVOKED = "REVOKED"
+
+
 @dataclass(frozen=True, slots=True)
 class ParticipantReference:
     """Session-local participant reference without profile or memory data."""
@@ -19,6 +26,7 @@ class ParticipantReference:
     qq_id: str
     participant_type: ParticipantType
     character_id: str | None = None
+    membership_state: ParticipantMembershipState = ParticipantMembershipState.ACTIVE
 
     def __post_init__(self) -> None:
         if not self.participant_id:

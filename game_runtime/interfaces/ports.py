@@ -10,18 +10,26 @@ from game_runtime.session import GameSession
 
 
 class SessionRepository(Protocol):
-    def get(self, game_id: str) -> GameSession | None:
+    async def create_session(self, session: GameSession) -> None:
+        """Persist a new Session snapshot."""
+
+    async def get_session(self, game_id: str) -> GameSession | None:
         """Load a session by game_id."""
 
-    def save(self, session: GameSession) -> None:
-        """Save a session aggregate."""
+    async def update_session(
+        self,
+        session: GameSession,
+        *,
+        expected_state_version: int,
+    ) -> None:
+        """Persist one optimistic-concurrency Session update."""
 
 
 class EventStore(Protocol):
-    def append(self, event: GameEvent) -> None:
+    async def append_event(self, event: GameEvent) -> object:
         """Append one structured GameEvent."""
 
-    def list_for_game(self, game_id: str) -> Sequence[GameEvent]:
+    async def get_events(self, game_id: str) -> Sequence[object]:
         """Return structured events for one game_id."""
 
 
