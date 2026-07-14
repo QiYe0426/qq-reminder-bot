@@ -5,7 +5,10 @@ from game_runtime.participant import ParticipantReference, ParticipantType
 from game_runtime.session import GameSession
 
 
-def make_session(game_id: str = "game-1") -> GameSession:
+def make_session(
+    game_id: str = "game-1",
+    group_id: str = "20001",
+) -> GameSession:
     dm = DMIdentity(participant_id="participant-dm", qq_id="10001")
     participants = (
         ParticipantReference(
@@ -23,7 +26,7 @@ def make_session(game_id: str = "game-1") -> GameSession:
     return GameSession(
         game_id=game_id,
         session_id=f"session-{game_id}",
-        group_id="20001",
+        group_id=group_id,
         dm_identity=dm,
         participant_references=participants,
     )
