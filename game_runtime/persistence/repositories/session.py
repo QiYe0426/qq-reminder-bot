@@ -84,6 +84,38 @@ class GameSessionRepository:
             raise PersistenceError("failed to load game session") from exc
         return self._to_session(row, participants)
 
+    async def list_sessions_by_group(
+        self,
+        group_id: str,
+    ) -> tuple[GameSession, ...]:
+        """Return Session snapshots for one group without changing ownership."""
+
+        if not group_id:
+            raise ValueError("group_id must not be empty")
+        try:
+            async with self._database.connection() as connection:
+                cursor = await connection.execute(
+                    """
+                    SELECT game_id FROM game_sessions
+                    WHERE group_id = ?
+                    ORDER BY created_at, game_id
+                    """,
+                    (group_id,),
+                )
+                game_ids = [str(row["game_id"]) for row in await cursor.fetchall()]
+        except sqlite3.Error as exc:
+            raise PersistenceError("failed to list group game sessions") from exc
+
+        sessions: list[GameSession] = []
+        for game_id in game_ids:
+            session = await self.get_session(game_id)
+            if session is None:
+                raise PersistenceError(
+                    "group session disappeared during resolver query"
+                )
+            sessions.append(session)
+        return tuple(sessions)
+
     async def list_active_sessions(self) -> tuple[GameSession, ...]:
         try:
             async with self._database.connection() as connection:
