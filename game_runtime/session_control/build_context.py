@@ -23,6 +23,7 @@ from game_runtime.session_control.commands import (
     SetScriptPayload,
     StartGamePayload,
 )
+from game_runtime.session_control.composite_snapshot import CandidateGameSnapshot
 from game_runtime.session_control.confirmation import fingerprint_payload
 from game_runtime.session_control.delivery import ControlEventDeliveryEnvelope
 from game_runtime.session_control.event_integration import validate_dm_command_event
@@ -97,6 +98,7 @@ class ControlSessionBuildView:
     current_phase: GamePhase
     state_version: int
     last_applied_sequence_no: int
+    current_game_snapshot: CandidateGameSnapshot | None = None
 
     def __post_init__(self) -> None:
         for name in ("game_id", "session_id", "group_id", "dm_participant_id"):
@@ -111,6 +113,45 @@ class ControlSessionBuildView:
         _require_non_negative_int(
             "last_applied_sequence_no", self.last_applied_sequence_no
         )
+        snapshot = self.current_game_snapshot
+        if snapshot is not None:
+            _require_type(
+                "current_game_snapshot",
+                snapshot,
+                CandidateGameSnapshot,
+            )
+            if (
+                snapshot.game_id,
+                snapshot.session_id,
+                snapshot.group_id,
+                snapshot.dm_participant_id,
+            ) != (
+                self.game_id,
+                self.session_id,
+                self.group_id,
+                self.dm_participant_id,
+            ):
+                raise ControlApplyBuildContextError(
+                    "current Game Snapshot scope does not match Session view"
+                )
+            if (
+                snapshot.status is not self.status
+                or snapshot.current_phase is not self.current_phase
+            ):
+                raise ControlApplyBuildContextError(
+                    "current Game Snapshot lifecycle does not match Session view"
+                )
+            if snapshot.state_version != self.state_version:
+                raise ControlApplyBuildContextError(
+                    "current Game Snapshot version does not match Session view"
+                )
+            if (
+                snapshot.last_applied_sequence_no
+                > self.last_applied_sequence_no
+            ):
+                raise ControlApplyBuildContextError(
+                    "current Game Snapshot cursor exceeds Session control cursor"
+                )
 
 
 @dataclass(frozen=True, slots=True)

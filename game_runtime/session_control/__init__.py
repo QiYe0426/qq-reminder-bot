@@ -135,6 +135,9 @@ from game_runtime.session_control.actor_visible_game_state import (
     ControlCompletionIdentity,
     ControlCompletionKind,
 )
+from game_runtime.session_control.composite_lifecycle_builder import (
+    CompositeLifecycleControlApplyPlanBuilder,
+)
 from game_runtime.session_control.receipt_validation import (
     ReceiptAccepted,
     ReceiptInvalid,
@@ -343,6 +346,7 @@ __all__ = [
     "ControlTurnProcessor",
     "CompositeSnapshotContractError",
     "CompositeSnapshotFailureReason",
+    "CompositeLifecycleControlApplyPlanBuilder",
     "ControlRejectCompletionBoundaryError",
     "ControlRejectCompletionFailureReason",
     "CoordinatorApplyConflict",
