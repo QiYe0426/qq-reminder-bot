@@ -18,6 +18,9 @@ from game_runtime.session_control.composite_lifecycle_builder import (
 from game_runtime.session_control.phase_control_builder import (
     PhaseControlApplyPlanBuilder,
 )
+from game_runtime.session_control.participant_control_builder import (
+    ParticipantControlApplyPlanBuilder,
+)
 from game_runtime.session_control.setup_control_builder import (
     SetupControlApplyPlanBuilder,
 )
@@ -57,6 +60,11 @@ class CompositeGameControlApplyPlanBuilder:
             return PhaseControlApplyPlanBuilder().build(context)
         if command_type is SessionCommandType.SET_SCRIPT:
             return SetupControlApplyPlanBuilder().build(context)
+        if command_type in {
+            SessionCommandType.ASSIGN_CHARACTER,
+            SessionCommandType.REPLACE_PLAYER,
+        }:
+            return ParticipantControlApplyPlanBuilder().build(context)
         return BuildNonCommit(
             reason=BuildNonCommitReason.REDUCER_UNAVAILABLE,
             detail_code=f"{command_type.value}_REDUCER_UNAVAILABLE",

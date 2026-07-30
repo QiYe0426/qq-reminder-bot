@@ -279,6 +279,10 @@ from game_runtime.session_control.setup_participant_builder import (
 from game_runtime.session_control.setup_control_builder import (
     SetupControlApplyPlanBuilder,
 )
+from game_runtime.session_control.participant_control_builder import (
+    ParticipantControlApplyPlanBuilder,
+    ParticipantControlRejectReason,
+)
 from game_runtime.session_control.setup_transition import (
     SetupTransitionAccepted,
     SetupTransitionContractError,
@@ -290,6 +294,22 @@ from game_runtime.session_control.setup_transition import (
     SetupTransitionRequest,
     SetupTransitionState,
     transition_setup,
+)
+from game_runtime.session_control.participant_transition import (
+    AssignCharacterTransitionAccepted,
+    AssignCharacterTransitionRejected,
+    AssignCharacterTransitionRequest,
+    ParticipantTransitionContractError,
+    ParticipantTransitionContractFailureReason,
+    ParticipantTransitionDecision,
+    ParticipantTransitionEffect,
+    ParticipantTransitionRecordState,
+    ParticipantTransitionRejectReason,
+    ParticipantTransitionRequest,
+    ReplacePlayerTransitionAccepted,
+    ReplacePlayerTransitionRejected,
+    ReplacePlayerTransitionRequest,
+    transition_participant,
 )
 
 __all__ = [
@@ -313,6 +333,9 @@ __all__ = [
     "ActorValidatedControlTurnEvidence",
     "AmbiguousGroupSession",
     "AssignCharacterPayload",
+    "AssignCharacterTransitionAccepted",
+    "AssignCharacterTransitionRejected",
+    "AssignCharacterTransitionRequest",
     "AuthorizationContext",
     "AuthorizationDecision",
     "AuthorizationReason",
@@ -456,6 +479,15 @@ __all__ = [
     "PhaseVisibilityDecision",
     "ParticipantMutation",
     "ParticipantMutationType",
+    "ParticipantControlApplyPlanBuilder",
+    "ParticipantControlRejectReason",
+    "ParticipantTransitionContractError",
+    "ParticipantTransitionContractFailureReason",
+    "ParticipantTransitionDecision",
+    "ParticipantTransitionEffect",
+    "ParticipantTransitionRecordState",
+    "ParticipantTransitionRejectReason",
+    "ParticipantTransitionRequest",
     "ParticipantSnapshotRecord",
     "ParticipantSnapshotSlice",
     "PhaseSnapshotSlice",
@@ -463,6 +495,9 @@ __all__ = [
     "ProvisionalActorContract",
     "ProvisionalActorContractError",
     "ReplacePlayerPayload",
+    "ReplacePlayerTransitionAccepted",
+    "ReplacePlayerTransitionRejected",
+    "ReplacePlayerTransitionRequest",
     "ReceiptAccepted",
     "ReceiptInvalid",
     "ReceiptInvalidReason",
@@ -515,5 +550,6 @@ __all__ = [
     "transition_lifecycle",
     "transition_phase",
     "transition_setup",
+    "transition_participant",
     "validate_dm_command_event",
 ]

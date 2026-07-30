@@ -18,7 +18,6 @@ from game_runtime.event.control_payloads import (
     CONTROL_RESULT_VISIBILITY,
     ControlResultPayload,
 )
-from game_runtime.participant import ParticipantMembershipState, ParticipantType
 from game_runtime.session import GamePhase, GameSessionStatus
 from game_runtime.session_control.apply_contract import (
     CandidateSessionSnapshot,
@@ -49,6 +48,16 @@ from game_runtime.session_control.operation import ControlOperationStatus
 from game_runtime.session_control.setup_participant_evidence import (
     CharacterAvailabilityStatus,
     ControlSetupParticipantEvidenceError,
+)
+from game_runtime.session_control.participant_transition import (
+    AssignCharacterTransitionRejected,
+    AssignCharacterTransitionRequest,
+    ParticipantTransitionContractError,
+    ParticipantTransitionRejectReason,
+    ParticipantTransitionRecordState,
+    ReplacePlayerTransitionRejected,
+    ReplacePlayerTransitionRequest,
+    transition_participant,
 )
 from game_runtime.session_control.setup_transition import (
     SetupTransitionContractError,
@@ -234,14 +243,31 @@ class SetupParticipantControlApplyPlanBuilder:
         if availability is CharacterAvailabilityStatus.ASSIGNED_TO_OTHER:
             return self._reject(context, SetupParticipantRejectReason.CHARACTER_CONFLICT)
         participant = _participant(context, payload.participant_id)
-        if (
-            participant is None
-            or participant.participant_type is not ParticipantType.PLAYER
-            or participant.membership_state is not ParticipantMembershipState.ACTIVE
-        ):
+        if participant is None:
             return self._reject(context, SetupParticipantRejectReason.INVALID_CHARACTER_ASSIGNMENT)
-        if participant.character_id is not None:
-            return self._reject(context, SetupParticipantRejectReason.CHARACTER_CONFLICT)
+        try:
+            decision = transition_participant(
+                AssignCharacterTransitionRequest(
+                    current_participant=_participant_transition_state(participant),
+                    requested_character_id=payload.character_id,
+                )
+            )
+        except (ParticipantTransitionContractError, TypeError):
+            return _noncommit(
+                BuildNonCommitReason.INVALID_CONTEXT,
+                "ASSIGN_CHARACTER_TRANSITION_CONTEXT_INVALID",
+            )
+        if isinstance(decision, AssignCharacterTransitionRejected):
+            reason = (
+                SetupParticipantRejectReason.CHARACTER_CONFLICT
+                if decision.reason
+                is ParticipantTransitionRejectReason.CHARACTER_ALREADY_ASSIGNED
+                else SetupParticipantRejectReason(decision.reason.value)
+            )
+            return self._reject(
+                context,
+                reason,
+            )
         mutation = ParticipantMutation(
             mutation_type=ParticipantMutationType.ASSIGN_CHARACTER,
             participant_id=payload.participant_id,
@@ -274,17 +300,24 @@ class SetupParticipantControlApplyPlanBuilder:
             return self._reject(context, SetupParticipantRejectReason.PLAYER_REPLACEMENT_NOT_ALLOWED)
         old = _participant(context, payload.old_participant_id)
         new = _participant(context, payload.new_participant_id)
-        if (
-            old is None
-            or new is None
-            or old.participant_type is not ParticipantType.PLAYER
-            or new.participant_type is not ParticipantType.PLAYER
-            or old.membership_state is not ParticipantMembershipState.ACTIVE
-            or new.membership_state is not ParticipantMembershipState.ACTIVE
-        ):
+        if old is None or new is None:
             return self._reject(context, SetupParticipantRejectReason.INVALID_REPLACEMENT)
-        if new.character_id is not None:
-            return self._reject(context, SetupParticipantRejectReason.INVALID_REPLACEMENT)
+        try:
+            decision = transition_participant(
+                ReplacePlayerTransitionRequest(
+                    old_participant=_participant_transition_state(old),
+                    new_participant=_participant_transition_state(new),
+                )
+            )
+        except (ParticipantTransitionContractError, TypeError):
+            return _noncommit(
+                BuildNonCommitReason.INVALID_CONTEXT,
+                "REPLACE_PLAYER_TRANSITION_CONTEXT_INVALID",
+            )
+        if isinstance(decision, ReplacePlayerTransitionRejected):
+            return self._reject(
+                context, SetupParticipantRejectReason(decision.reason.value)
+            )
         binding_reference = evidence.character_binding_reference
         if (old.character_id is None) != (binding_reference is None):
             return _noncommit(BuildNonCommitReason.EVIDENCE_MISMATCH, "REPLACEMENT_CHARACTER_BINDING_MISMATCH")
@@ -394,6 +427,16 @@ def _participant(context: ControlApplyBuildContext, participant_id: str):
     return next(
         (view for view in context.participant_views if view.participant_id == participant_id),
         None,
+    )
+
+
+def _participant_transition_state(participant) -> ParticipantTransitionRecordState:
+    return ParticipantTransitionRecordState(
+        participant_id=participant.participant_id,
+        participant_type=participant.participant_type,
+        membership_state=participant.membership_state,
+        character_id=participant.character_id,
+        binding_version=participant.binding_version,
     )
 
 

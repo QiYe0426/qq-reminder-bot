@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import importlib
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,6 +17,7 @@ from game_runtime.participant import ParticipantMembershipState, ParticipantType
 from game_runtime.session import GamePhase, GameSessionStatus
 from game_runtime.session_control import (
     AssignCharacterPayload,
+    AssignCharacterTransitionRequest,
     BuildNonCommit,
     BuildPlanReady,
     BuildReject,
@@ -37,6 +39,7 @@ from game_runtime.session_control import (
     DMCommandEventPayload,
     ParticipantMutationType,
     ReplacePlayerPayload,
+    ReplacePlayerTransitionRequest,
     SessionCommandType,
     SetScriptPayload,
     SetupMutationType,
@@ -256,6 +259,99 @@ def test_assign_character_builds_bound_participant_mutation() -> None:
     assert mutation.mutation_type is ParticipantMutationType.ASSIGN_CHARACTER
     assert mutation.character_binding_reference == "binding-character-1"
     assert validate_control_result_event(outcome.plan.result_events[0]).binding_version == 3
+
+
+def test_participant_record_transitions_delegate_and_preserve_legacy_results(
+    monkeypatch,
+) -> None:
+    builder_module = importlib.import_module(
+        "game_runtime.session_control.setup_participant_builder"
+    )
+    original = builder_module.transition_participant
+    requests = []
+
+    def tracked_transition(request):
+        requests.append(request)
+        return original(request)
+
+    monkeypatch.setattr(builder_module, "transition_participant", tracked_transition)
+    builder = SetupParticipantControlApplyPlanBuilder()
+
+    assert isinstance(
+        builder.build(_context(SessionCommandType.ASSIGN_CHARACTER)), BuildPlanReady
+    )
+    assert isinstance(
+        builder.build(_context(SessionCommandType.REPLACE_PLAYER)), BuildPlanReady
+    )
+    assert isinstance(
+        builder.build(
+            _context(
+                SessionCommandType.ASSIGN_CHARACTER,
+                availability=CharacterAvailabilityStatus.ASSIGNED_TO_TARGET,
+            )
+        ),
+        BuildReject,
+    )
+    conflicting_context = _context(SessionCommandType.ASSIGN_CHARACTER)
+    conflicting_context = replace(
+        conflicting_context,
+        participant_views=tuple(
+            replace(view, character_id="character-2")
+            if view.participant_id == "player-old"
+            else view
+            for view in conflicting_context.participant_views
+        ),
+    )
+    conflicting = builder.build(conflicting_context)
+    assert isinstance(conflicting, BuildReject)
+    assert (
+        conflicting.plan.rejection_event.payload["reason_code"]
+        == SetupParticipantRejectReason.CHARACTER_CONFLICT.value
+    )
+    assert [type(request) for request in requests] == [
+        AssignCharacterTransitionRequest,
+        ReplacePlayerTransitionRequest,
+        AssignCharacterTransitionRequest,
+    ]
+
+
+def test_legacy_available_assign_maps_same_existing_character_to_conflict_and_delegates(
+    monkeypatch,
+) -> None:
+    builder_module = importlib.import_module(
+        "game_runtime.session_control.setup_participant_builder"
+    )
+    original = builder_module.transition_participant
+    requests = []
+
+    def tracked_transition(request):
+        requests.append(request)
+        return original(request)
+
+    monkeypatch.setattr(builder_module, "transition_participant", tracked_transition)
+    context = _context(
+        SessionCommandType.ASSIGN_CHARACTER,
+        availability=CharacterAvailabilityStatus.AVAILABLE,
+    )
+    context = replace(
+        context,
+        participant_views=tuple(
+            replace(view, character_id="character-1")
+            if view.participant_id == "player-old"
+            else view
+            for view in context.participant_views
+        ),
+    )
+
+    outcome = SetupParticipantControlApplyPlanBuilder().build(context)
+
+    assert isinstance(outcome, BuildReject)
+    assert (
+        outcome.plan.rejection_event.payload["reason_code"]
+        == SetupParticipantRejectReason.CHARACTER_CONFLICT.value
+    )
+    assert len(requests) == 1
+    assert isinstance(requests[0], AssignCharacterTransitionRequest)
 
 
 def test_replace_player_transfers_character_reference_atomically() -> None:
