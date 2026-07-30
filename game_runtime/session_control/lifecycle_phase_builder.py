@@ -59,6 +59,11 @@ from game_runtime.session_control.lifecycle_transition import (
     transition_lifecycle,
 )
 from game_runtime.session_control.operation import ControlOperationStatus
+from game_runtime.session_control.phase_transition import (
+    PhaseTransitionRejected,
+    PhaseTransitionRequest,
+    transition_phase,
+)
 
 
 class LifecyclePhaseRejectReason(str, Enum):
@@ -86,17 +91,6 @@ _LIFECYCLE_COMMANDS = frozenset(
         SessionCommandType.END_GAME,
     }
 )
-
-_PHASE_TRANSITIONS: dict[GamePhase, frozenset[GamePhase]] = {
-    GamePhase.INTRODUCTION: frozenset({GamePhase.EXPLORATION}),
-    GamePhase.EXPLORATION: frozenset({GamePhase.DISCUSSION}),
-    GamePhase.DISCUSSION: frozenset(
-        {GamePhase.EXPLORATION, GamePhase.VOTING}
-    ),
-    GamePhase.VOTING: frozenset({GamePhase.DISCUSSION, GamePhase.ENDING}),
-    GamePhase.LOBBY: frozenset(),
-    GamePhase.ENDING: frozenset(),
-}
 
 _SUCCESS_RESULT_CODES: dict[SessionCommandType, str] = {
     SessionCommandType.START_GAME: "START_GAME_APPLIED",
@@ -427,7 +421,13 @@ class LifecyclePhaseControlApplyPlanBuilder:
                 BuildNonCommitReason.INVALID_CONTEXT,
                 "CHANGE_PHASE_PAYLOAD_INVALID",
             )
-        if payload.target_phase not in _PHASE_TRANSITIONS[session.current_phase]:
+        phase_decision = transition_phase(
+            PhaseTransitionRequest(
+                current_phase=session.current_phase,
+                target_phase=payload.target_phase,
+            )
+        )
+        if isinstance(phase_decision, PhaseTransitionRejected):
             return self._reject(
                 context,
                 LifecyclePhaseRejectReason.INVALID_PHASE_TRANSITION,

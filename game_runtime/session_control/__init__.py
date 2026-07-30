@@ -143,6 +143,9 @@ from game_runtime.session_control.game_state_completion import (
 from game_runtime.session_control.composite_lifecycle_builder import (
     CompositeLifecycleControlApplyPlanBuilder,
 )
+from game_runtime.session_control.composite_control_builder import (
+    CompositeGameControlApplyPlanBuilder,
+)
 from game_runtime.session_control.receipt_validation import (
     ReceiptAccepted,
     ReceiptInvalid,
@@ -239,6 +242,17 @@ from game_runtime.session_control.lifecycle_phase_builder import (
     LifecycleControlApplyPlanBuilder,
     LifecyclePhaseControlApplyPlanBuilder,
     LifecyclePhaseRejectReason,
+)
+from game_runtime.session_control.phase_control_builder import (
+    PhaseControlApplyPlanBuilder,
+)
+from game_runtime.session_control.phase_transition import (
+    PhaseTransitionAccepted,
+    PhaseTransitionDecision,
+    PhaseTransitionRejected,
+    PhaseTransitionRejectReason,
+    PhaseTransitionRequest,
+    transition_phase,
 )
 from game_runtime.session_control.lifecycle_snapshot_boundary import (
     ActorOwnedLifecycleSnapshotCommitBoundary,
@@ -358,6 +372,7 @@ __all__ = [
     "ControlTurnProcessor",
     "CompositeSnapshotContractError",
     "CompositeSnapshotFailureReason",
+    "CompositeGameControlApplyPlanBuilder",
     "CompositeLifecycleControlApplyPlanBuilder",
     "ControlRejectCompletionBoundaryError",
     "ControlRejectCompletionFailureReason",
@@ -417,6 +432,12 @@ __all__ = [
     "OperationClaimUnknown",
     "OperationClaimUnknownReason",
     "PauseGamePayload",
+    "PhaseControlApplyPlanBuilder",
+    "PhaseTransitionAccepted",
+    "PhaseTransitionDecision",
+    "PhaseTransitionRejected",
+    "PhaseTransitionRejectReason",
+    "PhaseTransitionRequest",
     "PhaseVisibilityDecision",
     "ParticipantMutation",
     "ParticipantMutationType",
@@ -467,5 +488,6 @@ __all__ = [
     "validate_confirmation",
     "validate_control_receipt",
     "transition_lifecycle",
+    "transition_phase",
     "validate_dm_command_event",
 ]
