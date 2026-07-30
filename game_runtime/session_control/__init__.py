@@ -135,6 +135,11 @@ from game_runtime.session_control.actor_visible_game_state import (
     ControlCompletionIdentity,
     ControlCompletionKind,
 )
+from game_runtime.session_control.game_state_completion import (
+    ActorGameStateCompletionBoundaryError,
+    ActorGameStateCompletionFailureReason,
+    ActorOwnedGameStateCompletionBoundary,
+)
 from game_runtime.session_control.composite_lifecycle_builder import (
     CompositeLifecycleControlApplyPlanBuilder,
 )
@@ -212,6 +217,8 @@ from game_runtime.session_control.control_turn_contract import (
     ActorControlCommitBoundary,
     ActorControlCommitBoundaryError,
     ActorControlRejectCompletionBoundary,
+    ActorGameStateCompletionBoundary,
+    ActorGameStateControlTurnEvidenceFactory,
     ActorControlTurnError,
     ActorControlTurnEvidenceFactory,
     ActorControlTurnProcessor,
@@ -261,11 +268,16 @@ __all__ = [
     "ActorControlCommitBoundary",
     "ActorControlCommitBoundaryError",
     "ActorControlRejectCompletionBoundary",
+    "ActorGameStateCompletionBoundary",
+    "ActorGameStateControlTurnEvidenceFactory",
     "ActorControlTurnError",
     "ActorControlTurnEvidenceFactory",
     "ActorControlTurnProcessor",
     "ActorControlTurnValidationError",
     "ActorVisibleGameState",
+    "ActorGameStateCompletionBoundaryError",
+    "ActorGameStateCompletionFailureReason",
+    "ActorOwnedGameStateCompletionBoundary",
     "ActorOwnedLifecycleSnapshotCommitBoundary",
     "ActorOwnedControlRejectCompletionBoundary",
     "ActorOwnedApplyCoordinator",

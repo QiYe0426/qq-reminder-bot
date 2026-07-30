@@ -3,20 +3,32 @@
 from __future__ import annotations
 
 from collections import deque
+from dataclasses import dataclass
+from datetime import datetime
 from threading import RLock
 from typing import Callable
 
 from game_runtime.errors import EventSessionMismatch
 from game_runtime.event import GameEvent
+from game_runtime.identity import DMIdentity
+from game_runtime.participant import ParticipantReference
 from game_runtime.session import GameSession
+from game_runtime.session_control.actor_visible_game_state import (
+    ActorVisibleGameState,
+)
 from game_runtime.session_control.control_turn_contract import (
     ActorControlCommitBoundary,
     ActorControlCommitBoundaryError,
     ActorControlRejectCompletionBoundary,
+    ActorGameStateCompletionBoundary,
+    ActorGameStateControlTurnEvidenceFactory,
     ActorControlTurnEvidenceFactory,
     ActorControlTurnProcessor,
     ActorControlTurnValidationError,
     ControlTurnCommitReady,
+)
+from game_runtime.session_control.game_state_completion import (
+    ActorOwnedGameStateCompletionBoundary,
 )
 from game_runtime.session_control.apply_plan_builder import BuildPlanReady, BuildReject
 from game_runtime.session_control.control_reject_completion import (
@@ -32,6 +44,23 @@ from game_runtime.session_control.lifecycle_snapshot_boundary import (
 )
 
 StateUpdater = Callable[[GameSession, GameEvent], None]
+
+
+@dataclass(frozen=True, slots=True)
+class _LegacySessionProjectionSeed:
+    dm_identity: DMIdentity
+    participant_references: tuple[ParticipantReference, ...]
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def from_session(cls, session: GameSession) -> _LegacySessionProjectionSeed:
+        return cls(
+            dm_identity=session.dm_identity,
+            participant_references=tuple(session.participant_references),
+            created_at=session.created_at,
+            updated_at=session.updated_at,
+        )
 
 
 class GameSessionActor:
@@ -91,23 +120,109 @@ class GameSessionActor:
         self._control_turn_processor = control_turn_processor
         self._control_commit_boundary = control_commit_boundary
         self._control_reject_completion_boundary = control_reject_completion_boundary
+        self._game_state_evidence_factory: (
+            ActorGameStateControlTurnEvidenceFactory | None
+        ) = None
+        self._game_state_completion_boundary: (
+            ActorGameStateCompletionBoundary | None
+        ) = None
+        self._session_projection_seed: _LegacySessionProjectionSeed | None = None
         self._control_turn_active = False
         self._mailbox: deque[GameEvent] = deque()
         self._seen_event_ids: set[str] = set()
         self._processed_event_ids: list[str] = []
         self._writer_lock = RLock()
 
+    @classmethod
+    def for_composite_control(
+        cls,
+        *,
+        session_projection_seed: GameSession,
+        initial_state: ActorVisibleGameState,
+        control_turn_evidence_factory: ActorGameStateControlTurnEvidenceFactory,
+        control_turn_processor: ActorControlTurnProcessor,
+    ) -> GameSessionActor:
+        if not isinstance(session_projection_seed, GameSession):
+            raise TypeError("session_projection_seed must be a GameSession")
+        if not isinstance(initial_state, ActorVisibleGameState):
+            raise TypeError("initial_state must be an ActorVisibleGameState")
+        if not callable(getattr(control_turn_evidence_factory, "build", None)):
+            raise TypeError("control_turn_evidence_factory must define build")
+        if not callable(getattr(control_turn_processor, "process", None)):
+            raise TypeError("control_turn_processor must define process")
+        snapshot = initial_state.snapshot
+        if (
+            session_projection_seed.game_id,
+            session_projection_seed.session_id,
+            session_projection_seed.group_id,
+            session_projection_seed.dm_identity.participant_id,
+        ) != (
+            snapshot.game_id,
+            snapshot.session_id,
+            snapshot.group_id,
+            snapshot.dm_participant_id,
+        ):
+            raise ActorControlTurnValidationError(
+                "Session projection seed does not match Actor-visible state"
+            )
+
+        actor = cls(session_projection_seed)
+        actor._session_projection_seed = _LegacySessionProjectionSeed.from_session(
+            session_projection_seed
+        )
+        actor._game_state_evidence_factory = control_turn_evidence_factory
+        actor._control_turn_processor = control_turn_processor
+        actor._game_state_completion_boundary = (
+            ActorOwnedGameStateCompletionBoundary(initial_state=initial_state)
+        )
+        return actor
+
     @property
     def game_id(self) -> str:
+        if self._game_state_completion_boundary is not None:
+            return self.visible_game_state.snapshot.game_id
         return self._session.game_id
 
     @property
     def session_id(self) -> str:
+        if self._game_state_completion_boundary is not None:
+            return self.visible_game_state.snapshot.session_id
         return self._session.session_id
 
     @property
     def session(self) -> GameSession:
+        boundary = self._game_state_completion_boundary
+        if boundary is not None:
+            seed = self._session_projection_seed
+            if seed is None:
+                raise ActorControlTurnValidationError(
+                    "Composite Session projection is not configured"
+                )
+            state = boundary.current_state
+            snapshot = state.snapshot
+            return GameSession(
+                game_id=snapshot.game_id,
+                session_id=snapshot.session_id,
+                group_id=snapshot.group_id,
+                dm_identity=seed.dm_identity,
+                participant_references=seed.participant_references,
+                status=snapshot.status,
+                current_phase=snapshot.current_phase,
+                state_version=snapshot.state_version,
+                last_applied_sequence_no=state.committed_control_cursor,
+                created_at=seed.created_at,
+                updated_at=seed.updated_at,
+            )
         return self._session
+
+    @property
+    def visible_game_state(self) -> ActorVisibleGameState:
+        boundary = self._game_state_completion_boundary
+        if boundary is None:
+            raise ActorControlTurnValidationError(
+                "Actor-visible Game State is not configured"
+            )
+        return boundary.current_state
 
     @property
     def processed_event_ids(self) -> tuple[str, ...]:
@@ -141,6 +256,9 @@ class GameSessionActor:
 
         if not isinstance(envelope, ControlEventDeliveryEnvelope):
             raise TypeError("envelope must be a ControlEventDeliveryEnvelope")
+        if self._game_state_completion_boundary is not None:
+            await self._handle_composite_control_turn(envelope)
+            return
         factory = self._control_turn_evidence_factory
         processor = self._control_turn_processor
         commit_boundary = self._control_commit_boundary
@@ -167,6 +285,78 @@ class GameSessionActor:
                 commit_boundary,
                 reject_boundary,
             )
+        finally:
+            self._control_turn_active = False
+
+    async def _handle_composite_control_turn(
+        self,
+        envelope: ControlEventDeliveryEnvelope,
+    ) -> None:
+        factory = self._game_state_evidence_factory
+        processor = self._control_turn_processor
+        boundary = self._game_state_completion_boundary
+        if factory is None or processor is None or boundary is None:
+            raise ActorControlTurnValidationError(
+                "Composite Control Turn integration is not configured"
+            )
+        if self._control_turn_active:
+            raise ActorControlTurnValidationError(
+                "a Control Turn is already active for this Actor"
+            )
+        self._control_turn_active = True
+        try:
+            try:
+                self._validate_event_scope(envelope.event)
+            except EventSessionMismatch as exc:
+                raise ActorControlTurnValidationError(str(exc)) from exc
+            state = boundary.current_state
+            try:
+                evidence = factory.build(state=state, envelope=envelope)
+            except Exception as exc:
+                raise ActorControlTurnValidationError(
+                    "Control Turn evidence could not be frozen"
+                ) from exc
+            if not isinstance(evidence, ActorValidatedControlTurnEvidence):
+                raise ActorControlTurnValidationError(
+                    "evidence factory must return "
+                    "ActorValidatedControlTurnEvidence"
+                )
+            if evidence.envelope != envelope:
+                raise ActorControlTurnValidationError(
+                    "validated evidence must bind to the delivered Envelope"
+                )
+            _validate_game_state_evidence_binding(state, evidence)
+            commit_ready = await processor.process(evidence)
+            if not isinstance(commit_ready, ControlTurnCommitReady):
+                raise ActorControlTurnValidationError(
+                    "processor must return ControlTurnCommitReady"
+                )
+            _validate_commit_ready_binding(evidence, commit_ready)
+            try:
+                acceptance = boundary.accept(commit_ready)
+            except ActorControlCommitBoundaryError:
+                raise
+            except Exception as exc:
+                raise ActorControlCommitBoundaryError(
+                    "Actor Game State boundary rejected committed Control Turn "
+                    "evidence"
+                ) from exc
+            outcome = commit_ready.build_outcome
+            if isinstance(outcome, BuildPlanReady) and not isinstance(
+                acceptance,
+                SnapshotVisibilityAccepted,
+            ):
+                raise ActorControlCommitBoundaryError(
+                    "Applied Control Turn must return SnapshotVisibilityAccepted"
+                )
+            if isinstance(outcome, BuildReject) and not isinstance(
+                acceptance,
+                CommittedControlRejectAccepted,
+            ):
+                raise ActorControlCommitBoundaryError(
+                    "Rejected Control Turn must return "
+                    "CommittedControlRejectAccepted"
+                )
         finally:
             self._control_turn_active = False
 
@@ -331,4 +521,55 @@ def _validate_commit_ready_binding(
     ):
         raise ActorControlTurnValidationError(
             "build outcome does not bind to the current Actor evidence"
+        )
+
+
+def _validate_game_state_evidence_binding(
+    state: ActorVisibleGameState,
+    evidence: ActorValidatedControlTurnEvidence,
+) -> None:
+    snapshot = state.snapshot
+    session = evidence.session_view
+    ownership = evidence.ownership_evidence
+    if session.current_game_snapshot is not snapshot:
+        raise ActorControlTurnValidationError(
+            "validated evidence must carry the exact Actor-visible Snapshot"
+        )
+    if (
+        session.game_id,
+        session.session_id,
+        session.group_id,
+        session.dm_participant_id,
+        session.status,
+        session.current_phase,
+        session.state_version,
+        session.last_applied_sequence_no,
+    ) != (
+        snapshot.game_id,
+        snapshot.session_id,
+        snapshot.group_id,
+        snapshot.dm_participant_id,
+        snapshot.status,
+        snapshot.current_phase,
+        snapshot.state_version,
+        state.committed_control_cursor,
+    ):
+        raise ActorControlTurnValidationError(
+            "validated Session evidence does not match Actor-visible state"
+        )
+    if (
+        ownership.game_id,
+        ownership.session_id,
+        ownership.group_id,
+        ownership.active_generation,
+        ownership.observed_state_version,
+    ) != (
+        snapshot.game_id,
+        snapshot.session_id,
+        snapshot.group_id,
+        state.ownership_generation,
+        snapshot.state_version,
+    ):
+        raise ActorControlTurnValidationError(
+            "validated ownership evidence does not match Actor-visible state"
         )

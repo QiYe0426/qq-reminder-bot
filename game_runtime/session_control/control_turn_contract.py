@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from game_runtime.session import GameSession
 from game_runtime.session_control.apply_plan_builder import BuildPlanReady, BuildReject
+from game_runtime.session_control.actor_visible_game_state import ActorVisibleGameState
 from game_runtime.session_control.coordinator_evidence import (
     ActorValidatedControlTurnEvidence,
 )
@@ -123,6 +124,19 @@ class ActorControlTurnEvidenceFactory(Protocol):
 
 
 @runtime_checkable
+class ActorGameStateControlTurnEvidenceFactory(Protocol):
+    """Synchronously freeze one Control Turn from the immutable Actor state."""
+
+    def build(
+        self,
+        *,
+        state: ActorVisibleGameState,
+        envelope: ControlEventDeliveryEnvelope,
+    ) -> ActorValidatedControlTurnEvidence:
+        """Return immutable evidence without reading a mutable Session."""
+
+
+@runtime_checkable
 class ActorControlTurnProcessor(Protocol):
     """Convert validated evidence into commit-ready proof or fail closed."""
 
@@ -153,3 +167,18 @@ class ActorControlRejectCompletionBoundary(Protocol):
         commit_ready: ControlTurnCommitReady,
     ) -> CommittedControlRejectAccepted:
         """Synchronously accept one committed rejection proof."""
+
+
+@runtime_checkable
+class ActorGameStateCompletionBoundary(Protocol):
+    """Own the single Actor-visible state cell for both terminal outcomes."""
+
+    @property
+    def current_state(self) -> ActorVisibleGameState:
+        """Return the current immutable Actor-visible state."""
+
+    def accept(
+        self,
+        commit_ready: ControlTurnCommitReady,
+    ) -> SnapshotVisibilityAccepted | CommittedControlRejectAccepted:
+        """Synchronously publish one committed outcome into the state cell."""
