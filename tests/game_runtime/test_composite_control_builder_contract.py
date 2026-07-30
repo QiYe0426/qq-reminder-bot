@@ -16,9 +16,11 @@ from game_runtime.session_control import (
     CompositeLifecycleControlApplyPlanBuilder,
     PhaseControlApplyPlanBuilder,
     SessionCommandType,
+    SetupControlApplyPlanBuilder,
 )
 from test_composite_lifecycle_promotion_contract import _current_snapshot
 from test_lifecycle_phase_apply_plan_builder import make_context
+from test_setup_control_plane_contract import _context as _setup_context
 
 
 def _phase_context():
@@ -57,6 +59,7 @@ def _lifecycle_context():
     [
         (_phase_context, PhaseControlApplyPlanBuilder),
         (_lifecycle_context, CompositeLifecycleControlApplyPlanBuilder),
+        (_setup_context, SetupControlApplyPlanBuilder),
     ],
 )
 def test_dispatcher_preserves_real_target_builder_outcome(
@@ -79,6 +82,7 @@ def test_dispatcher_preserves_real_target_builder_outcome(
         (SessionCommandType.PAUSE_GAME, "CompositeLifecycleControlApplyPlanBuilder"),
         (SessionCommandType.END_GAME, "CompositeLifecycleControlApplyPlanBuilder"),
         (SessionCommandType.CHANGE_PHASE, "PhaseControlApplyPlanBuilder"),
+        (SessionCommandType.SET_SCRIPT, "SetupControlApplyPlanBuilder"),
     ],
 )
 def test_dispatcher_calls_exactly_one_target_and_returns_its_object(
@@ -104,12 +108,12 @@ def test_dispatcher_calls_exactly_one_target_and_returns_its_object(
             raise AssertionError("dispatcher routed to more than one builder")
 
     monkeypatch.setattr(dispatcher_module, target_name, TargetBuilder)
-    other_name = (
-        "PhaseControlApplyPlanBuilder"
-        if target_name == "CompositeLifecycleControlApplyPlanBuilder"
-        else "CompositeLifecycleControlApplyPlanBuilder"
-    )
-    monkeypatch.setattr(dispatcher_module, other_name, UnexpectedBuilder)
+    for other_name in {
+        "CompositeLifecycleControlApplyPlanBuilder",
+        "PhaseControlApplyPlanBuilder",
+        "SetupControlApplyPlanBuilder",
+    } - {target_name}:
+        monkeypatch.setattr(dispatcher_module, other_name, UnexpectedBuilder)
 
     outcome = CompositeGameControlApplyPlanBuilder().build(context)
 
@@ -122,7 +126,6 @@ def test_dispatcher_calls_exactly_one_target_and_returns_its_object(
     [
         SessionCommandType.CREATE_SESSION,
         SessionCommandType.RESUME_GAME,
-        SessionCommandType.SET_SCRIPT,
         SessionCommandType.ASSIGN_CHARACTER,
         SessionCommandType.REPLACE_PLAYER,
     ],
@@ -146,6 +149,11 @@ def test_unimplemented_commands_are_closed_without_target_builder_calls(
     monkeypatch.setattr(
         dispatcher_module,
         "PhaseControlApplyPlanBuilder",
+        UnexpectedBuilder,
+    )
+    monkeypatch.setattr(
+        dispatcher_module,
+        "SetupControlApplyPlanBuilder",
         UnexpectedBuilder,
     )
 
@@ -172,6 +180,11 @@ def test_invalid_context_fails_closed_without_builder_invocation(
     monkeypatch.setattr(
         dispatcher_module,
         "PhaseControlApplyPlanBuilder",
+        UnexpectedBuilder,
+    )
+    monkeypatch.setattr(
+        dispatcher_module,
+        "SetupControlApplyPlanBuilder",
         UnexpectedBuilder,
     )
 
@@ -216,6 +229,11 @@ def test_malformed_dispatcher_input_fails_closed_without_builder_invocation(
     monkeypatch.setattr(
         dispatcher_module,
         "PhaseControlApplyPlanBuilder",
+        UnexpectedBuilder,
+    )
+    monkeypatch.setattr(
+        dispatcher_module,
+        "SetupControlApplyPlanBuilder",
         UnexpectedBuilder,
     )
 
@@ -398,6 +416,7 @@ def test_dispatcher_is_the_only_sync_stateless_control_plane_and_has_no_forbidde
         "game_runtime.session_control.commands",
         "game_runtime.session_control.composite_lifecycle_builder",
         "game_runtime.session_control.phase_control_builder",
+        "game_runtime.session_control.setup_control_builder",
     }
 
     assert classes == ["CompositeGameControlApplyPlanBuilder"]

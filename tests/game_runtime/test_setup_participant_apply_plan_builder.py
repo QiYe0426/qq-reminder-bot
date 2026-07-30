@@ -42,6 +42,7 @@ from game_runtime.session_control import (
     SetupMutationType,
     SetupParticipantControlApplyPlanBuilder,
     SetupParticipantEvidenceStatus,
+    SetupParticipantRejectReason,
     fingerprint_payload,
 )
 
@@ -199,6 +200,53 @@ def test_set_script_builds_schema_v1_setup_plan() -> None:
     assert mutation.manifest_version == 3
     assert outcome.plan.result_events[0].event_type is GameEventType.SCRIPT_SET
     assert "setup_version" not in outcome.plan.result_events[0].payload
+
+
+def test_set_script_transition_delegation_preserves_legacy_confirmation_and_rejection() -> None:
+    builder = SetupParticipantControlApplyPlanBuilder()
+    initialized_without_confirmation = builder.build(
+        replace(
+            _context(SessionCommandType.SET_SCRIPT),
+            envelope=replace(
+                _context(SessionCommandType.SET_SCRIPT).envelope,
+                confirmation_reference=None,
+            ),
+        )
+    )
+    assert isinstance(initialized_without_confirmation, BuildPlanReady)
+
+    duplicate_setup = ControlSetupBuildView(
+        game_id="game-1", session_id="session-1", script_id="script-2",
+        public_name="Public Script 2", manifest_reference="manifest-2", setup_version=2,
+    )
+    duplicate = builder.build(
+        _context(SessionCommandType.SET_SCRIPT, setup_view=duplicate_setup)
+    )
+    assert isinstance(duplicate, BuildReject)
+    assert (
+        duplicate.plan.rejection_event.payload["reason_code"]
+        == SetupParticipantRejectReason.SCRIPT_ALREADY_SET.value
+    )
+
+    replacement_setup = replace(
+        duplicate_setup, script_id="script-1", manifest_reference="manifest-1"
+    )
+    replacement_context = _context(
+        SessionCommandType.SET_SCRIPT, setup_view=replacement_setup
+    )
+    replacement_without_confirmation = builder.build(
+        replace(
+            replacement_context,
+            envelope=replace(
+                replacement_context.envelope, confirmation_reference=None
+            ),
+        )
+    )
+    assert isinstance(replacement_without_confirmation, BuildReject)
+    assert (
+        replacement_without_confirmation.plan.rejection_event.payload["reason_code"]
+        == SetupParticipantRejectReason.SCRIPT_REPLACEMENT_NOT_CONFIRMED.value
+    )
 
 
 def test_assign_character_builds_bound_participant_mutation() -> None:

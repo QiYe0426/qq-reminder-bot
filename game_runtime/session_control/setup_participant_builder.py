@@ -50,6 +50,15 @@ from game_runtime.session_control.setup_participant_evidence import (
     CharacterAvailabilityStatus,
     ControlSetupParticipantEvidenceError,
 )
+from game_runtime.session_control.setup_transition import (
+    SetupTransitionContractError,
+    SetupTransitionEffect,
+    SetupTransitionRejectReason,
+    SetupTransitionRejected,
+    SetupTransitionRequest,
+    SetupTransitionState,
+    transition_setup,
+)
 
 
 class SetupParticipantRejectReason(str, Enum):
@@ -136,17 +145,46 @@ class SetupParticipantControlApplyPlanBuilder:
         if session.status is not GameSessionStatus.CREATED or session.current_phase is not GamePhase.LOBBY:
             return self._reject(context, SetupParticipantRejectReason.INVALID_LIFECYCLE)
         setup = context.setup_view
-        if setup is not None:
-            if (
-                setup.script_id == payload.script_id
-                and setup.manifest_reference == payload.manifest_reference
-            ):
-                return self._reject(context, SetupParticipantRejectReason.SCRIPT_ALREADY_SET)
-            if context.envelope.confirmation_reference is None:
-                return self._reject(
-                    context,
-                    SetupParticipantRejectReason.SCRIPT_REPLACEMENT_NOT_CONFIRMED,
+        try:
+            decision = transition_setup(
+                SetupTransitionRequest(
+                    current_state=(
+                        SetupTransitionState(
+                            script_id=None,
+                            manifest_reference=None,
+                        )
+                        if setup is None
+                        else SetupTransitionState(
+                            script_id=setup.script_id,
+                            manifest_reference=setup.manifest_reference,
+                        )
+                    ),
+                    requested_state=SetupTransitionState(
+                        script_id=payload.script_id,
+                        manifest_reference=payload.manifest_reference,
+                    ),
                 )
+            )
+        except (SetupTransitionContractError, TypeError):
+            return _noncommit(
+                BuildNonCommitReason.INVALID_CONTEXT,
+                "SET_SCRIPT_TRANSITION_CONTEXT_INVALID",
+            )
+        if isinstance(decision, SetupTransitionRejected):
+            if decision.reason is SetupTransitionRejectReason.SCRIPT_ALREADY_SET:
+                return self._reject(context, SetupParticipantRejectReason.SCRIPT_ALREADY_SET)
+            return _noncommit(
+                BuildNonCommitReason.INVALID_CONTEXT,
+                "SET_SCRIPT_TRANSITION_CONTEXT_INVALID",
+            )
+        if (
+            decision.effect is SetupTransitionEffect.REPLACE
+            and context.envelope.confirmation_reference is None
+        ):
+            return self._reject(
+                context,
+                SetupParticipantRejectReason.SCRIPT_REPLACEMENT_NOT_CONFIRMED,
+            )
         expected_version = 0 if setup is None else setup.setup_version
         if (
             evidence.script_id != payload.script_id

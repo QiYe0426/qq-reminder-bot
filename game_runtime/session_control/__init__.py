@@ -276,6 +276,21 @@ from game_runtime.session_control.setup_participant_builder import (
     SetupParticipantControlApplyPlanBuilder,
     SetupParticipantRejectReason,
 )
+from game_runtime.session_control.setup_control_builder import (
+    SetupControlApplyPlanBuilder,
+)
+from game_runtime.session_control.setup_transition import (
+    SetupTransitionAccepted,
+    SetupTransitionContractError,
+    SetupTransitionDecision,
+    SetupTransitionContractFailureReason,
+    SetupTransitionEffect,
+    SetupTransitionRejectReason,
+    SetupTransitionRejected,
+    SetupTransitionRequest,
+    SetupTransitionState,
+    transition_setup,
+)
 
 __all__ = [
     "ALL_SESSION_CONTROL_PERMISSIONS",
@@ -478,8 +493,18 @@ __all__ = [
     "StartGamePayload",
     "StartReadinessStatus",
     "SetupParticipantEvidenceStatus",
+    "SetupControlApplyPlanBuilder",
     "SetupParticipantControlApplyPlanBuilder",
     "SetupParticipantRejectReason",
+    "SetupTransitionAccepted",
+    "SetupTransitionContractError",
+    "SetupTransitionDecision",
+    "SetupTransitionContractFailureReason",
+    "SetupTransitionEffect",
+    "SetupTransitionRejectReason",
+    "SetupTransitionRejected",
+    "SetupTransitionRequest",
+    "SetupTransitionState",
     "confirmation_requirement_for",
     "create_confirmation",
     "derive_control_claim_id",
@@ -489,5 +514,6 @@ __all__ = [
     "validate_control_receipt",
     "transition_lifecycle",
     "transition_phase",
+    "transition_setup",
     "validate_dm_command_event",
 ]
