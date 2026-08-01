@@ -24,6 +24,9 @@ from game_runtime.session_control.participant_control_builder import (
 from game_runtime.session_control.setup_control_builder import (
     SetupControlApplyPlanBuilder,
 )
+from game_runtime.session_control.game_rule_control_builder import (
+    GameRuleControlApplyPlanBuilder,
+)
 
 
 class CompositeGameControlApplyPlanBuilder:
@@ -65,6 +68,8 @@ class CompositeGameControlApplyPlanBuilder:
             SessionCommandType.REPLACE_PLAYER,
         }:
             return ParticipantControlApplyPlanBuilder().build(context)
+        if command_type is SessionCommandType.ACTIVATE_RULE_SET:
+            return GameRuleControlApplyPlanBuilder().build(context)
         return BuildNonCommit(
             reason=BuildNonCommitReason.REDUCER_UNAVAILABLE,
             detail_code=f"{command_type.value}_REDUCER_UNAVAILABLE",

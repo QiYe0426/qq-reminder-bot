@@ -179,6 +179,23 @@ class PlayerReplacedPayload(ControlResultPayload):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class RuleSetActivatedPayload(ControlResultPayload):
+    manifest_reference: str
+    rule_set_domain_version: int
+    hidden_state_domain_version: int
+
+    def __post_init__(self) -> None:
+        super(RuleSetActivatedPayload, self).__post_init__()
+        _require_text("manifest_reference", self.manifest_reference)
+        _require_positive_int(
+            "rule_set_domain_version", self.rule_set_domain_version
+        )
+        _require_positive_int(
+            "hidden_state_domain_version", self.hidden_state_domain_version
+        )
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class SessionControlRejectedPayload(ControlResultPayload):
     reason_code: str
     state_version: int
@@ -221,6 +238,7 @@ CONTROL_RESULT_PAYLOAD_TYPES: Mapping[
     GameEventType.SCRIPT_SET: ScriptSetPayload,
     GameEventType.CHARACTER_ASSIGNED: CharacterAssignedPayload,
     GameEventType.PLAYER_REPLACED: PlayerReplacedPayload,
+    GameEventType.RULE_SET_ACTIVATED: RuleSetActivatedPayload,
     GameEventType.SESSION_CONTROL_REJECTED: SessionControlRejectedPayload,
     GameEventType.PHASE_CHANGED: PhaseChangedPayload,
 }
@@ -235,6 +253,7 @@ CONTROL_RESULT_VISIBILITY: Mapping[GameEventType, EventVisibility] = {
     GameEventType.SCRIPT_SET: EventVisibility.DM_CONTROL,
     GameEventType.CHARACTER_ASSIGNED: EventVisibility.DM_CONTROL,
     GameEventType.PLAYER_REPLACED: EventVisibility.DM_CONTROL,
+    GameEventType.RULE_SET_ACTIVATED: EventVisibility.DM_CONTROL,
     GameEventType.SESSION_CONTROL_REJECTED: EventVisibility.DM_CONTROL,
     GameEventType.PHASE_CHANGED: EventVisibility.PUBLIC,
 }

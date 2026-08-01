@@ -12,6 +12,7 @@ from game_runtime.participant import ParticipantMembershipState, ParticipantType
 from game_runtime.session import GamePhase, GameSessionStatus
 from game_runtime.session_control.apply_contract import ControlOperationClaim
 from game_runtime.session_control.commands import (
+    ActivateRuleSetPayload,
     AssignCharacterPayload,
     ChangePhasePayload,
     EndGamePayload,
@@ -35,6 +36,10 @@ from game_runtime.session_control.setup_participant_evidence import (
     ControlSetupParticipantApplyEvidence,
     ControlSetupParticipantEvidenceError,
 )
+from game_runtime.session_control.game_rule_evidence import (
+    ControlGameRuleApplyEvidence,
+    ControlGameRuleEvidenceError,
+)
 
 
 class ControlApplyBuildContextError(ValueError):
@@ -52,6 +57,7 @@ _PAYLOAD_TYPE_BY_COMMAND: dict[
     SessionCommandType.SET_SCRIPT: SetScriptPayload,
     SessionCommandType.ASSIGN_CHARACTER: AssignCharacterPayload,
     SessionCommandType.REPLACE_PLAYER: ReplacePlayerPayload,
+    SessionCommandType.ACTIVATE_RULE_SET: ActivateRuleSetPayload,
 }
 
 
@@ -99,6 +105,9 @@ class ControlSessionBuildView:
     state_version: int
     last_applied_sequence_no: int
     current_game_snapshot: CandidateGameSnapshot | None = None
+    game_rule_evidence: ControlGameRuleApplyEvidence = field(
+        default_factory=ControlGameRuleApplyEvidence
+    )
 
     def __post_init__(self) -> None:
         for name in ("game_id", "session_id", "group_id", "dm_participant_id"):
@@ -113,6 +122,19 @@ class ControlSessionBuildView:
         _require_non_negative_int(
             "last_applied_sequence_no", self.last_applied_sequence_no
         )
+        _require_type(
+            "game_rule_evidence",
+            self.game_rule_evidence,
+            ControlGameRuleApplyEvidence,
+        )
+        try:
+            self.game_rule_evidence.validate_bindings(
+                game_id=self.game_id,
+                session_id=self.session_id,
+                observed_state_version=self.state_version,
+            )
+        except ControlGameRuleEvidenceError as exc:
+            raise ControlApplyBuildContextError(str(exc)) from exc
         snapshot = self.current_game_snapshot
         if snapshot is not None:
             _require_type(

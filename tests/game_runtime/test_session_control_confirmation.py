@@ -5,6 +5,7 @@ import pytest
 
 from game_runtime.session import GamePhase
 from game_runtime.session_control import (
+    ActivateRuleSetPayload,
     AssignCharacterPayload,
     ChangePhasePayload,
     ConfirmationInvalidReason,
@@ -82,6 +83,15 @@ def make_confirmation(command: SessionCommand):
         (SessionCommandType.START_GAME, StartGamePayload()),
         (SessionCommandType.RESUME_GAME, ResumeGamePayload()),
         (SessionCommandType.END_GAME, EndGamePayload()),
+        (
+            SessionCommandType.ACTIVATE_RULE_SET,
+            ActivateRuleSetPayload(
+                manifest_reference="manifest-1",
+                expected_setup_version=1,
+                expected_game_rule_version=2,
+                expected_hidden_state_version=3,
+            ),
+        ),
         (
             SessionCommandType.REPLACE_PLAYER,
             ReplacePlayerPayload(
@@ -270,6 +280,37 @@ def test_payload_change_is_rejected() -> None:
         payload=EndGamePayload(public_result_reference="result-other"),
     )
 
+    result = validate_confirmation(
+        confirmation,
+        changed,
+        validated_at=NOW + timedelta(minutes=1),
+    )
+
+    assert result.reason is ConfirmationInvalidReason.PAYLOAD_FINGERPRINT_MISMATCH
+
+
+def test_activate_rule_set_confirmation_binds_the_payload_fingerprint() -> None:
+    original = make_command(
+        SessionCommandType.ACTIVATE_RULE_SET,
+        ActivateRuleSetPayload(
+            manifest_reference="manifest-1",
+            expected_setup_version=1,
+            expected_game_rule_version=2,
+            expected_hidden_state_version=3,
+        ),
+    )
+    confirmation = make_confirmation(original)
+    changed = replace(
+        original,
+        payload=ActivateRuleSetPayload(
+            manifest_reference="manifest-1",
+            expected_setup_version=1,
+            expected_game_rule_version=3,
+            expected_hidden_state_version=3,
+        ),
+    )
+
+    assert confirmation.payload_fingerprint != ""
     result = validate_confirmation(
         confirmation,
         changed,

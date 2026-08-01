@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from datetime import datetime
 from enum import Enum
 from typing import Protocol, runtime_checkable
@@ -25,6 +25,10 @@ from game_runtime.session_control.setup_participant_evidence import (
     ControlSetupParticipantApplyEvidence,
     ControlSetupParticipantEvidenceError,
 )
+from game_runtime.session_control.game_rule_evidence import (
+    ControlGameRuleApplyEvidence,
+    ControlGameRuleEvidenceError,
+)
 
 
 _RESULT_EVENT_TYPES_BY_COMMAND: dict[
@@ -41,6 +45,7 @@ _RESULT_EVENT_TYPES_BY_COMMAND: dict[
     SessionCommandType.SET_SCRIPT: (GameEventType.SCRIPT_SET,),
     SessionCommandType.ASSIGN_CHARACTER: (GameEventType.CHARACTER_ASSIGNED,),
     SessionCommandType.REPLACE_PLAYER: (GameEventType.PLAYER_REPLACED,),
+    SessionCommandType.ACTIVATE_RULE_SET: (GameEventType.RULE_SET_ACTIVATED,),
 }
 
 
@@ -198,6 +203,54 @@ class SetupMutation:
             raise ValueError("resulting_setup_version must advance once")
 
 
+class GameRuleMutationType(str, Enum):
+    ACTIVATE_RULE_SET = "ACTIVATE_RULE_SET"
+
+
+@dataclass(frozen=True, slots=True)
+class GameRuleMutation:
+    mutation_type: GameRuleMutationType
+    manifest_reference: str
+    committed_rule_set_reference: str
+    opaque_hidden_state_reference: str
+    expected_game_rule_version: int
+    resulting_game_rule_version: int
+    expected_hidden_state_version: int
+    resulting_hidden_state_version: int
+    provenance_reference: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.mutation_type, GameRuleMutationType):
+            raise TypeError("mutation_type must be a GameRuleMutationType")
+        for name in (
+            "manifest_reference",
+            "committed_rule_set_reference",
+            "opaque_hidden_state_reference",
+            "provenance_reference",
+        ):
+            _require_text(name, getattr(self, name))
+        for name in (
+            "expected_game_rule_version",
+            "expected_hidden_state_version",
+        ):
+            _require_non_negative(name, getattr(self, name))
+        for name in (
+            "resulting_game_rule_version",
+            "resulting_hidden_state_version",
+        ):
+            _require_positive(name, getattr(self, name))
+        if (
+            self.resulting_game_rule_version
+            != self.expected_game_rule_version + 1
+        ):
+            raise ValueError("resulting_game_rule_version must advance once")
+        if (
+            self.resulting_hidden_state_version
+            != self.expected_hidden_state_version + 1
+        ):
+            raise ValueError("resulting_hidden_state_version must advance once")
+
+
 class OwnershipIntentType(str, Enum):
     UNCHANGED = "UNCHANGED"
     ACQUIRE = "ACQUIRE"
@@ -324,6 +377,10 @@ class ControlApplyPlan:
     setup_participant_evidence: ControlSetupParticipantApplyEvidence = field(
         default_factory=ControlSetupParticipantApplyEvidence
     )
+    game_rule_mutations: tuple[GameRuleMutation, ...] = ()
+    game_rule_evidence: ControlGameRuleApplyEvidence = field(
+        default_factory=ControlGameRuleApplyEvidence
+    )
 
     def __post_init__(self) -> None:
         _validate_common_plan_fields(self)
@@ -373,6 +430,26 @@ class ControlApplyPlan:
             )
             _validate_setup_participant_mutations(self)
         except ControlSetupParticipantEvidenceError as exc:
+            raise ValueError(str(exc)) from exc
+        _freeze_typed_tuple(
+            self,
+            "game_rule_mutations",
+            self.game_rule_mutations,
+            GameRuleMutation,
+        )
+        if not isinstance(self.game_rule_evidence, ControlGameRuleApplyEvidence):
+            raise TypeError(
+                "game_rule_evidence must be a ControlGameRuleApplyEvidence"
+            )
+        try:
+            self.game_rule_evidence.validate_for_command(
+                self.command_type,
+                game_id=self.game_id,
+                session_id=self.session_id,
+                observed_state_version=self.expected_state_version,
+            )
+            _validate_game_rule_mutations(self)
+        except ControlGameRuleEvidenceError as exc:
             raise ValueError(str(exc)) from exc
         result_events = _freeze_result_events(self, self.result_events)
         if self.operation_terminal_state is not ControlOperationStatus.SUCCESS:
@@ -762,6 +839,142 @@ def _validate_setup_participant_mutations(plan: ControlApplyPlan) -> None:
         raise ControlSetupParticipantEvidenceError(
             "command cannot carry Setup / Participant mutations"
         )
+
+
+def _validate_game_rule_mutations(plan: ControlApplyPlan) -> None:
+    if plan.command_type is not SessionCommandType.ACTIVATE_RULE_SET:
+        if plan.game_rule_mutations:
+            raise ControlGameRuleEvidenceError(
+                "command cannot carry Game Rule mutations"
+            )
+        return
+    if (
+        len(plan.game_rule_mutations) != 1
+        or plan.participant_mutations
+        or plan.setup_mutations
+    ):
+        raise ControlGameRuleEvidenceError(
+            "ACTIVATE_RULE_SET requires exactly one Game Rule mutation"
+        )
+    mutation = plan.game_rule_mutations[0]
+    evidence = plan.game_rule_evidence.rule_set_activation
+    candidate = plan.candidate_snapshot
+    try:
+        validated_candidate = _revalidate_candidate_game_snapshot(candidate)
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise ControlGameRuleEvidenceError(
+            "ACTIVATE_RULE_SET requires a complete CandidateGameSnapshot"
+        ) from exc
+    setup = validated_candidate.setup
+    game_rules = validated_candidate.game_rules
+    hidden_state = validated_candidate.hidden_state
+    if evidence is None or (
+        mutation.mutation_type
+        is not GameRuleMutationType.ACTIVATE_RULE_SET
+        or mutation.manifest_reference
+        != evidence.setup_manifest_reference
+        or setup.manifest_reference != evidence.setup_manifest_reference
+        or setup.domain_version != evidence.setup_version
+        or mutation.committed_rule_set_reference
+        != evidence.committed_rule_set_reference
+        or game_rules.committed_rule_set_reference
+        != evidence.committed_rule_set_reference
+        or mutation.opaque_hidden_state_reference
+        != evidence.opaque_hidden_state_reference
+        or hidden_state.committed_state_reference
+        != evidence.opaque_hidden_state_reference
+        or mutation.expected_game_rule_version
+        != evidence.rule_set_version
+        or mutation.resulting_game_rule_version
+        != game_rules.domain_version
+        or mutation.expected_hidden_state_version
+        != evidence.hidden_state_version
+        or mutation.resulting_hidden_state_version
+        != hidden_state.domain_version
+        or mutation.provenance_reference
+        != evidence.provenance_reference
+    ):
+        raise ControlGameRuleEvidenceError(
+            "ACTIVATE_RULE_SET mutation, evidence, and candidate do not match"
+        )
+
+
+def _revalidate_candidate_game_snapshot(
+    candidate: CandidateSessionSnapshot,
+) -> object:
+    from game_runtime.session_control.composite_snapshot import (
+        CandidateGameSnapshot,
+        GameRuleSnapshotSlice,
+        HiddenGameStateSlice,
+        LifecycleSnapshotSlice,
+        ParticipantSnapshotRecord,
+        ParticipantSnapshotSlice,
+        PhaseSnapshotSlice,
+        SetupSnapshotSlice,
+    )
+
+    if not isinstance(candidate, CandidateGameSnapshot):
+        raise TypeError("candidate must be a CandidateGameSnapshot")
+    participant_records = candidate.participants.participants
+    if not isinstance(participant_records, tuple):
+        raise TypeError("candidate participants must be a tuple")
+    return CandidateGameSnapshot(
+        game_id=candidate.game_id,
+        session_id=candidate.session_id,
+        group_id=candidate.group_id,
+        dm_participant_id=candidate.dm_participant_id,
+        status=candidate.status,
+        current_phase=candidate.current_phase,
+        state_version=candidate.state_version,
+        last_applied_sequence_no=candidate.last_applied_sequence_no,
+        snapshot_schema_version=candidate.snapshot_schema_version,
+        lifecycle=_reconstruct_contract_value(
+            candidate.lifecycle,
+            LifecycleSnapshotSlice,
+        ),
+        phase=_reconstruct_contract_value(
+            candidate.phase,
+            PhaseSnapshotSlice,
+        ),
+        setup=_reconstruct_contract_value(
+            candidate.setup,
+            SetupSnapshotSlice,
+        ),
+        participants=_reconstruct_contract_value(
+            candidate.participants,
+            ParticipantSnapshotSlice,
+            participants=tuple(
+                _reconstruct_contract_value(
+                    record,
+                    ParticipantSnapshotRecord,
+                )
+                for record in participant_records
+            ),
+        ),
+        game_rules=_reconstruct_contract_value(
+            candidate.game_rules,
+            GameRuleSnapshotSlice,
+        ),
+        hidden_state=_reconstruct_contract_value(
+            candidate.hidden_state,
+            HiddenGameStateSlice,
+        ),
+    )
+
+
+def _reconstruct_contract_value(
+    value: object,
+    expected_type: type,
+    **overrides: object,
+) -> object:
+    if not isinstance(value, expected_type):
+        raise TypeError(f"value must be a {expected_type.__name__}")
+    arguments = {
+        item.name: getattr(value, item.name)
+        for item in fields(expected_type)
+    }
+    arguments.update(overrides)
+    return expected_type(**arguments)
 
 
 def _validate_one_result_event(

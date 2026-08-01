@@ -1,9 +1,11 @@
+from dataclasses import FrozenInstanceError, fields
 from datetime import datetime, timezone
 
 import pytest
 
 from game_runtime.session import GamePhase
 from game_runtime.session_control import (
+    ActivateRuleSetPayload,
     AssignCharacterPayload,
     ChangePhasePayload,
     CreateSessionPayload,
@@ -92,6 +94,15 @@ def make_command(
                 expected_binding_version=2,
             ),
         ),
+        (
+            SessionCommandType.ACTIVATE_RULE_SET,
+            ActivateRuleSetPayload(
+                manifest_reference="manifest-1",
+                expected_setup_version=1,
+                expected_game_rule_version=2,
+                expected_hidden_state_version=3,
+            ),
+        ),
     ],
 )
 def test_all_frozen_command_types_can_be_created(
@@ -174,3 +185,46 @@ def test_payload_for_another_command_is_rejected() -> None:
             SessionCommandType.START_GAME,
             ResumeGamePayload(),
         )
+
+
+def test_activate_rule_set_payload_is_frozen_slotted_and_has_exact_fields() -> None:
+    payload = ActivateRuleSetPayload(
+        manifest_reference="manifest-1",
+        expected_setup_version=1,
+        expected_game_rule_version=2,
+        expected_hidden_state_version=3,
+    )
+
+    assert [field.name for field in fields(ActivateRuleSetPayload)] == [
+        "manifest_reference",
+        "expected_setup_version",
+        "expected_game_rule_version",
+        "expected_hidden_state_version",
+    ]
+    assert not hasattr(payload, "__dict__")
+    with pytest.raises(FrozenInstanceError):
+        payload.manifest_reference = "manifest-other"  # type: ignore[misc]
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "error"),
+    [
+        ({"manifest_reference": ""}, "manifest_reference"),
+        ({"expected_setup_version": -1}, "expected_setup_version"),
+        ({"expected_game_rule_version": True}, "expected_game_rule_version"),
+        ({"expected_hidden_state_version": "3"}, "expected_hidden_state_version"),
+    ],
+)
+def test_activate_rule_set_payload_rejects_invalid_fields(
+    kwargs: dict[str, object], error: str
+) -> None:
+    values: dict[str, object] = {
+        "manifest_reference": "manifest-1",
+        "expected_setup_version": 1,
+        "expected_game_rule_version": 2,
+        "expected_hidden_state_version": 3,
+    }
+    values.update(kwargs)
+
+    with pytest.raises((TypeError, ValueError), match=error):
+        ActivateRuleSetPayload(**values)  # type: ignore[arg-type]

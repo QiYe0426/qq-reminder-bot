@@ -23,6 +23,7 @@ from game_runtime.session_control.bootstrap import (
     ProvisionalActorContractError,
 )
 from game_runtime.session_control.commands import (
+    ActivateRuleSetPayload,
     AssignCharacterPayload,
     ChangePhasePayload,
     CreateSessionPayload,
@@ -110,6 +111,8 @@ from game_runtime.session_control.apply_contract import (
     ControlOperationClaim,
     ControlRejectPlan,
     CreateSessionWithEventPlan,
+    GameRuleMutation,
+    GameRuleMutationType,
     OwnershipIntent,
     OwnershipIntentType,
     ParticipantMutation,
@@ -145,6 +148,10 @@ from game_runtime.session_control.composite_lifecycle_builder import (
 )
 from game_runtime.session_control.composite_control_builder import (
     CompositeGameControlApplyPlanBuilder,
+)
+from game_runtime.session_control.game_rule_control_builder import (
+    GameRuleControlApplyPlanBuilder,
+    GameRuleControlRejectReason,
 )
 from game_runtime.session_control.receipt_validation import (
     ReceiptAccepted,
@@ -197,6 +204,12 @@ from game_runtime.session_control.setup_participant_evidence import (
     ControlSetupParticipantApplyEvidence,
     ControlSetupParticipantEvidenceError,
     SetupParticipantEvidenceStatus,
+)
+from game_runtime.session_control.game_rule_evidence import (
+    ControlGameRuleApplyEvidence,
+    ControlGameRuleEvidenceError,
+    ControlRuleSetActivationEvidence,
+    GameRuleEvidenceStatus,
 )
 from game_runtime.session_control.coordinator_evidence import (
     ActorValidatedControlTurnEvidence,
@@ -295,6 +308,18 @@ from game_runtime.session_control.setup_transition import (
     SetupTransitionState,
     transition_setup,
 )
+from game_runtime.session_control.game_rule_transition import (
+    GameRuleActivationAccepted,
+    GameRuleActivationContractError,
+    GameRuleActivationContractFailureReason,
+    GameRuleActivationDecision,
+    GameRuleActivationEffect,
+    GameRuleActivationRejectReason,
+    GameRuleActivationRejected,
+    GameRuleActivationRequest,
+    GameRuleActivationState,
+    transition_game_rule_activation,
+)
 from game_runtime.session_control.participant_transition import (
     AssignCharacterTransitionAccepted,
     AssignCharacterTransitionRejected,
@@ -340,6 +365,7 @@ __all__ = [
     "AuthorizationDecision",
     "AuthorizationReason",
     "AuthorizationResult",
+    "ActivateRuleSetPayload",
     "BootstrapIdFactory",
     "BuildNonCommit",
     "BuildNonCommitReason",
@@ -368,6 +394,8 @@ __all__ = [
     "ControlEventDeliveryEnvelope",
     "ControlEventDeliveryEnvelopeError",
     "ControlEndRetentionEvidence",
+    "ControlGameRuleApplyEvidence",
+    "ControlGameRuleEvidenceError",
     "ControlApplyConflict",
     "ControlApplyConflictReason",
     "ControlApplyContractError",
@@ -396,6 +424,7 @@ __all__ = [
     "ControlResumeValidationEvidence",
     "ControlSessionBuildView",
     "ControlSetupBuildView",
+    "ControlRuleSetActivationEvidence",
     "ControlStartReadinessEvidence",
     "ControlCharacterAssignmentEvidence",
     "ControlCharacterAvailabilityEvidence",
@@ -444,6 +473,20 @@ __all__ = [
     "ExistingSessionContext",
     "GroupSessionResolver",
     "GameRuleSnapshotSlice",
+    "GameRuleMutation",
+    "GameRuleMutationType",
+    "GameRuleControlApplyPlanBuilder",
+    "GameRuleControlRejectReason",
+    "GameRuleActivationAccepted",
+    "GameRuleActivationContractError",
+    "GameRuleActivationContractFailureReason",
+    "GameRuleActivationDecision",
+    "GameRuleActivationEffect",
+    "GameRuleActivationRejectReason",
+    "GameRuleActivationRejected",
+    "GameRuleActivationRequest",
+    "GameRuleActivationState",
+    "GameRuleEvidenceStatus",
     "GameSnapshotIdentity",
     "HiddenGameStateSlice",
     "HunterInstanceReadinessStatus",
@@ -550,6 +593,7 @@ __all__ = [
     "transition_lifecycle",
     "transition_phase",
     "transition_setup",
+    "transition_game_rule_activation",
     "transition_participant",
     "validate_dm_command_event",
 ]

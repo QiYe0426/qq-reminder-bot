@@ -1,4 +1,4 @@
-from dataclasses import replace
+from dataclasses import FrozenInstanceError, fields, replace
 from datetime import datetime, timezone
 
 import pytest
@@ -14,6 +14,7 @@ from game_runtime.event import (
     GameEventType,
     PhaseChangedPayload,
     PlayerReplacedPayload,
+    RuleSetActivatedPayload,
     ScriptSetPayload,
     SessionControlRejectedPayload,
     SessionCreatedPayload,
@@ -95,6 +96,12 @@ def payloads_by_type():
             previous_phase=GamePhase.EXPLORATION,
             current_phase=GamePhase.DISCUSSION,
         ),
+        GameEventType.RULE_SET_ACTIVATED: RuleSetActivatedPayload(
+            **COMMON,
+            manifest_reference="manifest-1",
+            rule_set_domain_version=2,
+            hidden_state_domain_version=3,
+        ),
     }
 
 
@@ -129,6 +136,7 @@ def test_all_frozen_control_result_event_types_are_typed_and_valid() -> None:
         GameEventType.PLAYER_REPLACED,
         GameEventType.SESSION_CONTROL_REJECTED,
         GameEventType.PHASE_CHANGED,
+        GameEventType.RULE_SET_ACTIVATED,
     }
 
     for event_type, expected_payload in payloads_by_type().items():
@@ -215,3 +223,64 @@ def test_result_event_requires_frozen_visibility_and_causation_fields() -> None:
         validate_control_result_event(replace(event, causation_event_id=None))
     with pytest.raises(ControlResultPayloadSchemaError, match="observed_state_version"):
         validate_control_result_event(replace(event, observed_state_version=None))
+
+
+def test_rule_set_activated_payload_is_closed_frozen_and_dm_control_only() -> None:
+    payload = RuleSetActivatedPayload(
+        **COMMON,
+        manifest_reference="manifest-1",
+        rule_set_domain_version=2,
+        hidden_state_domain_version=3,
+    )
+
+    assert [field.name for field in fields(RuleSetActivatedPayload)] == [
+        "command_id",
+        "operation_id",
+        "input_event_id",
+        "result_code",
+        "result_state_version",
+        "manifest_reference",
+        "rule_set_domain_version",
+        "hidden_state_domain_version",
+    ]
+    assert not hasattr(payload, "__dict__")
+    assert CONTROL_RESULT_VISIBILITY[GameEventType.RULE_SET_ACTIVATED] is EventVisibility.DM_CONTROL
+    with pytest.raises(FrozenInstanceError):
+        payload.manifest_reference = "manifest-other"  # type: ignore[misc]
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "error"),
+    [
+        ({"manifest_reference": ""}, "manifest_reference"),
+        ({"rule_set_domain_version": 0}, "rule_set_domain_version"),
+        ({"hidden_state_domain_version": True}, "hidden_state_domain_version"),
+    ],
+)
+def test_rule_set_activated_payload_rejects_invalid_fields(
+    kwargs: dict[str, object], error: str
+) -> None:
+    values: dict[str, object] = {
+        **COMMON,
+        "manifest_reference": "manifest-1",
+        "rule_set_domain_version": 2,
+        "hidden_state_domain_version": 3,
+    }
+    values.update(kwargs)
+
+    with pytest.raises((TypeError, ValueError), match=error):
+        RuleSetActivatedPayload(**values)  # type: ignore[arg-type]
+
+
+def test_rule_set_activated_result_rejects_hidden_or_committed_references() -> None:
+    event = make_result_event(GameEventType.RULE_SET_ACTIVATED)
+
+    for forbidden_field in (
+        "committed_rule_set_reference",
+        "committed_hidden_state_reference",
+        "hidden_payload",
+    ):
+        with pytest.raises(ControlResultPayloadSchemaError, match="fields"):
+            validate_control_result_event(
+                replace(event, payload={**event.payload, forbidden_field: "forbidden"})
+            )

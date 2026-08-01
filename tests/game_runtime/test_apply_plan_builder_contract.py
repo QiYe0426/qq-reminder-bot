@@ -33,7 +33,13 @@ from game_runtime.session_control.build_context import (
     ControlSessionBuildView,
     ControlSetupBuildView,
 )
+from game_runtime.session_control.game_rule_evidence import (
+    ControlGameRuleApplyEvidence,
+    ControlRuleSetActivationEvidence,
+    GameRuleEvidenceStatus,
+)
 from game_runtime.session_control.commands import (
+    ActivateRuleSetPayload,
     CreateSessionPayload,
     PauseGamePayload,
     SessionCommandType,
@@ -304,4 +310,68 @@ def test_canonical_intent_rejects_create_session_path() -> None:
             command_type=SessionCommandType.CREATE_SESSION,
             payload=payload,
             payload_fingerprint=fingerprint_payload(payload),
+        )
+
+
+def test_canonical_intent_accepts_activate_rule_set_with_deterministic_fingerprint() -> None:
+    payload = ActivateRuleSetPayload(
+        manifest_reference="manifest-1",
+        expected_setup_version=1,
+        expected_game_rule_version=2,
+        expected_hidden_state_version=3,
+    )
+    fingerprint = fingerprint_payload(payload)
+
+    intent = CanonicalControlCommandIntent(
+        intent_schema_version=1,
+        command_type=SessionCommandType.ACTIVATE_RULE_SET,
+        payload=payload,
+        payload_fingerprint=fingerprint,
+    )
+
+    assert intent.payload is payload
+    assert fingerprint_payload(payload) == fingerprint
+
+
+def test_session_build_view_keeps_game_rule_evidence_optional_but_binds_present_evidence() -> None:
+    session_view = _make_context().session_view
+    evidence = ControlGameRuleApplyEvidence(
+        rule_set_activation=ControlRuleSetActivationEvidence(
+            evidence_schema_version=1,
+            game_id="game-1",
+            session_id="session-1",
+            observed_state_version=4,
+            setup_manifest_reference="manifest-1",
+            setup_version=1,
+            committed_rule_set_reference="rule-set:commit-1",
+            rule_set_version=2,
+            opaque_hidden_state_reference="hidden-state:commit-1",
+            hidden_state_version=3,
+            provenance_reference="provenance-1",
+            validation_status=GameRuleEvidenceStatus.UNKNOWN,
+        )
+    )
+
+    assert session_view.game_rule_evidence == ControlGameRuleApplyEvidence()
+    bound = replace(session_view, game_rule_evidence=evidence)
+    assert bound.game_rule_evidence is evidence
+    with pytest.raises(ControlApplyBuildContextError):
+        replace(
+            session_view,
+            game_rule_evidence=ControlGameRuleApplyEvidence(
+                rule_set_activation=ControlRuleSetActivationEvidence(
+                    evidence_schema_version=1,
+                    game_id="other-game",
+                    session_id="session-1",
+                    observed_state_version=4,
+                    setup_manifest_reference="manifest-1",
+                    setup_version=1,
+                    committed_rule_set_reference="rule-set:commit-1",
+                    rule_set_version=2,
+                    opaque_hidden_state_reference="hidden-state:commit-1",
+                    hidden_state_version=3,
+                    provenance_reference="provenance-1",
+                    validation_status=GameRuleEvidenceStatus.VERIFIED,
+                )
+            ),
         )

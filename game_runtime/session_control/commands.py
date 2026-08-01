@@ -21,6 +21,7 @@ class SessionCommandType(str, Enum):
     SET_SCRIPT = "SET_SCRIPT"
     ASSIGN_CHARACTER = "ASSIGN_CHARACTER"
     REPLACE_PLAYER = "REPLACE_PLAYER"
+    ACTIVATE_RULE_SET = "ACTIVATE_RULE_SET"
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,6 +116,24 @@ class ReplacePlayerPayload(SessionCommandPayload):
         )
 
 
+@dataclass(frozen=True, slots=True)
+class ActivateRuleSetPayload(SessionCommandPayload):
+    manifest_reference: str
+    expected_setup_version: int
+    expected_game_rule_version: int
+    expected_hidden_state_version: int
+
+    def __post_init__(self) -> None:
+        _require_non_empty("manifest_reference", self.manifest_reference)
+        _require_non_negative("expected_setup_version", self.expected_setup_version)
+        _require_non_negative(
+            "expected_game_rule_version", self.expected_game_rule_version
+        )
+        _require_non_negative(
+            "expected_hidden_state_version", self.expected_hidden_state_version
+        )
+
+
 _PAYLOAD_TYPE_BY_COMMAND: dict[
     SessionCommandType, type[SessionCommandPayload]
 ] = {
@@ -127,6 +146,7 @@ _PAYLOAD_TYPE_BY_COMMAND: dict[
     SessionCommandType.SET_SCRIPT: SetScriptPayload,
     SessionCommandType.ASSIGN_CHARACTER: AssignCharacterPayload,
     SessionCommandType.REPLACE_PLAYER: ReplacePlayerPayload,
+    SessionCommandType.ACTIVATE_RULE_SET: ActivateRuleSetPayload,
 }
 
 

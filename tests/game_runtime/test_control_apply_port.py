@@ -21,6 +21,7 @@ from game_runtime.session_control import (
     ControlApplyConflictReason,
     ControlApplyPlan,
     ControlApplyReceipt,
+    ControlGameRuleApplyEvidence,
     ControlOperationClaim,
     ControlOperationStatus,
     ControlRejectPlan,
@@ -148,6 +149,8 @@ def test_apply_plan_is_typed_immutable_and_consistent() -> None:
     assert plan.candidate_snapshot.state_version == 5
     assert plan.result_events[0].event_type is GameEventType.SESSION_PAUSED
     assert plan.operation_terminal_state is ControlOperationStatus.SUCCESS
+    assert plan.game_rule_mutations == ()
+    assert plan.game_rule_evidence == ControlGameRuleApplyEvidence()
     with pytest.raises(FrozenInstanceError):
         plan.expected_state_version = 5  # type: ignore[misc]
 

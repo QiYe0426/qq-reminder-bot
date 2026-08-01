@@ -286,6 +286,35 @@ def test_hidden_state_accepts_only_an_opaque_committed_reference() -> None:
         )
 
 
+def test_candidate_requires_game_rule_and_hidden_state_references_together() -> None:
+    candidate = _candidate()
+    active_rules = GameRuleSnapshotSlice(
+        schema_version=1,
+        domain_version=3,
+        committed_rule_set_reference="rule-set:commit-1",
+    )
+    active_hidden = HiddenGameStateSlice(
+        schema_version=1,
+        domain_version=5,
+        committed_state_reference="hidden-state:commit-1",
+    )
+
+    active = replace(candidate, game_rules=active_rules, hidden_state=active_hidden)
+    assert active.game_rules.domain_version == 3
+    assert active.hidden_state.domain_version == 5
+
+    for mismatch in (
+        {"game_rules": active_rules},
+        {"hidden_state": active_hidden},
+    ):
+        with pytest.raises(CompositeSnapshotContractError) as error:
+            replace(candidate, **mismatch)
+        assert (
+            error.value.reason
+            is CompositeSnapshotFailureReason.GAME_RULE_HIDDEN_BINDING_MISMATCH
+        )
+
+
 def _completion(
     *,
     kind: ControlCompletionKind,

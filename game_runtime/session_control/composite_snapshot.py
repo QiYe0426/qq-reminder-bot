@@ -29,6 +29,7 @@ class CompositeSnapshotFailureReason(str, Enum):
     SCOPE_MISMATCH = "SCOPE_MISMATCH"
     INVALID_CONTROL_CURSOR = "INVALID_CONTROL_CURSOR"
     COMPLETION_IDENTITY_MISMATCH = "COMPLETION_IDENTITY_MISMATCH"
+    GAME_RULE_HIDDEN_BINDING_MISMATCH = "GAME_RULE_HIDDEN_BINDING_MISMATCH"
 
 
 class CompositeSnapshotContractError(ValueError):
@@ -208,6 +209,12 @@ class CandidateGameSnapshot(CandidateSessionSnapshot):
         for name, value, expected_type in expected_types:
             if not isinstance(value, expected_type):
                 raise TypeError(f"{name} must be a {expected_type.__name__}")
+        if (
+            self.game_rules.committed_rule_set_reference is None
+        ) != (self.hidden_state.committed_state_reference is None):
+            _fail(
+                CompositeSnapshotFailureReason.GAME_RULE_HIDDEN_BINDING_MISMATCH
+            )
         if (
             self.status is not self.lifecycle.status
             or self.current_phase is not self.phase.phase

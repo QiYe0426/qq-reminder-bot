@@ -8,6 +8,7 @@ from game_runtime.participant import (
 )
 from game_runtime.session import GameSessionStatus
 from game_runtime.session_control import (
+    ActivateRuleSetPayload,
     ALL_SESSION_CONTROL_PERMISSIONS,
     AuthorizationContext,
     AuthorizationDecision,
@@ -51,6 +52,7 @@ def make_resolution(
 def _payload_for(command_type: SessionCommandType) -> SessionCommandPayload:
     from game_runtime.session_control import (
         AssignCharacterPayload,
+        ActivateRuleSetPayload,
         ChangePhasePayload,
         EndGamePayload,
         PauseGamePayload,
@@ -82,6 +84,12 @@ def _payload_for(command_type: SessionCommandType) -> SessionCommandPayload:
             old_participant_id="participant-old",
             new_participant_id="participant-new",
             expected_binding_version=1,
+        ),
+        SessionCommandType.ACTIVATE_RULE_SET: ActivateRuleSetPayload(
+            manifest_reference="manifest-1",
+            expected_setup_version=1,
+            expected_game_rule_version=2,
+            expected_hidden_state_version=3,
         ),
     }
     return payloads[command_type]
@@ -274,6 +282,7 @@ def test_every_command_has_a_typed_permission_mapping(
         (SessionCommandType.SET_SCRIPT, GameSessionStatus.RUNNING),
         (SessionCommandType.ASSIGN_CHARACTER, GameSessionStatus.RUNNING),
         (SessionCommandType.REPLACE_PLAYER, GameSessionStatus.RUNNING),
+        (SessionCommandType.ACTIVATE_RULE_SET, GameSessionStatus.RUNNING),
     ],
 )
 def test_lifecycle_constraint_denies_invalid_status(
@@ -308,6 +317,27 @@ def test_precomputed_confirmation_requirement_is_preserved(session_factory) -> N
 
     assert result.decision is AuthorizationDecision.REQUIRE_CONFIRMATION
     assert result.reason is AuthorizationReason.CONFIRMATION_REQUIRED
+
+
+def test_activate_rule_set_is_coarsely_allowed_only_for_created_sessions(
+    session_factory,
+) -> None:
+    created = session_factory()
+    running = session_factory()
+    running.transition_to(GameSessionStatus.RUNNING)
+    policy = SessionControlAuthorizationPolicy()
+
+    allowed = policy.authorize(
+        make_resolution(created, SessionCommandType.ACTIVATE_RULE_SET),
+        make_context(created),
+    )
+    denied = policy.authorize(
+        make_resolution(running, SessionCommandType.ACTIVATE_RULE_SET),
+        make_context(running),
+    )
+
+    assert allowed.decision is AuthorizationDecision.ALLOW
+    assert denied.reason is AuthorizationReason.COMMAND_CONSTRAINT_DENIED
 
 
 def test_authorization_does_not_mutate_session_or_command(session_factory) -> None:
