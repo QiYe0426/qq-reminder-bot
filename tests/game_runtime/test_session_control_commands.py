@@ -19,6 +19,7 @@ from game_runtime.session_control import (
     SetScriptPayload,
     StartGamePayload,
 )
+import game_runtime.session_control as session_control
 
 
 REQUESTED_AT = datetime(2026, 7, 15, tzinfo=timezone.utc)
@@ -228,3 +229,52 @@ def test_activate_rule_set_payload_rejects_invalid_fields(
 
     with pytest.raises((TypeError, ValueError), match=error):
         ActivateRuleSetPayload(**values)  # type: ignore[arg-type]
+
+
+def test_reveal_clue_command_contract_is_closed_and_typed() -> None:
+    command_type = SessionCommandType("REVEAL_CLUE")
+    payload_type = getattr(session_control, "RevealCluePayload", None)
+
+    assert command_type is SessionCommandType.REVEAL_CLUE
+    assert payload_type is not None
+    payload = payload_type(
+        clue_id="clue-1",
+        expected_game_rule_version=1,
+        expected_hidden_state_version=1,
+    )
+    command = make_command(command_type, payload)
+
+    assert [field.name for field in fields(payload_type)] == [
+        "clue_id",
+        "expected_game_rule_version",
+        "expected_hidden_state_version",
+    ]
+    assert command.payload is payload
+    assert not hasattr(payload, "__dict__")
+    with pytest.raises(FrozenInstanceError):
+        payload.clue_id = "clue-other"
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("clue_id", ""),
+        ("expected_game_rule_version", True),
+        ("expected_hidden_state_version", -1),
+    ],
+)
+def test_reveal_clue_payload_rejects_invalid_values(
+    field: str,
+    value: object,
+) -> None:
+    payload_type = getattr(session_control, "RevealCluePayload", None)
+    assert payload_type is not None
+    values: dict[str, object] = {
+        "clue_id": "clue-1",
+        "expected_game_rule_version": 1,
+        "expected_hidden_state_version": 1,
+    }
+    values[field] = value
+
+    with pytest.raises((TypeError, ValueError), match=field):
+        payload_type(**values)

@@ -99,12 +99,12 @@ def _context(
         current_phase=phase,
         state_version=4,
         last_applied_sequence_no=snapshot_cursor,
-        snapshot_schema_version=1,
+        snapshot_schema_version=2,
         lifecycle=LifecycleSnapshotSlice(1, 1, status),
         phase=PhaseSnapshotSlice(1, 1, phase),
         setup=SetupSnapshotSlice(1, 0, None, None, None, None),
         participants=ParticipantSnapshotSlice(1, 1, records),
-        game_rules=GameRuleSnapshotSlice(1, 0, None),
+        game_rules=GameRuleSnapshotSlice(2, 0, None, None),
         hidden_state=HiddenGameStateSlice(1, 0, None),
     )
     evidence = context.setup_participant_evidence
@@ -735,7 +735,7 @@ def test_every_frozen_current_slice_is_revalidated_before_participant_compositio
     current = context.session_view.current_game_snapshot
     assert current is not None
     target = getattr(current, slice_name)
-    object.__setattr__(target, "schema_version", 2)
+    object.__setattr__(target, "schema_version", 3)
     outcome = ParticipantControlApplyPlanBuilder().build(context)
     assert isinstance(outcome, BuildNonCommit)
     assert not hasattr(outcome, "plan")

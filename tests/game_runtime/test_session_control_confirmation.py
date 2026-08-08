@@ -16,6 +16,7 @@ from game_runtime.session_control import (
     EndGamePayload,
     PauseGamePayload,
     ReplacePlayerPayload,
+    RevealCluePayload,
     ResumeGamePayload,
     SessionCommand,
     SessionCommandPayload,
@@ -98,6 +99,14 @@ def make_confirmation(command: SessionCommand):
                 old_participant_id="participant-old",
                 new_participant_id="participant-new",
                 expected_binding_version=1,
+            ),
+        ),
+        (
+            SessionCommandType.REVEAL_CLUE,
+            RevealCluePayload(
+                clue_id="clue-1",
+                expected_game_rule_version=1,
+                expected_hidden_state_version=1,
             ),
         ),
     ],

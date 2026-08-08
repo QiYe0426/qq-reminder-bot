@@ -2,11 +2,13 @@ from dataclasses import FrozenInstanceError, fields, replace
 from datetime import datetime, timezone
 
 import pytest
+import game_runtime.event as game_event
 
 from game_runtime.event import (
     CONTROL_RESULT_PAYLOAD_TYPES,
     CONTROL_RESULT_VISIBILITY,
     CharacterAssignedPayload,
+    ClueRevealedPayload,
     ControlResultPayloadSchemaError,
     EventVisibility,
     GameEvent,
@@ -102,6 +104,12 @@ def payloads_by_type():
             rule_set_domain_version=2,
             hidden_state_domain_version=3,
         ),
+        GameEventType.CLUE_REVEALED: ClueRevealedPayload(
+            **COMMON,
+            clue_id="clue-1",
+            public_disclosure_reference="public-disclosure-1",
+            game_rule_domain_version=2,
+        ),
     }
 
 
@@ -137,6 +145,7 @@ def test_all_frozen_control_result_event_types_are_typed_and_valid() -> None:
         GameEventType.SESSION_CONTROL_REJECTED,
         GameEventType.PHASE_CHANGED,
         GameEventType.RULE_SET_ACTIVATED,
+        GameEventType.CLUE_REVEALED,
     }
 
     for event_type, expected_payload in payloads_by_type().items():
@@ -283,4 +292,56 @@ def test_rule_set_activated_result_rejects_hidden_or_committed_references() -> N
         with pytest.raises(ControlResultPayloadSchemaError, match="fields"):
             validate_control_result_event(
                 replace(event, payload={**event.payload, forbidden_field: "forbidden"})
+            )
+
+
+def test_clue_revealed_payload_is_public_closed_and_contains_no_hidden_reference() -> None:
+    payload_type = getattr(game_event, "ClueRevealedPayload", None)
+    assert payload_type is not None
+    payload = payload_type(
+        **COMMON,
+        clue_id="clue-1",
+        public_disclosure_reference="public-disclosure-1",
+        game_rule_domain_version=2,
+    )
+    event = GameEvent(
+        event_id="event-clue-revealed",
+        game_id="game-1",
+        session_id="session-game-1",
+        event_type=GameEventType.CLUE_REVEALED,
+        actor="session-actor",
+        source=GameEventSource.CONTROL,
+        correlation_id="correlation-1",
+        timestamp=NOW,
+        payload=payload.to_mapping(),
+        schema_version=1,
+        visibility=EventVisibility.PUBLIC,
+        observed_state_version=4,
+        causation_event_id="event-command-1",
+    )
+
+    assert [field.name for field in fields(payload_type)] == [
+        "command_id",
+        "operation_id",
+        "input_event_id",
+        "result_code",
+        "result_state_version",
+        "clue_id",
+        "public_disclosure_reference",
+        "game_rule_domain_version",
+    ]
+    assert validate_control_result_event(event) == payload
+    assert CONTROL_RESULT_VISIBILITY[GameEventType.CLUE_REVEALED] is EventVisibility.PUBLIC
+    for forbidden_field in (
+        "current_hidden_state_reference",
+        "resulting_hidden_state_reference",
+        "committed_disclosure_state_reference",
+        "hidden_payload",
+    ):
+        with pytest.raises(ControlResultPayloadSchemaError, match="fields"):
+            validate_control_result_event(
+                replace(
+                    event,
+                    payload={**event.payload, forbidden_field: "forbidden"},
+                )
             )

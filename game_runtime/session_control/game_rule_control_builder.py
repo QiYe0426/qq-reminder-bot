@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from dataclasses import fields
 from enum import Enum
+from typing import Callable
 
 from game_runtime.event import (
+    ClueRevealedPayload,
     GameEvent,
     GameEventSource,
     GameEventType,
@@ -19,6 +21,7 @@ from game_runtime.event.control_payloads import (
 )
 from game_runtime.session import GamePhase, GameSessionStatus
 from game_runtime.session_control.apply_contract import (
+    ClueRevealMutation,
     ControlApplyPlan,
     ControlOperationClaim,
     ControlRejectPlan,
@@ -46,6 +49,7 @@ from game_runtime.session_control.build_context import (
 )
 from game_runtime.session_control.commands import (
     ActivateRuleSetPayload,
+    RevealCluePayload,
     SessionCommandType,
 )
 from game_runtime.session_control.composite_snapshot import (
@@ -62,9 +66,20 @@ from game_runtime.session_control.composite_snapshot import (
 )
 from game_runtime.session_control.delivery import ControlEventDeliveryEnvelope
 from game_runtime.session_control.game_rule_evidence import (
+    ClueRevealDisposition,
+    ControlClueRevealEvidence,
     ControlGameRuleApplyEvidence,
     ControlGameRuleEvidenceError,
     ControlRuleSetActivationEvidence,
+)
+from game_runtime.session_control.clue_reveal_transition import (
+    ClueRevealAccepted,
+    ClueRevealContractError,
+    ClueRevealRejected,
+    ClueRevealRejectReason,
+    ClueRevealRequest,
+    ClueRevealState,
+    transition_clue_reveal,
 )
 from game_runtime.session_control.game_rule_transition import (
     GameRuleActivationAccepted,
@@ -91,6 +106,11 @@ class GameRuleControlRejectReason(str, Enum):
     SETUP_NOT_READY = "SETUP_NOT_READY"
     RULE_SET_ALREADY_ACTIVE = "RULE_SET_ALREADY_ACTIVE"
     RULE_SET_CONFLICT = "RULE_SET_CONFLICT"
+    INVALID_PHASE = "INVALID_PHASE"
+    RULE_SET_NOT_ACTIVE = "RULE_SET_NOT_ACTIVE"
+    CLUE_ALREADY_REVEALED = "CLUE_ALREADY_REVEALED"
+    CLUE_NOT_FOUND = "CLUE_NOT_FOUND"
+    CLUE_NOT_REVEALABLE = "CLUE_NOT_REVEALABLE"
 
 
 class GameRuleControlApplyPlanBuilder:
@@ -118,6 +138,8 @@ class GameRuleControlApplyPlanBuilder:
                 BuildNonCommitReason.UNKNOWN_SCHEMA,
                 "CONTROL_COMMAND_INTENT_SCHEMA_UNSUPPORTED",
             )
+        if intent.command_type is SessionCommandType.REVEAL_CLUE:
+            return _build_clue_reveal(context, self._reject)
         if intent.command_type is not SessionCommandType.ACTIVATE_RULE_SET:
             command_type = intent.command_type
             return _noncommit(
@@ -273,7 +295,7 @@ class GameRuleControlApplyPlanBuilder:
                 session_id=session.session_id,
                 group_id=session.group_id,
                 command_id=envelope.command_id,
-                command_type=SessionCommandType.ACTIVATE_RULE_SET,
+                command_type=context.command_intent.command_type,
                 operation_id=envelope.operation_id,
                 operation_claim_id=context.claim.claim_id,
                 input_event_id=envelope.event.event_id,
@@ -285,6 +307,304 @@ class GameRuleControlApplyPlanBuilder:
                 operation_terminal_state=ControlOperationStatus.FAILED,
             )
         )
+
+
+def _build_clue_reveal(
+    context: ControlApplyBuildContext,
+    reject: Callable[
+        [ControlApplyBuildContext, GameRuleControlRejectReason], BuildReject
+    ],
+) -> BuildOutcome:
+    intent = context.command_intent
+    payload = intent.payload
+    if type(payload) is not RevealCluePayload:
+        return _noncommit(
+            BuildNonCommitReason.INVALID_CONTEXT,
+            "REVEAL_CLUE_INPUT_INVALID",
+        )
+    session = context.session_view
+    current = session.current_game_snapshot
+    if current is None:
+        return _noncommit(
+            BuildNonCommitReason.EVIDENCE_MISMATCH,
+            "COMPOSITE_CURRENT_SNAPSHOT_MISSING",
+        )
+    if not isinstance(current, CandidateGameSnapshot):
+        return _noncommit(
+            BuildNonCommitReason.INVALID_CONTEXT,
+            "COMPOSITE_CURRENT_SNAPSHOT_INVALID",
+        )
+    if current.snapshot_schema_version != COMPOSITE_SNAPSHOT_SCHEMA_VERSION:
+        return _noncommit(
+            BuildNonCommitReason.UNKNOWN_SCHEMA,
+            "COMPOSITE_SNAPSHOT_SCHEMA_UNSUPPORTED",
+        )
+    try:
+        _revalidate_candidate_snapshot(current)
+        binding_failure = _validate_composite_bindings(context, current)
+    except (
+        AttributeError,
+        CompositeSnapshotContractError,
+        TypeError,
+        ValueError,
+    ):
+        return _noncommit(
+            BuildNonCommitReason.INVALID_CONTEXT,
+            "COMPOSITE_CURRENT_SNAPSHOT_INVALID",
+        )
+    if binding_failure is not None:
+        return binding_failure
+    evidence_result = _validated_reveal_evidence(
+        context=context,
+        current=current,
+        payload=payload,
+    )
+    if isinstance(evidence_result, BuildNonCommit):
+        return evidence_result
+    evidence = evidence_result
+
+    if session.status is not GameSessionStatus.RUNNING:
+        return reject(context, GameRuleControlRejectReason.INVALID_LIFECYCLE)
+    if session.current_phase is not GamePhase.EXPLORATION:
+        return reject(context, GameRuleControlRejectReason.INVALID_PHASE)
+    try:
+        current_state = ClueRevealState(
+            rule_set_reference=current.game_rules.committed_rule_set_reference,
+            disclosure_state_reference=(
+                current.game_rules.committed_disclosure_state_reference
+            ),
+            hidden_state_reference=current.hidden_state.committed_state_reference,
+        )
+        candidate_state = (
+            ClueRevealState(
+                rule_set_reference=evidence.active_rule_set_reference,
+                disclosure_state_reference=(
+                    evidence.resulting_disclosure_state_reference
+                ),
+                hidden_state_reference=evidence.resulting_hidden_state_reference,
+            )
+            if evidence.disposition is ClueRevealDisposition.AVAILABLE
+            else None
+        )
+        decision = transition_clue_reveal(
+            ClueRevealRequest(
+                clue_id=payload.clue_id,
+                current_state=current_state,
+                candidate_state=candidate_state,
+                disposition=evidence.disposition,
+            )
+        )
+    except (ClueRevealContractError, TypeError, ValueError):
+        return _noncommit(
+            BuildNonCommitReason.INVALID_CONTEXT,
+            "REVEAL_CLUE_TRANSITION_INVALID",
+        )
+    if isinstance(decision, ClueRevealRejected):
+        reason = {
+            ClueRevealRejectReason.RULE_SET_NOT_ACTIVE:
+                GameRuleControlRejectReason.RULE_SET_NOT_ACTIVE,
+            ClueRevealRejectReason.CLUE_ALREADY_REVEALED:
+                GameRuleControlRejectReason.CLUE_ALREADY_REVEALED,
+            ClueRevealRejectReason.CLUE_NOT_FOUND:
+                GameRuleControlRejectReason.CLUE_NOT_FOUND,
+            ClueRevealRejectReason.CLUE_NOT_REVEALABLE:
+                GameRuleControlRejectReason.CLUE_NOT_REVEALABLE,
+        }.get(decision.reason)
+        if reason is None:
+            return _noncommit(
+                BuildNonCommitReason.INVALID_CONTEXT,
+                "REVEAL_CLUE_TRANSITION_INVALID",
+            )
+        return reject(context, reason)
+    if not isinstance(decision, ClueRevealAccepted):
+        return _noncommit(
+            BuildNonCommitReason.INVALID_CONTEXT,
+            "REVEAL_CLUE_TRANSITION_INVALID",
+        )
+    return _compose_clue_reveal_apply_plan(
+        context=context,
+        current=current,
+        decision=decision,
+        evidence=evidence,
+    )
+
+
+def _validated_reveal_evidence(
+    *,
+    context: ControlApplyBuildContext,
+    current: CandidateGameSnapshot,
+    payload: RevealCluePayload,
+) -> ControlClueRevealEvidence | BuildNonCommit:
+    session = context.session_view
+    bundle = session.game_rule_evidence
+    try:
+        if not isinstance(bundle, ControlGameRuleApplyEvidence):
+            raise ControlGameRuleEvidenceError("invalid Game Rule evidence bundle")
+        bundle.validate_for_command(
+            SessionCommandType.REVEAL_CLUE,
+            game_id=session.game_id,
+            session_id=session.session_id,
+            observed_state_version=session.state_version,
+        )
+        bundle.validate_payload_binding(SessionCommandType.REVEAL_CLUE, payload)
+        evidence = bundle.clue_reveal
+        if not isinstance(evidence, ControlClueRevealEvidence):
+            raise ControlGameRuleEvidenceError("clue reveal evidence is incomplete")
+        evidence = _reconstruct(evidence, ControlClueRevealEvidence)
+    except (
+        AttributeError,
+        ControlGameRuleEvidenceError,
+        TypeError,
+        ValueError,
+    ):
+        return _noncommit(
+            BuildNonCommitReason.EVIDENCE_MISMATCH,
+            "REVEAL_CLUE_EVIDENCE_INVALID",
+        )
+    if (
+        evidence.game_rule_version != current.game_rules.domain_version
+        or evidence.hidden_state_version != current.hidden_state.domain_version
+        or evidence.active_rule_set_reference
+        != current.game_rules.committed_rule_set_reference
+        or evidence.current_disclosure_state_reference
+        != current.game_rules.committed_disclosure_state_reference
+        or evidence.current_hidden_state_reference
+        != current.hidden_state.committed_state_reference
+    ):
+        return _noncommit(
+            BuildNonCommitReason.EVIDENCE_MISMATCH,
+            "REVEAL_CLUE_EVIDENCE_MISMATCH",
+        )
+    return evidence
+
+
+def _compose_clue_reveal_apply_plan(
+    *,
+    context: ControlApplyBuildContext,
+    current: CandidateGameSnapshot,
+    decision: ClueRevealAccepted,
+    evidence: ControlClueRevealEvidence,
+) -> BuildPlanReady | BuildNonCommit:
+    if (
+        current is not context.session_view.current_game_snapshot
+        or decision.clue_id != context.command_intent.payload.clue_id
+        or evidence.clue_id != decision.clue_id
+    ):
+        return _noncommit(
+            BuildNonCommitReason.EVIDENCE_MISMATCH,
+            "REVEAL_CLUE_COMPOSITION_INVALID",
+        )
+    session = context.session_view
+    envelope = context.envelope
+    try:
+        candidate = CandidateGameSnapshot(
+            game_id=current.game_id,
+            session_id=current.session_id,
+            group_id=current.group_id,
+            dm_participant_id=current.dm_participant_id,
+            status=current.status,
+            current_phase=current.current_phase,
+            state_version=current.state_version + 1,
+            last_applied_sequence_no=envelope.event_sequence_no,
+            snapshot_schema_version=current.snapshot_schema_version,
+            lifecycle=current.lifecycle,
+            phase=current.phase,
+            setup=current.setup,
+            participants=current.participants,
+            game_rules=GameRuleSnapshotSlice(
+                schema_version=current.game_rules.schema_version,
+                domain_version=current.game_rules.domain_version + 1,
+                committed_rule_set_reference=(
+                    decision.resulting_state.rule_set_reference
+                ),
+                committed_disclosure_state_reference=(
+                    decision.resulting_state.disclosure_state_reference
+                ),
+            ),
+            hidden_state=HiddenGameStateSlice(
+                schema_version=current.hidden_state.schema_version,
+                domain_version=current.hidden_state.domain_version + 1,
+                committed_state_reference=(
+                    decision.resulting_state.hidden_state_reference
+                ),
+            ),
+        )
+        mutation = ClueRevealMutation(
+            mutation_type=GameRuleMutationType.REVEAL_CLUE,
+            clue_id=evidence.clue_id,
+            active_rule_set_reference=evidence.active_rule_set_reference,
+            public_disclosure_reference=evidence.public_disclosure_reference,
+            current_disclosure_state_reference=(
+                evidence.current_disclosure_state_reference
+            ),
+            resulting_disclosure_state_reference=(
+                evidence.resulting_disclosure_state_reference
+            ),
+            current_hidden_state_reference=evidence.current_hidden_state_reference,
+            resulting_hidden_state_reference=(
+                evidence.resulting_hidden_state_reference
+            ),
+            expected_game_rule_version=evidence.game_rule_version,
+            resulting_game_rule_version=evidence.game_rule_version + 1,
+            expected_hidden_state_version=evidence.hidden_state_version,
+            resulting_hidden_state_version=evidence.hidden_state_version + 1,
+            provenance_reference=evidence.provenance_reference,
+        )
+        event = _result_event(
+            context,
+            event_type=GameEventType.CLUE_REVEALED,
+            ordinal=1,
+            payload=ClueRevealedPayload(
+                command_id=envelope.command_id,
+                operation_id=envelope.operation_id,
+                input_event_id=envelope.event.event_id,
+                result_code="CLUE_REVEALED",
+                result_state_version=candidate.state_version,
+                clue_id=evidence.clue_id,
+                public_disclosure_reference=evidence.public_disclosure_reference,
+                game_rule_domain_version=candidate.game_rules.domain_version,
+            ),
+        )
+        plan = ControlApplyPlan(
+            game_id=session.game_id,
+            session_id=session.session_id,
+            group_id=session.group_id,
+            command_id=envelope.command_id,
+            command_type=SessionCommandType.REVEAL_CLUE,
+            operation_id=envelope.operation_id,
+            operation_claim_id=context.claim.claim_id,
+            input_event_id=envelope.event.event_id,
+            input_sequence_no=envelope.event_sequence_no,
+            expected_state_version=session.state_version,
+            expected_cursor=session.last_applied_sequence_no,
+            expected_binding_version=envelope.requester_binding_version,
+            candidate_snapshot=candidate,
+            participant_mutations=(),
+            setup_mutations=(),
+            ownership_intent=OwnershipIntent(
+                intent_type=OwnershipIntentType.UNCHANGED,
+                expected_generation=None,
+                resulting_generation=None,
+            ),
+            result_events=(event,),
+            operation_terminal_state=ControlOperationStatus.SUCCESS,
+            lifecycle_evidence=context.lifecycle_evidence,
+            setup_participant_evidence=context.setup_participant_evidence,
+            game_rule_mutations=(mutation,),
+            game_rule_evidence=context.session_view.game_rule_evidence,
+        )
+    except (
+        AttributeError,
+        CompositeSnapshotContractError,
+        ControlGameRuleEvidenceError,
+        TypeError,
+        ValueError,
+    ):
+        return _noncommit(
+            BuildNonCommitReason.INVALID_CONTEXT,
+            "REVEAL_CLUE_COMPOSITION_INVALID",
+        )
+    return BuildPlanReady(plan=plan)
 
 
 def _compose_game_rule_apply_plan(
@@ -402,6 +722,9 @@ def _compose_game_rule_apply_plan(
                 committed_rule_set_reference=(
                     decision.resulting_state.committed_rule_set_reference
                 ),
+                committed_disclosure_state_reference=(
+                    evidence.initial_disclosure_state_reference
+                ),
             ),
             hidden_state=HiddenGameStateSlice(
                 schema_version=current.hidden_state.schema_version,
@@ -415,6 +738,9 @@ def _compose_game_rule_apply_plan(
             mutation_type=GameRuleMutationType.ACTIVATE_RULE_SET,
             manifest_reference=payload.manifest_reference,
             committed_rule_set_reference=evidence.committed_rule_set_reference,
+            committed_disclosure_state_reference=(
+                evidence.initial_disclosure_state_reference
+            ),
             opaque_hidden_state_reference=evidence.opaque_hidden_state_reference,
             expected_game_rule_version=evidence.rule_set_version,
             resulting_game_rule_version=evidence.rule_set_version + 1,
@@ -740,8 +1066,12 @@ def _revalidate_consumed_context(
                 activation,
                 ControlRuleSetActivationEvidence,
             )
+        reveal = bundle.clue_reveal
+        if reveal is not None:
+            reveal = _reconstruct(reveal, ControlClueRevealEvidence)
         bundle = ControlGameRuleApplyEvidence(
             rule_set_activation=activation,
+            clue_reveal=reveal,
         )
         session = _reconstruct(
             context.session_view,
@@ -816,27 +1146,46 @@ def _invalid_consumed_context_outcome(
 ) -> BuildNonCommit:
     try:
         session = context.session_view
+        command_type = context.command_intent.command_type
+        if command_type not in {
+            SessionCommandType.ACTIVATE_RULE_SET,
+            SessionCommandType.REVEAL_CLUE,
+        }:
+            return _noncommit(
+                BuildNonCommitReason.INVALID_CONTEXT,
+                "CONTROL_APPLY_CONTEXT_INVALID",
+            )
         for evidence in (
             context.lifecycle_evidence,
             context.setup_participant_evidence,
         ):
             evidence.validate_for_command(
-                SessionCommandType.ACTIVATE_RULE_SET,
+                command_type,
                 game_id=session.game_id,
                 session_id=session.session_id,
                 observed_state_version=session.state_version,
             )
         bundle = context.session_view.game_rule_evidence
-        if (
-            not isinstance(bundle, ControlGameRuleApplyEvidence)
-            or not isinstance(
-                bundle.rule_set_activation,
-                ControlRuleSetActivationEvidence,
+        valid_game_rule_evidence = (
+            isinstance(bundle, ControlGameRuleApplyEvidence)
+            and (
+                (
+                    command_type is SessionCommandType.ACTIVATE_RULE_SET
+                    and isinstance(
+                        bundle.rule_set_activation,
+                        ControlRuleSetActivationEvidence,
+                    )
+                )
+                or (
+                    command_type is SessionCommandType.REVEAL_CLUE
+                    and isinstance(bundle.clue_reveal, ControlClueRevealEvidence)
+                )
             )
-        ):
+        )
+        if not valid_game_rule_evidence:
             return _noncommit(
                 BuildNonCommitReason.EVIDENCE_MISMATCH,
-                "ACTIVATE_RULE_SET_EVIDENCE_INVALID",
+                f"{command_type.value}_EVIDENCE_INVALID",
             )
     except (
         AttributeError,
@@ -847,7 +1196,11 @@ def _invalid_consumed_context_outcome(
     ):
         return _noncommit(
             BuildNonCommitReason.EVIDENCE_MISMATCH,
-            "ACTIVATE_RULE_SET_CONTEXT_EVIDENCE_INVALID",
+            (
+                f"{command_type.value}_CONTEXT_EVIDENCE_INVALID"
+                if isinstance(command_type, SessionCommandType)
+                else "GAME_RULE_CONTEXT_EVIDENCE_INVALID"
+            ),
         )
     return _noncommit(
         BuildNonCommitReason.INVALID_CONTEXT,

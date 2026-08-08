@@ -32,6 +32,7 @@ def _activation(**overrides: object) -> ControlRuleSetActivationEvidence:
         "setup_manifest_reference": "manifest-1",
         "setup_version": 2,
         "committed_rule_set_reference": "rule-set:commit-1",
+        "initial_disclosure_state_reference": "disclosure-state:commit-1",
         "rule_set_version": 3,
         "opaque_hidden_state_reference": "hidden-state:commit-1",
         "hidden_state_version": 5,
@@ -65,6 +66,7 @@ def test_game_rule_evidence_contracts_are_closed_frozen_slotted_values() -> None
         "setup_manifest_reference",
         "setup_version",
         "committed_rule_set_reference",
+        "initial_disclosure_state_reference",
         "rule_set_version",
         "opaque_hidden_state_reference",
         "hidden_state_version",
@@ -73,6 +75,7 @@ def test_game_rule_evidence_contracts_are_closed_frozen_slotted_values() -> None
     )
     assert tuple(field.name for field in fields(ControlGameRuleApplyEvidence)) == (
         "rule_set_activation",
+        "clue_reveal",
     )
     for value in (activation, evidence):
         assert not hasattr(value, "__dict__")
@@ -138,7 +141,10 @@ def test_command_validation_requires_exact_verified_activation_evidence() -> Non
                 SessionCommandType.ACTIVATE_RULE_SET, **SCOPE
             )
 
-    for command in set(SessionCommandType) - {SessionCommandType.ACTIVATE_RULE_SET}:
+    for command in set(SessionCommandType) - {
+        SessionCommandType.ACTIVATE_RULE_SET,
+        SessionCommandType.REVEAL_CLUE,
+    }:
         ControlGameRuleApplyEvidence().validate_for_command(command, **SCOPE)
         with pytest.raises(ControlGameRuleEvidenceError):
             verified.validate_for_command(command, **SCOPE)

@@ -48,6 +48,7 @@ class SessionControlPermission(str, Enum):
     ASSIGN_CHARACTER = "ASSIGN_CHARACTER"
     REPLACE_PLAYER = "REPLACE_PLAYER"
     ACTIVATE_RULE_SET = "ACTIVATE_RULE_SET"
+    REVEAL_CLUE = "REVEAL_CLUE"
 
 
 _COMMAND_PERMISSION: dict[SessionCommandType, SessionControlPermission] = {
@@ -61,6 +62,7 @@ _COMMAND_PERMISSION: dict[SessionCommandType, SessionControlPermission] = {
     SessionCommandType.ASSIGN_CHARACTER: SessionControlPermission.ASSIGN_CHARACTER,
     SessionCommandType.REPLACE_PLAYER: SessionControlPermission.REPLACE_PLAYER,
     SessionCommandType.ACTIVATE_RULE_SET: SessionControlPermission.ACTIVATE_RULE_SET,
+    SessionCommandType.REVEAL_CLUE: SessionControlPermission.REVEAL_CLUE,
 }
 
 ALL_SESSION_CONTROL_PERMISSIONS = frozenset(SessionControlPermission)
@@ -273,6 +275,9 @@ class SessionControlAuthorizationPolicy:
             ),
             SessionCommandType.ACTIVATE_RULE_SET: frozenset(
                 {GameSessionStatus.CREATED}
+            ),
+            SessionCommandType.REVEAL_CLUE: frozenset(
+                {GameSessionStatus.RUNNING}
             ),
         }
         return status in allowed_statuses[command_type]

@@ -15,6 +15,7 @@ from game_runtime.session_control import (
     AuthorizationReason,
     CreateSessionBootstrapContext,
     ExistingSessionContext,
+    RevealCluePayload,
     SessionCommand,
     SessionCommandPayload,
     SessionCommandType,
@@ -57,6 +58,7 @@ def _payload_for(command_type: SessionCommandType) -> SessionCommandPayload:
         EndGamePayload,
         PauseGamePayload,
         ReplacePlayerPayload,
+        RevealCluePayload,
         ResumeGamePayload,
         SetScriptPayload,
         StartGamePayload,
@@ -90,6 +92,11 @@ def _payload_for(command_type: SessionCommandType) -> SessionCommandPayload:
             expected_setup_version=1,
             expected_game_rule_version=2,
             expected_hidden_state_version=3,
+        ),
+        SessionCommandType.REVEAL_CLUE: RevealCluePayload(
+            clue_id="clue-1",
+            expected_game_rule_version=1,
+            expected_hidden_state_version=1,
         ),
     }
     return payloads[command_type]
@@ -283,6 +290,7 @@ def test_every_command_has_a_typed_permission_mapping(
         (SessionCommandType.ASSIGN_CHARACTER, GameSessionStatus.RUNNING),
         (SessionCommandType.REPLACE_PLAYER, GameSessionStatus.RUNNING),
         (SessionCommandType.ACTIVATE_RULE_SET, GameSessionStatus.RUNNING),
+        (SessionCommandType.REVEAL_CLUE, GameSessionStatus.CREATED),
     ],
 )
 def test_lifecycle_constraint_denies_invalid_status(
@@ -338,6 +346,27 @@ def test_activate_rule_set_is_coarsely_allowed_only_for_created_sessions(
 
     assert allowed.decision is AuthorizationDecision.ALLOW
     assert denied.reason is AuthorizationReason.COMMAND_CONSTRAINT_DENIED
+
+
+def test_reveal_clue_is_coarsely_allowed_only_for_running_sessions(
+    session_factory,
+) -> None:
+    created = session_factory()
+    running = session_factory()
+    running.transition_to(GameSessionStatus.RUNNING)
+    policy = SessionControlAuthorizationPolicy()
+
+    denied = policy.authorize(
+        make_resolution(created, SessionCommandType.REVEAL_CLUE),
+        make_context(created),
+    )
+    allowed = policy.authorize(
+        make_resolution(running, SessionCommandType.REVEAL_CLUE),
+        make_context(running),
+    )
+
+    assert denied.reason is AuthorizationReason.COMMAND_CONSTRAINT_DENIED
+    assert allowed.decision is AuthorizationDecision.ALLOW
 
 
 def test_authorization_does_not_mutate_session_or_command(session_factory) -> None:

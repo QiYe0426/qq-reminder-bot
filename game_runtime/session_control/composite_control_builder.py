@@ -68,7 +68,10 @@ class CompositeGameControlApplyPlanBuilder:
             SessionCommandType.REPLACE_PLAYER,
         }:
             return ParticipantControlApplyPlanBuilder().build(context)
-        if command_type is SessionCommandType.ACTIVATE_RULE_SET:
+        if command_type in {
+            SessionCommandType.ACTIVATE_RULE_SET,
+            SessionCommandType.REVEAL_CLUE,
+        }:
             return GameRuleControlApplyPlanBuilder().build(context)
         return BuildNonCommit(
             reason=BuildNonCommitReason.REDUCER_UNAVAILABLE,

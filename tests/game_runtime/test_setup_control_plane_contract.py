@@ -120,7 +120,7 @@ def _context(
         current_phase=phase,
         state_version=4,
         last_applied_sequence_no=6,
-        snapshot_schema_version=1,
+        snapshot_schema_version=2,
         lifecycle=LifecycleSnapshotSlice(
             schema_version=1,
             domain_version=1,
@@ -138,9 +138,10 @@ def _context(
             participants=records,
         ),
         game_rules=GameRuleSnapshotSlice(
-            schema_version=1,
+            schema_version=2,
             domain_version=0,
             committed_rule_set_reference=None,
+            committed_disclosure_state_reference=None,
         ),
         hidden_state=HiddenGameStateSlice(
             schema_version=1,

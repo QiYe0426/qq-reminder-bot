@@ -191,6 +191,18 @@ class StateBoundGameRuleEvidenceFactory:
                     snapshot.game_rules,
                     domain_version=1,
                     committed_rule_set_reference="rule-set:partial",
+                    committed_disclosure_state_reference=(
+                        "disclosure-state:partial"
+                    ),
+                ),
+            )
+            object.__setattr__(
+                snapshot,
+                "hidden_state",
+                replace(
+                    snapshot.hidden_state,
+                    domain_version=1,
+                    committed_state_reference="hidden-state:partial",
                 ),
             )
 

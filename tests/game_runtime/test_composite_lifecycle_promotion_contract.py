@@ -70,7 +70,7 @@ def _current_snapshot(
         current_phase=session.current_phase,
         state_version=session.state_version,
         last_applied_sequence_no=materialization_cursor,
-        snapshot_schema_version=1,
+        snapshot_schema_version=2,
         lifecycle=LifecycleSnapshotSlice(
             schema_version=1,
             domain_version=2,
@@ -95,9 +95,10 @@ def _current_snapshot(
             participants=participant_records,
         ),
         game_rules=GameRuleSnapshotSlice(
-            schema_version=1,
+            schema_version=2,
             domain_version=1,
             committed_rule_set_reference="rule-set:commit-1",
+            committed_disclosure_state_reference="disclosure-state:commit-1",
         ),
         hidden_state=HiddenGameStateSlice(
             schema_version=1,
@@ -534,7 +535,7 @@ def test_corrupt_frozen_evidence_maps_to_closed_failure(
     current = context.session_view.current_game_snapshot
     assert current is not None
     if corruption == "schema":
-        object.__setattr__(current, "snapshot_schema_version", 2)
+        object.__setattr__(current, "snapshot_schema_version", 1)
     elif corruption == "scope":
         object.__setattr__(current, "game_id", "other-game")
     elif corruption == "version":

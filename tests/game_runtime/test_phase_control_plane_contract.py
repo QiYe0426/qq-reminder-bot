@@ -355,7 +355,7 @@ def test_revalidates_current_snapshot_and_every_nested_contract(
             -1,
         )
     elif corruption == "game_rules_schema":
-        object.__setattr__(current.game_rules, "schema_version", 2)
+        object.__setattr__(current.game_rules, "schema_version", 3)
     else:
         object.__setattr__(current.hidden_state, "schema_version", 2)
 
@@ -606,7 +606,7 @@ def test_malformed_or_unsupported_input_returns_closed_noncommit(
                 None,
             )
         elif malformation == "snapshot_schema":
-            object.__setattr__(current, "snapshot_schema_version", 2)
+            object.__setattr__(current, "snapshot_schema_version", 3)
         elif malformation == "unsupported_command":
             object.__setattr__(
                 context.command_intent,

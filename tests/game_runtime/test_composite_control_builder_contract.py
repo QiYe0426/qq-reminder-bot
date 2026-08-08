@@ -25,6 +25,7 @@ from test_lifecycle_phase_apply_plan_builder import make_context
 from test_participant_control_plane_contract import _context as _participant_context
 from test_setup_control_plane_contract import _context as _setup_context
 from test_game_rule_control_plane_contract import _context as _game_rule_context
+from test_clue_reveal_control_plane_contract import _reveal_context
 
 
 def _phase_context():
@@ -70,6 +71,7 @@ def _lifecycle_context():
             ParticipantControlApplyPlanBuilder,
         ),
         (_game_rule_context, GameRuleControlApplyPlanBuilder),
+        (_reveal_context, GameRuleControlApplyPlanBuilder),
     ],
 )
 def test_dispatcher_preserves_real_target_builder_outcome(
@@ -103,6 +105,10 @@ def test_dispatcher_preserves_real_target_builder_outcome(
         ),
         (
             SessionCommandType.ACTIVATE_RULE_SET,
+            "GameRuleControlApplyPlanBuilder",
+        ),
+        (
+            SessionCommandType.REVEAL_CLUE,
             "GameRuleControlApplyPlanBuilder",
         ),
     ],

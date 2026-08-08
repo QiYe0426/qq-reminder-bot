@@ -18,6 +18,7 @@ from game_runtime.session_control.commands import (
     EndGamePayload,
     PauseGamePayload,
     ReplacePlayerPayload,
+    RevealCluePayload,
     ResumeGamePayload,
     SessionCommandPayload,
     SessionCommandType,
@@ -58,6 +59,7 @@ _PAYLOAD_TYPE_BY_COMMAND: dict[
     SessionCommandType.ASSIGN_CHARACTER: AssignCharacterPayload,
     SessionCommandType.REPLACE_PLAYER: ReplacePlayerPayload,
     SessionCommandType.ACTIVATE_RULE_SET: ActivateRuleSetPayload,
+    SessionCommandType.REVEAL_CLUE: RevealCluePayload,
 }
 
 

@@ -13,8 +13,9 @@ from game_runtime.session import GamePhase, GameSessionStatus
 from game_runtime.session_control.apply_contract import CandidateSessionSnapshot
 
 
-COMPOSITE_SNAPSHOT_SCHEMA_VERSION = 1
+COMPOSITE_SNAPSHOT_SCHEMA_VERSION = 2
 DOMAIN_SLICE_SCHEMA_VERSION = 1
+GAME_RULE_SLICE_SCHEMA_VERSION = 2
 
 
 class CompositeSnapshotFailureReason(str, Enum):
@@ -30,6 +31,9 @@ class CompositeSnapshotFailureReason(str, Enum):
     INVALID_CONTROL_CURSOR = "INVALID_CONTROL_CURSOR"
     COMPLETION_IDENTITY_MISMATCH = "COMPLETION_IDENTITY_MISMATCH"
     GAME_RULE_HIDDEN_BINDING_MISMATCH = "GAME_RULE_HIDDEN_BINDING_MISMATCH"
+    GAME_RULE_DISCLOSURE_BINDING_MISMATCH = (
+        "GAME_RULE_DISCLOSURE_BINDING_MISMATCH"
+    )
 
 
 class CompositeSnapshotContractError(ValueError):
@@ -157,14 +161,33 @@ class GameRuleSnapshotSlice:
     schema_version: int
     domain_version: int
     committed_rule_set_reference: str | None
+    committed_disclosure_state_reference: str | None
 
     def __post_init__(self) -> None:
-        _validate_optional_reference_slice(
+        _validate_schema_version(
             self.schema_version,
-            self.domain_version,
-            self.committed_rule_set_reference,
-            field_name="committed_rule_set_reference",
+            expected=GAME_RULE_SLICE_SCHEMA_VERSION,
         )
+        _validate_domain_version(self.domain_version)
+        rule_present = self.committed_rule_set_reference is not None
+        disclosure_present = self.committed_disclosure_state_reference is not None
+        if rule_present != disclosure_present:
+            _fail(
+                CompositeSnapshotFailureReason.GAME_RULE_DISCLOSURE_BINDING_MISMATCH
+            )
+        if not rule_present:
+            if self.domain_version != 0:
+                _fail(CompositeSnapshotFailureReason.INVALID_DOMAIN_VERSION)
+            return
+        _require_text(
+            "committed_rule_set_reference", self.committed_rule_set_reference
+        )
+        _require_text(
+            "committed_disclosure_state_reference",
+            self.committed_disclosure_state_reference,
+        )
+        if self.domain_version == 0:
+            _fail(CompositeSnapshotFailureReason.INVALID_DOMAIN_VERSION)
 
 
 @dataclass(frozen=True, slots=True)

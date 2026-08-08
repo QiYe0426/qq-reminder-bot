@@ -56,7 +56,7 @@ def _candidate(
         current_phase=phase,
         state_version=state_version,
         last_applied_sequence_no=materialization_cursor,
-        snapshot_schema_version=1,
+        snapshot_schema_version=2,
         lifecycle=LifecycleSnapshotSlice(
             schema_version=1,
             domain_version=2,
@@ -96,9 +96,10 @@ def _candidate(
             ),
         ),
         game_rules=GameRuleSnapshotSlice(
-            schema_version=1,
+            schema_version=2,
             domain_version=0,
             committed_rule_set_reference=None,
+            committed_disclosure_state_reference=None,
         ),
         hidden_state=HiddenGameStateSlice(
             schema_version=1,
@@ -141,7 +142,7 @@ def test_game_snapshot_identity_is_deterministic_and_value_only() -> None:
     with pytest.raises(TypeError):
         replace(first, domain_versions=list(first.domain_versions))  # type: ignore[arg-type]
     with pytest.raises(CompositeSnapshotContractError) as schema_error:
-        replace(first, snapshot_schema_version=2)
+        replace(first, snapshot_schema_version=1)
     assert (
         schema_error.value.reason
         is CompositeSnapshotFailureReason.UNSUPPORTED_SCHEMA_VERSION
@@ -156,7 +157,7 @@ def test_game_snapshot_identity_is_deterministic_and_value_only() -> None:
 
 def test_snapshot_rejects_unsupported_schema_or_domain_versions() -> None:
     with pytest.raises(CompositeSnapshotContractError) as exc_info:
-        replace(_candidate(), snapshot_schema_version=2)
+        replace(_candidate(), snapshot_schema_version=1)
     assert (
         exc_info.value.reason
         is CompositeSnapshotFailureReason.UNSUPPORTED_SCHEMA_VERSION
@@ -289,9 +290,10 @@ def test_hidden_state_accepts_only_an_opaque_committed_reference() -> None:
 def test_candidate_requires_game_rule_and_hidden_state_references_together() -> None:
     candidate = _candidate()
     active_rules = GameRuleSnapshotSlice(
-        schema_version=1,
+        schema_version=2,
         domain_version=3,
         committed_rule_set_reference="rule-set:commit-1",
+        committed_disclosure_state_reference="disclosure-state:commit-1",
     )
     active_hidden = HiddenGameStateSlice(
         schema_version=1,
@@ -313,6 +315,53 @@ def test_candidate_requires_game_rule_and_hidden_state_references_together() -> 
             error.value.reason
             is CompositeSnapshotFailureReason.GAME_RULE_HIDDEN_BINDING_MISMATCH
         )
+
+
+def test_game_rule_snapshot_v2_requires_rule_and_disclosure_references_together() -> None:
+    game_rule_schema = getattr(
+        composite_module, "GAME_RULE_SLICE_SCHEMA_VERSION", None
+    )
+    disclosure_reason = getattr(
+        CompositeSnapshotFailureReason,
+        "GAME_RULE_DISCLOSURE_BINDING_MISMATCH",
+        None,
+    )
+
+    assert composite_module.COMPOSITE_SNAPSHOT_SCHEMA_VERSION == 2
+    assert game_rule_schema == 2
+    assert disclosure_reason is not None
+    empty = GameRuleSnapshotSlice(
+        schema_version=game_rule_schema,
+        domain_version=0,
+        committed_rule_set_reference=None,
+        committed_disclosure_state_reference=None,
+    )
+    active = GameRuleSnapshotSlice(
+        schema_version=game_rule_schema,
+        domain_version=1,
+        committed_rule_set_reference="rule-set:commit-1",
+        committed_disclosure_state_reference="disclosure-state:commit-1",
+    )
+
+    assert empty.domain_version == 0
+    assert active.committed_disclosure_state_reference == "disclosure-state:commit-1"
+    for values in (
+        {
+            "committed_rule_set_reference": "rule-set:commit-1",
+            "committed_disclosure_state_reference": None,
+        },
+        {
+            "committed_rule_set_reference": None,
+            "committed_disclosure_state_reference": "disclosure-state:commit-1",
+        },
+    ):
+        with pytest.raises(CompositeSnapshotContractError) as error:
+            GameRuleSnapshotSlice(
+                schema_version=game_rule_schema,
+                domain_version=1,
+                **values,
+            )
+        assert error.value.reason is disclosure_reason
 
 
 def _completion(

@@ -70,11 +70,15 @@ def test_game_rule_mutation_is_closed_frozen_and_validates_single_version_advanc
 
     assert mutation_type is not None
     assert mutation_contract is not None
-    assert tuple(member.name for member in mutation_type) == ("ACTIVATE_RULE_SET",)
+    assert tuple(member.name for member in mutation_type) == (
+        "ACTIVATE_RULE_SET",
+        "REVEAL_CLUE",
+    )
     assert tuple(field.name for field in fields(mutation_contract)) == (
         "mutation_type",
         "manifest_reference",
         "committed_rule_set_reference",
+        "committed_disclosure_state_reference",
         "opaque_hidden_state_reference",
         "expected_game_rule_version",
         "resulting_game_rule_version",
@@ -87,6 +91,7 @@ def test_game_rule_mutation_is_closed_frozen_and_validates_single_version_advanc
         mutation_type=mutation_type.ACTIVATE_RULE_SET,
         manifest_reference="manifest-1",
         committed_rule_set_reference="rule-set:commit-1",
+        committed_disclosure_state_reference="disclosure-state:commit-1",
         opaque_hidden_state_reference="hidden-state:commit-1",
         expected_game_rule_version=0,
         resulting_game_rule_version=1,
@@ -102,6 +107,7 @@ def test_game_rule_mutation_is_closed_frozen_and_validates_single_version_advanc
             mutation_type=mutation_type.ACTIVATE_RULE_SET,
             manifest_reference="manifest-1",
             committed_rule_set_reference="rule-set:commit-1",
+            committed_disclosure_state_reference="disclosure-state:commit-1",
             opaque_hidden_state_reference="hidden-state:commit-1",
             expected_game_rule_version=0,
             resulting_game_rule_version=2,
@@ -122,6 +128,7 @@ def _activation_evidence(
         "setup_manifest_reference": "manifest-1",
         "setup_version": 2,
         "committed_rule_set_reference": "rule-set:commit-1",
+        "initial_disclosure_state_reference": "disclosure-state:commit-1",
         "rule_set_version": 0,
         "opaque_hidden_state_reference": "hidden-state:commit-1",
         "hidden_state_version": 0,
@@ -142,7 +149,7 @@ def _candidate() -> CandidateGameSnapshot:
         current_phase=GamePhase.LOBBY,
         state_version=5,
         last_applied_sequence_no=7,
-        snapshot_schema_version=1,
+        snapshot_schema_version=2,
         lifecycle=LifecycleSnapshotSlice(
             schema_version=1,
             domain_version=1,
@@ -175,9 +182,10 @@ def _candidate() -> CandidateGameSnapshot:
             ),
         ),
         game_rules=GameRuleSnapshotSlice(
-            schema_version=1,
+            schema_version=2,
             domain_version=1,
             committed_rule_set_reference="rule-set:commit-1",
+            committed_disclosure_state_reference="disclosure-state:commit-1",
         ),
         hidden_state=HiddenGameStateSlice(
             schema_version=1,
@@ -219,6 +227,7 @@ def _mutation():
         mutation_type=apply_contract.GameRuleMutationType.ACTIVATE_RULE_SET,
         manifest_reference="manifest-1",
         committed_rule_set_reference="rule-set:commit-1",
+        committed_disclosure_state_reference="disclosure-state:commit-1",
         opaque_hidden_state_reference="hidden-state:commit-1",
         expected_game_rule_version=0,
         resulting_game_rule_version=1,
@@ -480,7 +489,7 @@ def _context(
         current_phase=phase,
         state_version=4,
         last_applied_sequence_no=6,
-        snapshot_schema_version=1,
+        snapshot_schema_version=2,
         lifecycle=LifecycleSnapshotSlice(
             schema_version=1,
             domain_version=1,
@@ -524,9 +533,14 @@ def _context(
             ),
         ),
         game_rules=GameRuleSnapshotSlice(
-            schema_version=1,
+            schema_version=2,
             domain_version=game_rule_version,
             committed_rule_set_reference=current_rule_reference,
+            committed_disclosure_state_reference=(
+                None
+                if current_rule_reference is None
+                else "disclosure-state:current"
+            ),
         ),
         hidden_state=HiddenGameStateSlice(
             schema_version=1,
@@ -543,6 +557,7 @@ def _context(
             setup_manifest_reference="manifest-1",
             setup_version=setup_version,
             committed_rule_set_reference=requested_rule_reference,
+            initial_disclosure_state_reference="disclosure-state:commit-1",
             rule_set_version=game_rule_version,
             opaque_hidden_state_reference=requested_hidden_reference,
             hidden_state_version=hidden_state_version,
@@ -1057,6 +1072,11 @@ def test_builder_is_sync_stateless_and_has_no_forbidden_dependencies() -> None:
         "SETUP_NOT_READY",
         "RULE_SET_ALREADY_ACTIVE",
         "RULE_SET_CONFLICT",
+        "INVALID_PHASE",
+        "RULE_SET_NOT_ACTIVE",
+        "CLUE_ALREADY_REVEALED",
+        "CLUE_NOT_FOUND",
+        "CLUE_NOT_REVEALABLE",
     )
     assert module.GameRuleControlApplyPlanBuilder.__slots__ == ()
     assert not inspect.iscoroutinefunction(

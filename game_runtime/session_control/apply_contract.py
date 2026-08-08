@@ -46,6 +46,7 @@ _RESULT_EVENT_TYPES_BY_COMMAND: dict[
     SessionCommandType.ASSIGN_CHARACTER: (GameEventType.CHARACTER_ASSIGNED,),
     SessionCommandType.REPLACE_PLAYER: (GameEventType.PLAYER_REPLACED,),
     SessionCommandType.ACTIVATE_RULE_SET: (GameEventType.RULE_SET_ACTIVATED,),
+    SessionCommandType.REVEAL_CLUE: (GameEventType.CLUE_REVEALED,),
 }
 
 
@@ -205,6 +206,7 @@ class SetupMutation:
 
 class GameRuleMutationType(str, Enum):
     ACTIVATE_RULE_SET = "ACTIVATE_RULE_SET"
+    REVEAL_CLUE = "REVEAL_CLUE"
 
 
 @dataclass(frozen=True, slots=True)
@@ -212,6 +214,7 @@ class GameRuleMutation:
     mutation_type: GameRuleMutationType
     manifest_reference: str
     committed_rule_set_reference: str
+    committed_disclosure_state_reference: str
     opaque_hidden_state_reference: str
     expected_game_rule_version: int
     resulting_game_rule_version: int
@@ -222,9 +225,12 @@ class GameRuleMutation:
     def __post_init__(self) -> None:
         if not isinstance(self.mutation_type, GameRuleMutationType):
             raise TypeError("mutation_type must be a GameRuleMutationType")
+        if self.mutation_type is not GameRuleMutationType.ACTIVATE_RULE_SET:
+            raise ValueError("GameRuleMutation only supports ACTIVATE_RULE_SET")
         for name in (
             "manifest_reference",
             "committed_rule_set_reference",
+            "committed_disclosure_state_reference",
             "opaque_hidden_state_reference",
             "provenance_reference",
         ):
@@ -249,6 +255,56 @@ class GameRuleMutation:
             != self.expected_hidden_state_version + 1
         ):
             raise ValueError("resulting_hidden_state_version must advance once")
+
+
+@dataclass(frozen=True, slots=True)
+class ClueRevealMutation:
+    mutation_type: GameRuleMutationType
+    clue_id: str
+    active_rule_set_reference: str
+    public_disclosure_reference: str
+    current_disclosure_state_reference: str
+    resulting_disclosure_state_reference: str
+    current_hidden_state_reference: str
+    resulting_hidden_state_reference: str
+    expected_game_rule_version: int
+    resulting_game_rule_version: int
+    expected_hidden_state_version: int
+    resulting_hidden_state_version: int
+    provenance_reference: str
+
+    def __post_init__(self) -> None:
+        if self.mutation_type is not GameRuleMutationType.REVEAL_CLUE:
+            raise ValueError("ClueRevealMutation only supports REVEAL_CLUE")
+        for name in (
+            "clue_id",
+            "active_rule_set_reference",
+            "public_disclosure_reference",
+            "current_disclosure_state_reference",
+            "resulting_disclosure_state_reference",
+            "current_hidden_state_reference",
+            "resulting_hidden_state_reference",
+            "provenance_reference",
+        ):
+            _require_text(name, getattr(self, name))
+        for name in ("expected_game_rule_version", "expected_hidden_state_version"):
+            _require_non_negative(name, getattr(self, name))
+        for name in (
+            "resulting_game_rule_version",
+            "resulting_hidden_state_version",
+        ):
+            _require_positive(name, getattr(self, name))
+        if self.resulting_game_rule_version != self.expected_game_rule_version + 1:
+            raise ValueError("resulting_game_rule_version must advance once")
+        if self.resulting_hidden_state_version != self.expected_hidden_state_version + 1:
+            raise ValueError("resulting_hidden_state_version must advance once")
+        if (
+            self.current_disclosure_state_reference
+            == self.resulting_disclosure_state_reference
+            or self.current_hidden_state_reference
+            == self.resulting_hidden_state_reference
+        ):
+            raise ValueError("reveal mutation must advance committed references")
 
 
 class OwnershipIntentType(str, Enum):
@@ -377,7 +433,7 @@ class ControlApplyPlan:
     setup_participant_evidence: ControlSetupParticipantApplyEvidence = field(
         default_factory=ControlSetupParticipantApplyEvidence
     )
-    game_rule_mutations: tuple[GameRuleMutation, ...] = ()
+    game_rule_mutations: tuple[GameRuleMutation | ClueRevealMutation, ...] = ()
     game_rule_evidence: ControlGameRuleApplyEvidence = field(
         default_factory=ControlGameRuleApplyEvidence
     )
@@ -435,7 +491,7 @@ class ControlApplyPlan:
             self,
             "game_rule_mutations",
             self.game_rule_mutations,
-            GameRuleMutation,
+            (GameRuleMutation, ClueRevealMutation),
         )
         if not isinstance(self.game_rule_evidence, ControlGameRuleApplyEvidence):
             raise TypeError(
@@ -732,7 +788,7 @@ def _freeze_typed_tuple(
     owner: object,
     name: str,
     values: object,
-    expected_type: type[object],
+    expected_type: type[object] | tuple[type[object], ...],
 ) -> tuple[object, ...]:
     if not isinstance(values, (tuple, list)):
         raise TypeError(f"{name} must be a tuple or list")
@@ -842,6 +898,9 @@ def _validate_setup_participant_mutations(plan: ControlApplyPlan) -> None:
 
 
 def _validate_game_rule_mutations(plan: ControlApplyPlan) -> None:
+    if plan.command_type is SessionCommandType.REVEAL_CLUE:
+        _validate_clue_reveal_mutation(plan)
+        return
     if plan.command_type is not SessionCommandType.ACTIVATE_RULE_SET:
         if plan.game_rule_mutations:
             raise ControlGameRuleEvidenceError(
@@ -879,6 +938,10 @@ def _validate_game_rule_mutations(plan: ControlApplyPlan) -> None:
         != evidence.committed_rule_set_reference
         or game_rules.committed_rule_set_reference
         != evidence.committed_rule_set_reference
+        or mutation.committed_disclosure_state_reference
+        != evidence.initial_disclosure_state_reference
+        or game_rules.committed_disclosure_state_reference
+        != evidence.initial_disclosure_state_reference
         or mutation.opaque_hidden_state_reference
         != evidence.opaque_hidden_state_reference
         or hidden_state.committed_state_reference
@@ -896,6 +959,67 @@ def _validate_game_rule_mutations(plan: ControlApplyPlan) -> None:
     ):
         raise ControlGameRuleEvidenceError(
             "ACTIVATE_RULE_SET mutation, evidence, and candidate do not match"
+        )
+
+
+def _validate_clue_reveal_mutation(plan: ControlApplyPlan) -> None:
+    if (
+        len(plan.game_rule_mutations) != 1
+        or plan.participant_mutations
+        or plan.setup_mutations
+    ):
+        raise ControlGameRuleEvidenceError(
+            "REVEAL_CLUE requires exactly one clue reveal mutation"
+        )
+    mutation = plan.game_rule_mutations[0]
+    evidence = plan.game_rule_evidence.clue_reveal
+    if not isinstance(mutation, ClueRevealMutation) or evidence is None:
+        raise ControlGameRuleEvidenceError(
+            "REVEAL_CLUE requires bound mutation and evidence"
+        )
+    try:
+        candidate = _revalidate_candidate_game_snapshot(plan.candidate_snapshot)
+        event_payload = validate_control_result_event(plan.result_events[0])
+    except (AttributeError, IndexError, TypeError, ValueError) as exc:
+        raise ControlGameRuleEvidenceError(
+            "REVEAL_CLUE requires complete candidate and result Event"
+        ) from exc
+    game_rules = candidate.game_rules
+    hidden_state = candidate.hidden_state
+    if (
+        mutation.mutation_type is not GameRuleMutationType.REVEAL_CLUE
+        or mutation.clue_id != evidence.clue_id
+        or mutation.clue_id != getattr(event_payload, "clue_id", None)
+        or mutation.active_rule_set_reference
+        != evidence.active_rule_set_reference
+        or game_rules.committed_rule_set_reference
+        != evidence.active_rule_set_reference
+        or mutation.public_disclosure_reference
+        != evidence.public_disclosure_reference
+        or mutation.public_disclosure_reference
+        != getattr(event_payload, "public_disclosure_reference", None)
+        or mutation.current_disclosure_state_reference
+        != evidence.current_disclosure_state_reference
+        or mutation.resulting_disclosure_state_reference
+        != evidence.resulting_disclosure_state_reference
+        or game_rules.committed_disclosure_state_reference
+        != evidence.resulting_disclosure_state_reference
+        or mutation.current_hidden_state_reference
+        != evidence.current_hidden_state_reference
+        or mutation.resulting_hidden_state_reference
+        != evidence.resulting_hidden_state_reference
+        or hidden_state.committed_state_reference
+        != evidence.resulting_hidden_state_reference
+        or mutation.expected_game_rule_version != evidence.game_rule_version
+        or mutation.resulting_game_rule_version != game_rules.domain_version
+        or mutation.resulting_game_rule_version
+        != getattr(event_payload, "game_rule_domain_version", None)
+        or mutation.expected_hidden_state_version != evidence.hidden_state_version
+        or mutation.resulting_hidden_state_version != hidden_state.domain_version
+        or mutation.provenance_reference != evidence.provenance_reference
+    ):
+        raise ControlGameRuleEvidenceError(
+            "REVEAL_CLUE mutation, evidence, candidate, and Event do not match"
         )
 
 
