@@ -23,6 +23,7 @@ from game_runtime.session_control.bootstrap import (
     ProvisionalActorContractError,
 )
 from game_runtime.session_control.commands import (
+    ActivateQuestPayload,
     ActivateRuleSetPayload,
     AssignCharacterPayload,
     ChangePhasePayload,
@@ -117,6 +118,8 @@ from game_runtime.session_control.apply_contract import (
     GameRuleMutationType,
     OwnershipIntent,
     OwnershipIntentType,
+    QuestActivationMutation,
+    QuestMutationType,
     ParticipantMutation,
     ParticipantMutationType,
     SetupMutation,
@@ -133,6 +136,7 @@ from game_runtime.session_control.composite_snapshot import (
     ParticipantSnapshotRecord,
     ParticipantSnapshotSlice,
     PhaseSnapshotSlice,
+    QuestSnapshotSlice,
     SetupSnapshotSlice,
 )
 from game_runtime.session_control.actor_visible_game_state import (
@@ -154,6 +158,10 @@ from game_runtime.session_control.composite_control_builder import (
 from game_runtime.session_control.game_rule_control_builder import (
     GameRuleControlApplyPlanBuilder,
     GameRuleControlRejectReason,
+)
+from game_runtime.session_control.quest_control_builder import (
+    QuestControlApplyPlanBuilder,
+    QuestControlRejectReason,
 )
 from game_runtime.session_control.receipt_validation import (
     ReceiptAccepted,
@@ -214,6 +222,24 @@ from game_runtime.session_control.game_rule_evidence import (
     ControlGameRuleEvidenceError,
     ControlRuleSetActivationEvidence,
     GameRuleEvidenceStatus,
+)
+from game_runtime.session_control.quest_evidence import (
+    ControlQuestActivationEvidence,
+    ControlQuestEvidenceError,
+    QuestActivationDisposition,
+    QuestEvidenceStatus,
+)
+from game_runtime.session_control.quest_transition import (
+    QuestActivationAccepted,
+    QuestActivationContractError,
+    QuestActivationContractFailureReason,
+    QuestActivationDecision,
+    QuestActivationEffect,
+    QuestActivationRejectReason,
+    QuestActivationRejected,
+    QuestActivationRequest,
+    QuestActivationState,
+    transition_quest_activation,
 )
 from game_runtime.session_control.clue_reveal_transition import (
     ClueRevealAccepted,
@@ -382,6 +408,7 @@ __all__ = [
     "AuthorizationReason",
     "AuthorizationResult",
     "ActivateRuleSetPayload",
+    "ActivateQuestPayload",
     "BootstrapIdFactory",
     "BuildNonCommit",
     "BuildNonCommitReason",
@@ -453,6 +480,8 @@ __all__ = [
     "ControlSessionBuildView",
     "ControlSetupBuildView",
     "ControlRuleSetActivationEvidence",
+    "ControlQuestActivationEvidence",
+    "ControlQuestEvidenceError",
     "ControlStartReadinessEvidence",
     "ControlCharacterAssignmentEvidence",
     "ControlCharacterAvailabilityEvidence",
@@ -535,6 +564,8 @@ __all__ = [
     "LifecyclePhaseRejectReason",
     "OwnershipIntent",
     "OwnershipIntentType",
+    "QuestActivationMutation",
+    "QuestMutationType",
     "OperationClaimBridge",
     "OperationClaimBridgeError",
     "OperationClaimConflict",
@@ -562,6 +593,20 @@ __all__ = [
     "ParticipantSnapshotRecord",
     "ParticipantSnapshotSlice",
     "PhaseSnapshotSlice",
+    "QuestSnapshotSlice",
+    "QuestActivationDisposition",
+    "QuestActivationAccepted",
+    "QuestActivationContractError",
+    "QuestActivationContractFailureReason",
+    "QuestActivationDecision",
+    "QuestActivationEffect",
+    "QuestActivationRejectReason",
+    "QuestActivationRejected",
+    "QuestActivationRequest",
+    "QuestActivationState",
+    "QuestEvidenceStatus",
+    "QuestControlApplyPlanBuilder",
+    "QuestControlRejectReason",
     "ProposedSessionIds",
     "ProvisionalActorContract",
     "ProvisionalActorContractError",
@@ -625,5 +670,6 @@ __all__ = [
     "transition_game_rule_activation",
     "transition_clue_reveal",
     "transition_participant",
+    "transition_quest_activation",
     "validate_dm_command_event",
 ]

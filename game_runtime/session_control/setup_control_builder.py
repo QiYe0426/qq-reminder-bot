@@ -57,6 +57,7 @@ from game_runtime.session_control.composite_snapshot import (
     ParticipantSnapshotRecord,
     ParticipantSnapshotSlice,
     PhaseSnapshotSlice,
+    QuestSnapshotSlice,
     SetupSnapshotSlice,
 )
 from game_runtime.session_control.delivery import ControlEventDeliveryEnvelope
@@ -388,6 +389,7 @@ def _compose_setup_apply_plan(
             ),
             participants=current.participants,
             game_rules=current.game_rules,
+            quest=current.quest,
             hidden_state=current.hidden_state,
         )
         mutation = SetupMutation(
@@ -786,6 +788,7 @@ def _revalidate_candidate_snapshot(
             current.game_rules,
             GameRuleSnapshotSlice,
         ),
+        quest=_reconstruct(current.quest, QuestSnapshotSlice),
         hidden_state=_reconstruct(
             current.hidden_state,
             HiddenGameStateSlice,

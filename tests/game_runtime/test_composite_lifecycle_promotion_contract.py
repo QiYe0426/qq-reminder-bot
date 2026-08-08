@@ -28,6 +28,7 @@ from game_runtime.session_control import (
     ParticipantSnapshotRecord,
     ParticipantSnapshotSlice,
     PhaseSnapshotSlice,
+    QuestSnapshotSlice,
     SessionCommandType,
     SetupSnapshotSlice,
 )
@@ -70,7 +71,7 @@ def _current_snapshot(
         current_phase=session.current_phase,
         state_version=session.state_version,
         last_applied_sequence_no=materialization_cursor,
-        snapshot_schema_version=2,
+        snapshot_schema_version=3,
         lifecycle=LifecycleSnapshotSlice(
             schema_version=1,
             domain_version=2,
@@ -100,6 +101,7 @@ def _current_snapshot(
             committed_rule_set_reference="rule-set:commit-1",
             committed_disclosure_state_reference="disclosure-state:commit-1",
         ),
+        quest=QuestSnapshotSlice(1, 0, None, None, None),
         hidden_state=HiddenGameStateSlice(
             schema_version=1,
             domain_version=1,

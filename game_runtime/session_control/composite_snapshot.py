@@ -13,9 +13,10 @@ from game_runtime.session import GamePhase, GameSessionStatus
 from game_runtime.session_control.apply_contract import CandidateSessionSnapshot
 
 
-COMPOSITE_SNAPSHOT_SCHEMA_VERSION = 2
+COMPOSITE_SNAPSHOT_SCHEMA_VERSION = 3
 DOMAIN_SLICE_SCHEMA_VERSION = 1
 GAME_RULE_SLICE_SCHEMA_VERSION = 2
+QUEST_SLICE_SCHEMA_VERSION = 1
 
 
 class CompositeSnapshotFailureReason(str, Enum):
@@ -34,6 +35,8 @@ class CompositeSnapshotFailureReason(str, Enum):
     GAME_RULE_DISCLOSURE_BINDING_MISMATCH = (
         "GAME_RULE_DISCLOSURE_BINDING_MISMATCH"
     )
+    QUEST_RULE_SET_BINDING_MISMATCH = "QUEST_RULE_SET_BINDING_MISMATCH"
+    QUEST_HIDDEN_BINDING_MISMATCH = "QUEST_HIDDEN_BINDING_MISMATCH"
 
 
 class CompositeSnapshotContractError(ValueError):
@@ -191,6 +194,45 @@ class GameRuleSnapshotSlice:
 
 
 @dataclass(frozen=True, slots=True)
+class QuestSnapshotSlice:
+    schema_version: int
+    domain_version: int
+    active_quest_id: str | None
+    source_rule_set_reference: str | None
+    committed_public_state_reference: str | None
+
+    def __post_init__(self) -> None:
+        _validate_schema_version(
+            self.schema_version,
+            expected=QUEST_SLICE_SCHEMA_VERSION,
+        )
+        _validate_domain_version(self.domain_version)
+        values = (
+            self.active_quest_id,
+            self.source_rule_set_reference,
+            self.committed_public_state_reference,
+        )
+        present = tuple(value is not None for value in values)
+        if any(present) and not all(present):
+            _fail(CompositeSnapshotFailureReason.INCOMPLETE_SLICE)
+        if not any(present):
+            if self.domain_version != 0:
+                _fail(CompositeSnapshotFailureReason.INVALID_DOMAIN_VERSION)
+            return
+        for name, value in zip(
+            (
+                "active_quest_id",
+                "source_rule_set_reference",
+                "committed_public_state_reference",
+            ),
+            values,
+        ):
+            _require_text(name, value)
+        if self.domain_version == 0:
+            _fail(CompositeSnapshotFailureReason.INVALID_DOMAIN_VERSION)
+
+
+@dataclass(frozen=True, slots=True)
 class HiddenGameStateSlice:
     schema_version: int
     domain_version: int
@@ -213,6 +255,7 @@ class CandidateGameSnapshot(CandidateSessionSnapshot):
     setup: SetupSnapshotSlice
     participants: ParticipantSnapshotSlice
     game_rules: GameRuleSnapshotSlice
+    quest: QuestSnapshotSlice
     hidden_state: HiddenGameStateSlice
 
     def __post_init__(self) -> None:
@@ -227,6 +270,7 @@ class CandidateGameSnapshot(CandidateSessionSnapshot):
             ("setup", self.setup, SetupSnapshotSlice),
             ("participants", self.participants, ParticipantSnapshotSlice),
             ("game_rules", self.game_rules, GameRuleSnapshotSlice),
+            ("quest", self.quest, QuestSnapshotSlice),
             ("hidden_state", self.hidden_state, HiddenGameStateSlice),
         )
         for name, value, expected_type in expected_types:
@@ -238,6 +282,16 @@ class CandidateGameSnapshot(CandidateSessionSnapshot):
             _fail(
                 CompositeSnapshotFailureReason.GAME_RULE_HIDDEN_BINDING_MISMATCH
             )
+        quest_active = self.quest.active_quest_id is not None
+        if quest_active and (
+            self.quest.source_rule_set_reference
+            != self.game_rules.committed_rule_set_reference
+        ):
+            _fail(
+                CompositeSnapshotFailureReason.QUEST_RULE_SET_BINDING_MISMATCH
+            )
+        if quest_active and self.hidden_state.committed_state_reference is None:
+            _fail(CompositeSnapshotFailureReason.QUEST_HIDDEN_BINDING_MISMATCH)
         if (
             self.status is not self.lifecycle.status
             or self.current_phase is not self.phase.phase
@@ -264,7 +318,7 @@ class GameSnapshotIdentity:
     state_version: int
     snapshot_materialization_cursor: int
     snapshot_schema_version: int
-    domain_versions: tuple[int, int, int, int, int, int]
+    domain_versions: tuple[int, int, int, int, int, int, int]
 
     def __post_init__(self) -> None:
         for name in ("game_id", "session_id", "group_id", "dm_participant_id"):
@@ -284,7 +338,7 @@ class GameSnapshotIdentity:
         )
         if not isinstance(self.domain_versions, tuple):
             raise TypeError("domain_versions must be a tuple")
-        if len(self.domain_versions) != 6:
+        if len(self.domain_versions) != 7:
             _fail(CompositeSnapshotFailureReason.INCOMPLETE_SLICE)
         for version in self.domain_versions:
             _validate_domain_version(version)
@@ -310,6 +364,7 @@ class GameSnapshotIdentity:
                 snapshot.setup.domain_version,
                 snapshot.participants.domain_version,
                 snapshot.game_rules.domain_version,
+                snapshot.quest.domain_version,
                 snapshot.hidden_state.domain_version,
             ),
         )

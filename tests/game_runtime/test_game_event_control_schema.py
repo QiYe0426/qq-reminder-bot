@@ -16,6 +16,7 @@ from game_runtime.event import (
     GameEventType,
     PhaseChangedPayload,
     PlayerReplacedPayload,
+    QuestActivatedPayload,
     RuleSetActivatedPayload,
     ScriptSetPayload,
     SessionControlRejectedPayload,
@@ -110,6 +111,12 @@ def payloads_by_type():
             public_disclosure_reference="public-disclosure-1",
             game_rule_domain_version=2,
         ),
+        GameEventType.QUEST_ACTIVATED: QuestActivatedPayload(
+            **COMMON,
+            quest_id="quest-1",
+            public_state_reference="quest-public:commit-1",
+            quest_domain_version=1,
+        ),
     }
 
 
@@ -146,6 +153,7 @@ def test_all_frozen_control_result_event_types_are_typed_and_valid() -> None:
         GameEventType.PHASE_CHANGED,
         GameEventType.RULE_SET_ACTIVATED,
         GameEventType.CLUE_REVEALED,
+        GameEventType.QUEST_ACTIVATED,
     }
 
     for event_type, expected_payload in payloads_by_type().items():

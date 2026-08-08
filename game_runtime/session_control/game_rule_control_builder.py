@@ -62,6 +62,7 @@ from game_runtime.session_control.composite_snapshot import (
     ParticipantSnapshotRecord,
     ParticipantSnapshotSlice,
     PhaseSnapshotSlice,
+    QuestSnapshotSlice,
     SetupSnapshotSlice,
 )
 from game_runtime.session_control.delivery import ControlEventDeliveryEnvelope
@@ -521,6 +522,7 @@ def _compose_clue_reveal_apply_plan(
                     decision.resulting_state.disclosure_state_reference
                 ),
             ),
+            quest=current.quest,
             hidden_state=HiddenGameStateSlice(
                 schema_version=current.hidden_state.schema_version,
                 domain_version=current.hidden_state.domain_version + 1,
@@ -726,6 +728,7 @@ def _compose_game_rule_apply_plan(
                     evidence.initial_disclosure_state_reference
                 ),
             ),
+            quest=current.quest,
             hidden_state=HiddenGameStateSlice(
                 schema_version=current.hidden_state.schema_version,
                 domain_version=current.hidden_state.domain_version + 1,
@@ -1239,6 +1242,7 @@ def _revalidate_candidate_snapshot(
             current.game_rules,
             GameRuleSnapshotSlice,
         ),
+        quest=_reconstruct(current.quest, QuestSnapshotSlice),
         hidden_state=_reconstruct(
             current.hidden_state,
             HiddenGameStateSlice,

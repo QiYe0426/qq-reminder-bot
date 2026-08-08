@@ -139,6 +139,7 @@ _ALWAYS_CONFIRM = frozenset(
         SessionCommandType.REPLACE_PLAYER,
         SessionCommandType.ACTIVATE_RULE_SET,
         SessionCommandType.REVEAL_CLUE,
+        SessionCommandType.ACTIVATE_QUEST,
     }
 )
 

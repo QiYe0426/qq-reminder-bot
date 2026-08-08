@@ -56,6 +56,7 @@ from game_runtime.session_control.composite_snapshot import (
     ParticipantSnapshotRecord,
     ParticipantSnapshotSlice,
     PhaseSnapshotSlice,
+    QuestSnapshotSlice,
     SetupSnapshotSlice,
 )
 from game_runtime.session_control.delivery import ControlEventDeliveryEnvelope
@@ -335,6 +336,7 @@ class PhaseControlApplyPlanBuilder:
                 setup=current.setup,
                 participants=current.participants,
                 game_rules=current.game_rules,
+                quest=current.quest,
                 hidden_state=current.hidden_state,
             )
         except (CompositeSnapshotContractError, TypeError, ValueError):
@@ -614,6 +616,7 @@ def _revalidate_candidate_snapshot(
         participants=records,
     )
     game_rules = _reconstruct(current.game_rules, GameRuleSnapshotSlice)
+    quest = _reconstruct(current.quest, QuestSnapshotSlice)
     hidden_state = _reconstruct(current.hidden_state, HiddenGameStateSlice)
     return CandidateGameSnapshot(
         game_id=current.game_id,
@@ -630,6 +633,7 @@ def _revalidate_candidate_snapshot(
         setup=setup,
         participants=participants,
         game_rules=game_rules,
+        quest=quest,
         hidden_state=hidden_state,
     )
 

@@ -61,6 +61,7 @@ from game_runtime.session_control.composite_snapshot import (
     ParticipantSnapshotRecord,
     ParticipantSnapshotSlice,
     PhaseSnapshotSlice,
+    QuestSnapshotSlice,
     SetupSnapshotSlice,
 )
 from game_runtime.session_control.delivery import ControlEventDeliveryEnvelope
@@ -333,7 +334,8 @@ def _compose_participant_apply_plan(*, context: ControlApplyBuildContext, curren
             current_phase=current.current_phase, state_version=current.state_version + 1,
             last_applied_sequence_no=envelope.event_sequence_no, snapshot_schema_version=current.snapshot_schema_version,
             lifecycle=current.lifecycle, phase=current.phase, setup=current.setup, participants=participants,
-            game_rules=current.game_rules, hidden_state=current.hidden_state,
+            game_rules=current.game_rules, quest=current.quest,
+            hidden_state=current.hidden_state,
         )
         event = _result_event(context, event_type, 1, event_payload)
         plan = ControlApplyPlan(
@@ -609,7 +611,7 @@ def _revalidate_consumed_context(context: ControlApplyBuildContext) -> bool:
 
 def _revalidate_candidate_snapshot(current: CandidateGameSnapshot) -> CandidateGameSnapshot:
     participants = _reconstruct(current.participants, ParticipantSnapshotSlice, participants=tuple(_reconstruct(record, ParticipantSnapshotRecord) for record in current.participants.participants))
-    return CandidateGameSnapshot(game_id=current.game_id, session_id=current.session_id, group_id=current.group_id, dm_participant_id=current.dm_participant_id, status=current.status, current_phase=current.current_phase, state_version=current.state_version, last_applied_sequence_no=current.last_applied_sequence_no, snapshot_schema_version=current.snapshot_schema_version, lifecycle=_reconstruct(current.lifecycle, LifecycleSnapshotSlice), phase=_reconstruct(current.phase, PhaseSnapshotSlice), setup=_reconstruct(current.setup, SetupSnapshotSlice), participants=participants, game_rules=_reconstruct(current.game_rules, GameRuleSnapshotSlice), hidden_state=_reconstruct(current.hidden_state, HiddenGameStateSlice))
+    return CandidateGameSnapshot(game_id=current.game_id, session_id=current.session_id, group_id=current.group_id, dm_participant_id=current.dm_participant_id, status=current.status, current_phase=current.current_phase, state_version=current.state_version, last_applied_sequence_no=current.last_applied_sequence_no, snapshot_schema_version=current.snapshot_schema_version, lifecycle=_reconstruct(current.lifecycle, LifecycleSnapshotSlice), phase=_reconstruct(current.phase, PhaseSnapshotSlice), setup=_reconstruct(current.setup, SetupSnapshotSlice), participants=participants, game_rules=_reconstruct(current.game_rules, GameRuleSnapshotSlice), quest=_reconstruct(current.quest, QuestSnapshotSlice), hidden_state=_reconstruct(current.hidden_state, HiddenGameStateSlice))
 
 
 def _view(context: ControlApplyBuildContext, participant_id: str):

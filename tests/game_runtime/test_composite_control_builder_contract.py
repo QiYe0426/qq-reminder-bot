@@ -473,8 +473,9 @@ def test_dispatcher_is_the_only_sync_stateless_control_plane_and_has_no_forbidde
         "game_runtime.session_control.phase_control_builder",
         "game_runtime.session_control.participant_control_builder",
         "game_runtime.session_control.setup_control_builder",
-        "game_runtime.session_control.game_rule_control_builder",
-    }
+            "game_runtime.session_control.game_rule_control_builder",
+            "game_runtime.session_control.quest_control_builder",
+        }
 
     assert classes == ["CompositeGameControlApplyPlanBuilder"]
     assert CompositeGameControlApplyPlanBuilder.__slots__ == ()

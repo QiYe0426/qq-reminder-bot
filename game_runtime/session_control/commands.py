@@ -23,6 +23,7 @@ class SessionCommandType(str, Enum):
     REPLACE_PLAYER = "REPLACE_PLAYER"
     ACTIVATE_RULE_SET = "ACTIVATE_RULE_SET"
     REVEAL_CLUE = "REVEAL_CLUE"
+    ACTIVATE_QUEST = "ACTIVATE_QUEST"
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,6 +152,26 @@ class RevealCluePayload(SessionCommandPayload):
         )
 
 
+@dataclass(frozen=True, slots=True)
+class ActivateQuestPayload(SessionCommandPayload):
+    quest_id: str
+    expected_game_rule_version: int
+    expected_quest_version: int
+    expected_hidden_state_version: int
+
+    def __post_init__(self) -> None:
+        _require_non_empty("quest_id", self.quest_id)
+        _require_non_negative(
+            "expected_game_rule_version", self.expected_game_rule_version
+        )
+        _require_non_negative(
+            "expected_quest_version", self.expected_quest_version
+        )
+        _require_non_negative(
+            "expected_hidden_state_version", self.expected_hidden_state_version
+        )
+
+
 _PAYLOAD_TYPE_BY_COMMAND: dict[
     SessionCommandType, type[SessionCommandPayload]
 ] = {
@@ -165,6 +186,7 @@ _PAYLOAD_TYPE_BY_COMMAND: dict[
     SessionCommandType.REPLACE_PLAYER: ReplacePlayerPayload,
     SessionCommandType.ACTIVATE_RULE_SET: ActivateRuleSetPayload,
     SessionCommandType.REVEAL_CLUE: RevealCluePayload,
+    SessionCommandType.ACTIVATE_QUEST: ActivateQuestPayload,
 }
 
 

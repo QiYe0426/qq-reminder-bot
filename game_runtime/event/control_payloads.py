@@ -213,6 +213,21 @@ class ClueRevealedPayload(ControlResultPayload):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class QuestActivatedPayload(ControlResultPayload):
+    quest_id: str
+    public_state_reference: str
+    quest_domain_version: int
+
+    def __post_init__(self) -> None:
+        super(QuestActivatedPayload, self).__post_init__()
+        _require_text("quest_id", self.quest_id)
+        _require_text("public_state_reference", self.public_state_reference)
+        _require_positive_int(
+            "quest_domain_version", self.quest_domain_version
+        )
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class SessionControlRejectedPayload(ControlResultPayload):
     reason_code: str
     state_version: int
@@ -257,6 +272,7 @@ CONTROL_RESULT_PAYLOAD_TYPES: Mapping[
     GameEventType.PLAYER_REPLACED: PlayerReplacedPayload,
     GameEventType.RULE_SET_ACTIVATED: RuleSetActivatedPayload,
     GameEventType.CLUE_REVEALED: ClueRevealedPayload,
+    GameEventType.QUEST_ACTIVATED: QuestActivatedPayload,
     GameEventType.SESSION_CONTROL_REJECTED: SessionControlRejectedPayload,
     GameEventType.PHASE_CHANGED: PhaseChangedPayload,
 }
@@ -273,6 +289,7 @@ CONTROL_RESULT_VISIBILITY: Mapping[GameEventType, EventVisibility] = {
     GameEventType.PLAYER_REPLACED: EventVisibility.DM_CONTROL,
     GameEventType.RULE_SET_ACTIVATED: EventVisibility.DM_CONTROL,
     GameEventType.CLUE_REVEALED: EventVisibility.PUBLIC,
+    GameEventType.QUEST_ACTIVATED: EventVisibility.PUBLIC,
     GameEventType.SESSION_CONTROL_REJECTED: EventVisibility.DM_CONTROL,
     GameEventType.PHASE_CHANGED: EventVisibility.PUBLIC,
 }

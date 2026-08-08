@@ -31,6 +31,7 @@ from game_runtime.session_control.composite_snapshot import (
     ParticipantSnapshotRecord,
     ParticipantSnapshotSlice,
     PhaseSnapshotSlice,
+    QuestSnapshotSlice,
     SetupSnapshotSlice,
 )
 from test_control_apply_port import apply_plan as legacy_apply_plan
@@ -56,7 +57,7 @@ def _candidate(
         current_phase=phase,
         state_version=state_version,
         last_applied_sequence_no=materialization_cursor,
-        snapshot_schema_version=2,
+        snapshot_schema_version=3,
         lifecycle=LifecycleSnapshotSlice(
             schema_version=1,
             domain_version=2,
@@ -101,6 +102,13 @@ def _candidate(
             committed_rule_set_reference=None,
             committed_disclosure_state_reference=None,
         ),
+        quest=QuestSnapshotSlice(
+            schema_version=1,
+            domain_version=0,
+            active_quest_id=None,
+            source_rule_set_reference=None,
+            committed_public_state_reference=None,
+        ),
         hidden_state=HiddenGameStateSlice(
             schema_version=1,
             domain_version=0,
@@ -136,7 +144,7 @@ def test_game_snapshot_identity_is_deterministic_and_value_only() -> None:
         first.snapshot_materialization_cursor
         == candidate.last_applied_sequence_no
     )
-    assert first.domain_versions == (2, 1, 0, 1, 0, 0)
+    assert first.domain_versions == (2, 1, 0, 1, 0, 0, 0)
     assert not hasattr(first, "__dict__")
 
     with pytest.raises(TypeError):
@@ -148,7 +156,7 @@ def test_game_snapshot_identity_is_deterministic_and_value_only() -> None:
         is CompositeSnapshotFailureReason.UNSUPPORTED_SCHEMA_VERSION
     )
     with pytest.raises(CompositeSnapshotContractError) as version_error:
-        replace(first, domain_versions=(2, 1, 0, -1, 0, 0))
+        replace(first, domain_versions=(2, 1, 0, -1, 0, 0, 0))
     assert (
         version_error.value.reason
         is CompositeSnapshotFailureReason.INVALID_DOMAIN_VERSION
@@ -327,7 +335,7 @@ def test_game_rule_snapshot_v2_requires_rule_and_disclosure_references_together(
         None,
     )
 
-    assert composite_module.COMPOSITE_SNAPSHOT_SCHEMA_VERSION == 2
+    assert composite_module.COMPOSITE_SNAPSHOT_SCHEMA_VERSION == 3
     assert game_rule_schema == 2
     assert disclosure_reason is not None
     empty = GameRuleSnapshotSlice(

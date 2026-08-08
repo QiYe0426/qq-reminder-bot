@@ -12,6 +12,7 @@ from game_runtime.participant import ParticipantMembershipState, ParticipantType
 from game_runtime.session import GamePhase, GameSessionStatus
 from game_runtime.session_control.apply_contract import ControlOperationClaim
 from game_runtime.session_control.commands import (
+    ActivateQuestPayload,
     ActivateRuleSetPayload,
     AssignCharacterPayload,
     ChangePhasePayload,
@@ -41,6 +42,10 @@ from game_runtime.session_control.game_rule_evidence import (
     ControlGameRuleApplyEvidence,
     ControlGameRuleEvidenceError,
 )
+from game_runtime.session_control.quest_evidence import (
+    ControlQuestActivationEvidence,
+    ControlQuestEvidenceError,
+)
 
 
 class ControlApplyBuildContextError(ValueError):
@@ -60,6 +65,7 @@ _PAYLOAD_TYPE_BY_COMMAND: dict[
     SessionCommandType.REPLACE_PLAYER: ReplacePlayerPayload,
     SessionCommandType.ACTIVATE_RULE_SET: ActivateRuleSetPayload,
     SessionCommandType.REVEAL_CLUE: RevealCluePayload,
+    SessionCommandType.ACTIVATE_QUEST: ActivateQuestPayload,
 }
 
 
@@ -110,6 +116,7 @@ class ControlSessionBuildView:
     game_rule_evidence: ControlGameRuleApplyEvidence = field(
         default_factory=ControlGameRuleApplyEvidence
     )
+    quest_activation_evidence: ControlQuestActivationEvidence | None = None
 
     def __post_init__(self) -> None:
         for name in ("game_id", "session_id", "group_id", "dm_participant_id"):
@@ -137,6 +144,21 @@ class ControlSessionBuildView:
             )
         except ControlGameRuleEvidenceError as exc:
             raise ControlApplyBuildContextError(str(exc)) from exc
+        quest_evidence = self.quest_activation_evidence
+        if quest_evidence is not None:
+            _require_type(
+                "quest_activation_evidence",
+                quest_evidence,
+                ControlQuestActivationEvidence,
+            )
+            try:
+                quest_evidence.validate_bindings(
+                    game_id=self.game_id,
+                    session_id=self.session_id,
+                    observed_state_version=self.state_version,
+                )
+            except ControlQuestEvidenceError as exc:
+                raise ControlApplyBuildContextError(str(exc)) from exc
         snapshot = self.current_game_snapshot
         if snapshot is not None:
             _require_type(

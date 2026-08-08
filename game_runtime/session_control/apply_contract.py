@@ -29,6 +29,10 @@ from game_runtime.session_control.game_rule_evidence import (
     ControlGameRuleApplyEvidence,
     ControlGameRuleEvidenceError,
 )
+from game_runtime.session_control.quest_evidence import (
+    ControlQuestActivationEvidence,
+    ControlQuestEvidenceError,
+)
 
 
 _RESULT_EVENT_TYPES_BY_COMMAND: dict[
@@ -47,6 +51,7 @@ _RESULT_EVENT_TYPES_BY_COMMAND: dict[
     SessionCommandType.REPLACE_PLAYER: (GameEventType.PLAYER_REPLACED,),
     SessionCommandType.ACTIVATE_RULE_SET: (GameEventType.RULE_SET_ACTIVATED,),
     SessionCommandType.REVEAL_CLUE: (GameEventType.CLUE_REVEALED,),
+    SessionCommandType.ACTIVATE_QUEST: (GameEventType.QUEST_ACTIVATED,),
 }
 
 
@@ -307,6 +312,64 @@ class ClueRevealMutation:
             raise ValueError("reveal mutation must advance committed references")
 
 
+class QuestMutationType(str, Enum):
+    ACTIVATE_QUEST = "ACTIVATE_QUEST"
+
+
+@dataclass(frozen=True, slots=True)
+class QuestActivationMutation:
+    mutation_type: QuestMutationType
+    quest_id: str
+    source_rule_set_reference: str
+    public_state_reference: str
+    current_hidden_state_reference: str
+    resulting_hidden_state_reference: str
+    expected_game_rule_version: int
+    expected_quest_version: int
+    resulting_quest_version: int
+    expected_hidden_state_version: int
+    resulting_hidden_state_version: int
+    provenance_reference: str
+
+    def __post_init__(self) -> None:
+        if self.mutation_type is not QuestMutationType.ACTIVATE_QUEST:
+            raise ValueError(
+                "QuestActivationMutation only supports ACTIVATE_QUEST"
+            )
+        for name in (
+            "quest_id",
+            "source_rule_set_reference",
+            "public_state_reference",
+            "current_hidden_state_reference",
+            "resulting_hidden_state_reference",
+            "provenance_reference",
+        ):
+            _require_text(name, getattr(self, name))
+        for name in (
+            "expected_game_rule_version",
+            "expected_quest_version",
+            "expected_hidden_state_version",
+        ):
+            _require_non_negative(name, getattr(self, name))
+        for name in (
+            "resulting_quest_version",
+            "resulting_hidden_state_version",
+        ):
+            _require_positive(name, getattr(self, name))
+        if self.resulting_quest_version != self.expected_quest_version + 1:
+            raise ValueError("resulting_quest_version must advance once")
+        if (
+            self.resulting_hidden_state_version
+            != self.expected_hidden_state_version + 1
+        ):
+            raise ValueError("resulting_hidden_state_version must advance once")
+        if (
+            self.current_hidden_state_reference
+            == self.resulting_hidden_state_reference
+        ):
+            raise ValueError("Quest activation must advance hidden state")
+
+
 class OwnershipIntentType(str, Enum):
     UNCHANGED = "UNCHANGED"
     ACQUIRE = "ACQUIRE"
@@ -437,6 +500,8 @@ class ControlApplyPlan:
     game_rule_evidence: ControlGameRuleApplyEvidence = field(
         default_factory=ControlGameRuleApplyEvidence
     )
+    quest_mutations: tuple[QuestActivationMutation, ...] = ()
+    quest_activation_evidence: ControlQuestActivationEvidence | None = None
 
     def __post_init__(self) -> None:
         _validate_common_plan_fields(self)
@@ -506,6 +571,16 @@ class ControlApplyPlan:
             )
             _validate_game_rule_mutations(self)
         except ControlGameRuleEvidenceError as exc:
+            raise ValueError(str(exc)) from exc
+        _freeze_typed_tuple(
+            self,
+            "quest_mutations",
+            self.quest_mutations,
+            QuestActivationMutation,
+        )
+        try:
+            _validate_quest_mutations(self)
+        except ControlQuestEvidenceError as exc:
             raise ValueError(str(exc)) from exc
         result_events = _freeze_result_events(self, self.result_events)
         if self.operation_terminal_state is not ControlOperationStatus.SUCCESS:
@@ -1023,6 +1098,81 @@ def _validate_clue_reveal_mutation(plan: ControlApplyPlan) -> None:
         )
 
 
+def _validate_quest_mutations(plan: ControlApplyPlan) -> None:
+    evidence = plan.quest_activation_evidence
+    if plan.command_type is not SessionCommandType.ACTIVATE_QUEST:
+        if plan.quest_mutations or evidence is not None:
+            raise ControlQuestEvidenceError(
+                "command cannot carry Quest mutation or evidence"
+            )
+        return
+    if (
+        len(plan.quest_mutations) != 1
+        or not isinstance(evidence, ControlQuestActivationEvidence)
+        or plan.participant_mutations
+        or plan.setup_mutations
+        or plan.game_rule_mutations
+    ):
+        raise ControlQuestEvidenceError(
+            "ACTIVATE_QUEST requires exactly one Quest mutation and evidence"
+        )
+    evidence.validate_for_command(
+        SessionCommandType.ACTIVATE_QUEST,
+        game_id=plan.game_id,
+        session_id=plan.session_id,
+        observed_state_version=plan.expected_state_version,
+    )
+    mutation = plan.quest_mutations[0]
+    try:
+        candidate = _revalidate_candidate_game_snapshot(plan.candidate_snapshot)
+        event_payload = validate_control_result_event(plan.result_events[0])
+    except (AttributeError, IndexError, TypeError, ValueError) as exc:
+        raise ControlQuestEvidenceError(
+            "ACTIVATE_QUEST requires complete candidate and result Event"
+        ) from exc
+    quest = candidate.quest
+    game_rules = candidate.game_rules
+    hidden_state = candidate.hidden_state
+    if (
+        mutation.mutation_type is not QuestMutationType.ACTIVATE_QUEST
+        or mutation.quest_id != evidence.quest_id
+        or mutation.quest_id != getattr(event_payload, "quest_id", None)
+        or mutation.source_rule_set_reference
+        != evidence.active_rule_set_reference
+        or mutation.source_rule_set_reference
+        != game_rules.committed_rule_set_reference
+        or mutation.public_state_reference
+        != evidence.resulting_public_state_reference
+        or mutation.public_state_reference
+        != quest.committed_public_state_reference
+        or mutation.public_state_reference
+        != getattr(event_payload, "public_state_reference", None)
+        or quest.active_quest_id != evidence.quest_id
+        or quest.source_rule_set_reference
+        != evidence.active_rule_set_reference
+        or mutation.current_hidden_state_reference
+        != evidence.current_hidden_state_reference
+        or mutation.resulting_hidden_state_reference
+        != evidence.resulting_hidden_state_reference
+        or mutation.resulting_hidden_state_reference
+        != hidden_state.committed_state_reference
+        or mutation.expected_game_rule_version != evidence.game_rule_version
+        or mutation.expected_game_rule_version != game_rules.domain_version
+        or mutation.expected_quest_version != evidence.quest_version
+        or mutation.resulting_quest_version != quest.domain_version
+        or mutation.resulting_quest_version
+        != getattr(event_payload, "quest_domain_version", None)
+        or mutation.expected_hidden_state_version
+        != evidence.hidden_state_version
+        or mutation.resulting_hidden_state_version
+        != hidden_state.domain_version
+        or mutation.provenance_reference != evidence.provenance_reference
+    ):
+        raise ControlQuestEvidenceError(
+            "ACTIVATE_QUEST mutation, evidence, candidate, and Event do not match"
+        )
+
+
 def _revalidate_candidate_game_snapshot(
     candidate: CandidateSessionSnapshot,
 ) -> object:
@@ -1034,6 +1184,7 @@ def _revalidate_candidate_game_snapshot(
         ParticipantSnapshotRecord,
         ParticipantSnapshotSlice,
         PhaseSnapshotSlice,
+        QuestSnapshotSlice,
         SetupSnapshotSlice,
     )
 
@@ -1078,6 +1229,10 @@ def _revalidate_candidate_game_snapshot(
         game_rules=_reconstruct_contract_value(
             candidate.game_rules,
             GameRuleSnapshotSlice,
+        ),
+        quest=_reconstruct_contract_value(
+            candidate.quest,
+            QuestSnapshotSlice,
         ),
         hidden_state=_reconstruct_contract_value(
             candidate.hidden_state,

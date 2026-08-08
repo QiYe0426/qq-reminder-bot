@@ -606,7 +606,7 @@ def test_malformed_or_unsupported_input_returns_closed_noncommit(
                 None,
             )
         elif malformation == "snapshot_schema":
-            object.__setattr__(current, "snapshot_schema_version", 3)
+            object.__setattr__(current, "snapshot_schema_version", 4)
         elif malformation == "unsupported_command":
             object.__setattr__(
                 context.command_intent,

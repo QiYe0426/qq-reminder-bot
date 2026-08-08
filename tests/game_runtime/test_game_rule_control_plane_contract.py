@@ -46,6 +46,7 @@ from game_runtime.session_control import (
     ParticipantSnapshotRecord,
     ParticipantSnapshotSlice,
     PhaseSnapshotSlice,
+    QuestSnapshotSlice,
     PhaseVisibilityDecision,
     SessionCommandType,
     SetupSnapshotSlice,
@@ -149,7 +150,7 @@ def _candidate() -> CandidateGameSnapshot:
         current_phase=GamePhase.LOBBY,
         state_version=5,
         last_applied_sequence_no=7,
-        snapshot_schema_version=2,
+        snapshot_schema_version=3,
         lifecycle=LifecycleSnapshotSlice(
             schema_version=1,
             domain_version=1,
@@ -187,6 +188,7 @@ def _candidate() -> CandidateGameSnapshot:
             committed_rule_set_reference="rule-set:commit-1",
             committed_disclosure_state_reference="disclosure-state:commit-1",
         ),
+        quest=QuestSnapshotSlice(1, 0, None, None, None),
         hidden_state=HiddenGameStateSlice(
             schema_version=1,
             domain_version=1,
@@ -489,7 +491,7 @@ def _context(
         current_phase=phase,
         state_version=4,
         last_applied_sequence_no=6,
-        snapshot_schema_version=2,
+        snapshot_schema_version=3,
         lifecycle=LifecycleSnapshotSlice(
             schema_version=1,
             domain_version=1,
@@ -542,6 +544,7 @@ def _context(
                 else "disclosure-state:current"
             ),
         ),
+        quest=QuestSnapshotSlice(1, 0, None, None, None),
         hidden_state=HiddenGameStateSlice(
             schema_version=1,
             domain_version=hidden_state_version,

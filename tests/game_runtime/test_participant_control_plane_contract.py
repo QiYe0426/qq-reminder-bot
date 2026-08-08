@@ -35,6 +35,7 @@ from game_runtime.session_control import (
     ParticipantSnapshotRecord,
     ParticipantSnapshotSlice,
     PhaseSnapshotSlice,
+    QuestSnapshotSlice,
     SessionCommandType,
     SetupParticipantEvidenceStatus,
     SetupSnapshotSlice,
@@ -99,12 +100,13 @@ def _context(
         current_phase=phase,
         state_version=4,
         last_applied_sequence_no=snapshot_cursor,
-        snapshot_schema_version=2,
+        snapshot_schema_version=3,
         lifecycle=LifecycleSnapshotSlice(1, 1, status),
         phase=PhaseSnapshotSlice(1, 1, phase),
         setup=SetupSnapshotSlice(1, 0, None, None, None, None),
         participants=ParticipantSnapshotSlice(1, 1, records),
         game_rules=GameRuleSnapshotSlice(2, 0, None, None),
+        quest=QuestSnapshotSlice(1, 0, None, None, None),
         hidden_state=HiddenGameStateSlice(1, 0, None),
     )
     evidence = context.setup_participant_evidence

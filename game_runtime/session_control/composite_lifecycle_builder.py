@@ -114,6 +114,7 @@ def _promote_lifecycle_apply_plan(
             setup=current.setup,
             participants=current.participants,
             game_rules=current.game_rules,
+            quest=current.quest,
             hidden_state=current.hidden_state,
         )
         promoted_plan = replace(plan, candidate_snapshot=candidate)

@@ -29,6 +29,7 @@ from game_runtime.session_control import (
     ParticipantSnapshotRecord,
     ParticipantSnapshotSlice,
     PhaseSnapshotSlice,
+    QuestSnapshotSlice,
     SessionCommandType,
     SetupControlApplyPlanBuilder,
     SetupMutationType,
@@ -120,7 +121,7 @@ def _context(
         current_phase=phase,
         state_version=4,
         last_applied_sequence_no=6,
-        snapshot_schema_version=2,
+        snapshot_schema_version=3,
         lifecycle=LifecycleSnapshotSlice(
             schema_version=1,
             domain_version=1,
@@ -143,6 +144,7 @@ def _context(
             committed_rule_set_reference=None,
             committed_disclosure_state_reference=None,
         ),
+        quest=QuestSnapshotSlice(1, 0, None, None, None),
         hidden_state=HiddenGameStateSlice(
             schema_version=1,
             domain_version=0,

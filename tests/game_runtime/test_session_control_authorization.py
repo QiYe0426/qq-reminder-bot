@@ -8,6 +8,7 @@ from game_runtime.participant import (
 )
 from game_runtime.session import GameSessionStatus
 from game_runtime.session_control import (
+    ActivateQuestPayload,
     ActivateRuleSetPayload,
     ALL_SESSION_CONTROL_PERMISSIONS,
     AuthorizationContext,
@@ -53,6 +54,7 @@ def make_resolution(
 def _payload_for(command_type: SessionCommandType) -> SessionCommandPayload:
     from game_runtime.session_control import (
         AssignCharacterPayload,
+        ActivateQuestPayload,
         ActivateRuleSetPayload,
         ChangePhasePayload,
         EndGamePayload,
@@ -96,6 +98,12 @@ def _payload_for(command_type: SessionCommandType) -> SessionCommandPayload:
         SessionCommandType.REVEAL_CLUE: RevealCluePayload(
             clue_id="clue-1",
             expected_game_rule_version=1,
+            expected_hidden_state_version=1,
+        ),
+        SessionCommandType.ACTIVATE_QUEST: ActivateQuestPayload(
+            quest_id="quest-1",
+            expected_game_rule_version=1,
+            expected_quest_version=0,
             expected_hidden_state_version=1,
         ),
     }
@@ -291,6 +299,7 @@ def test_every_command_has_a_typed_permission_mapping(
         (SessionCommandType.REPLACE_PLAYER, GameSessionStatus.RUNNING),
         (SessionCommandType.ACTIVATE_RULE_SET, GameSessionStatus.RUNNING),
         (SessionCommandType.REVEAL_CLUE, GameSessionStatus.CREATED),
+        (SessionCommandType.ACTIVATE_QUEST, GameSessionStatus.CREATED),
     ],
 )
 def test_lifecycle_constraint_denies_invalid_status(
@@ -366,6 +375,38 @@ def test_reveal_clue_is_coarsely_allowed_only_for_running_sessions(
     )
 
     assert denied.reason is AuthorizationReason.COMMAND_CONSTRAINT_DENIED
+    assert allowed.decision is AuthorizationDecision.ALLOW
+
+
+def test_activate_quest_is_dm_only_and_allowed_only_while_running(
+    session_factory,
+) -> None:
+    created = session_factory()
+    running = session_factory()
+    running.transition_to(GameSessionStatus.RUNNING)
+    policy = SessionControlAuthorizationPolicy()
+
+    wrong_lifecycle = policy.authorize(
+        make_resolution(created, SessionCommandType.ACTIVATE_QUEST),
+        make_context(created),
+    )
+    non_dm = policy.authorize(
+        make_resolution(running, SessionCommandType.ACTIVATE_QUEST),
+        make_context(
+            running,
+            role_binding=make_dm_binding(
+                running,
+                participant_type=ParticipantType.PLAYER,
+            ),
+        ),
+    )
+    allowed = policy.authorize(
+        make_resolution(running, SessionCommandType.ACTIVATE_QUEST),
+        make_context(running),
+    )
+
+    assert wrong_lifecycle.reason is AuthorizationReason.COMMAND_CONSTRAINT_DENIED
+    assert non_dm.reason is AuthorizationReason.SESSION_ROLE_DENIED
     assert allowed.decision is AuthorizationDecision.ALLOW
 
 
