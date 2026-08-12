@@ -44,6 +44,7 @@ plugins = [
     "plugins.admin_console",
     "plugins.message_archive",
     "plugins.reminder",
+    "plugins.ai_balance",
     "plugins.ai_chat",
     "plugins.group_reactions",
     "plugins.message_collector",
