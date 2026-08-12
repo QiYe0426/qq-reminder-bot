@@ -63,6 +63,7 @@ from plugins.agent_tool_access import (
     init_agent_tool_access_db,
     save_group_agent_tool_state,
 )
+from plugins.admin_game_service import AdminGameService
 from plugins.chime_service import (
     CHIME_MODE_HOURLY,
     get_chime_state as get_target_chime_state,
@@ -123,6 +124,7 @@ KIND_ORDER = (
 )
 TREE_ORDER = ("STS2",)
 FEATURE_CHIME = "hourly_chime"
+GAME_ADMIN_SERVICE = AdminGameService()
 
 try:
     from fastapi import Header, HTTPException, Query, Request
@@ -1179,6 +1181,50 @@ if (
     ) -> JSONResponse:
         check_token(token=token, authorization=authorization)
         return JSONResponse(await console_state())
+
+    @server_app.get(f"{ROUTE_PREFIX}/api/games")
+    async def admin_console_games(
+        token: str | None = Query(default=None),
+        authorization: str | None = Header(default=None),
+    ) -> JSONResponse:
+        check_token(token=token, authorization=authorization)
+        return JSONResponse({"sessions": await GAME_ADMIN_SERVICE.list_sessions()})
+
+    @server_app.post(f"{ROUTE_PREFIX}/api/games")
+    async def admin_console_create_game(
+        request: Request,
+        token: str | None = Query(default=None),
+        authorization: str | None = Header(default=None),
+    ) -> JSONResponse:
+        check_token(token=token, authorization=authorization)
+        payload = await request.json()
+        try:
+            session = await GAME_ADMIN_SERVICE.create_session(
+                group_id=str(payload.get("group_id") or ""),
+                dm_qq_id=str(payload.get("dm_qq_id") or ""),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return JSONResponse(session, status_code=201)
+
+    @server_app.post(f"{ROUTE_PREFIX}/api/games/{{game_id}}/control")
+    async def admin_console_control_game(
+        game_id: str,
+        request: Request,
+        token: str | None = Query(default=None),
+        authorization: str | None = Header(default=None),
+    ) -> JSONResponse:
+        check_token(token=token, authorization=authorization)
+        payload = await request.json()
+        try:
+            session = await GAME_ADMIN_SERVICE.control(
+                game_id,
+                str(payload.get("action") or ""),
+                phase=str(payload.get("phase") or "") or None,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return JSONResponse(session)
 
     @server_app.put(f"{ROUTE_PREFIX}/api/persona")
     async def admin_console_save_persona(
