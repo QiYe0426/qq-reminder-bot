@@ -302,6 +302,14 @@ def _cache_put(key: str, text: str) -> None:
             _cache.popitem(last=False)
 
 
+def _release_admission_when_done(task: asyncio.Task[str], semaphore: asyncio.Semaphore) -> None:
+    try:
+        task.result()
+    except BaseException:
+        pass
+    semaphore.release()
+
+
 async def extract_text_from_bytes(body: bytes) -> str:
     if not local_ocr_enabled():
         return ""
@@ -315,18 +323,33 @@ async def extract_text_from_bytes(body: bytes) -> str:
     if cached is not None:
         return cached
 
+    semaphore = _get_semaphore()
+    await semaphore.acquire()
+    inference_task: asyncio.Task[str] | None = None
+    defer_release = False
     try:
-        async with _get_semaphore():
-            cached = _cache_get(key)
-            if cached is not None:
-                return cached
-            text = await asyncio.wait_for(_run_inference_async(body), timeout=timeout_seconds())
+        cached = _cache_get(key)
+        if cached is not None:
+            return cached
+        inference_task = asyncio.create_task(_run_inference_async(body))
+        text = await asyncio.wait_for(asyncio.shield(inference_task), timeout=timeout_seconds())
     except asyncio.TimeoutError as exc:
+        if inference_task is not None and not inference_task.done():
+            defer_release = True
+            inference_task.add_done_callback(lambda task: _release_admission_when_done(task, semaphore))
         raise LocalOCRError("local OCR timeout") from exc
+    except asyncio.CancelledError:
+        if inference_task is not None and not inference_task.done():
+            defer_release = True
+            inference_task.add_done_callback(lambda task: _release_admission_when_done(task, semaphore))
+        raise
     except LocalOCRError:
         raise
     except Exception as exc:
         raise LocalOCRError("local OCR inference failed") from exc
+    finally:
+        if not defer_release:
+            semaphore.release()
 
     _cache_put(key, text)
     return text

@@ -194,6 +194,49 @@ def test_timed_out_inference_cannot_exceed_worker_limit(monkeypatch) -> None:
     assert max_active == 1
 
 
+def test_timed_out_inference_keeps_later_images_out_of_executor_queue(monkeypatch) -> None:
+    from plugins import local_ocr
+
+    monkeypatch.setenv("LOCAL_OCR_ENABLED", "1")
+    monkeypatch.setenv("LOCAL_OCR_TIMEOUT_SECONDS", "1")
+    monkeypatch.setenv("LOCAL_OCR_CONCURRENCY", "1")
+    local_ocr.reset_local_ocr_state_for_tests()
+    release = threading.Event()
+    state_lock = threading.Lock()
+    started = 0
+    submitted = 0
+
+    def blocked_inference(_body: bytes) -> str:
+        nonlocal started
+        with state_lock:
+            started += 1
+        release.wait(5)
+        return "finished"
+
+    monkeypatch.setattr(local_ocr, "_run_inference", blocked_inference)
+    original_run_async = local_ocr._run_inference_async
+
+    async def tracked_run_async(body: bytes) -> str:
+        nonlocal submitted
+        submitted += 1
+        return await original_run_async(body)
+
+    monkeypatch.setattr(local_ocr, "_run_inference_async", tracked_run_async)
+
+    async def run_three() -> None:
+        tasks = [asyncio.create_task(local_ocr.extract_text_from_bytes(str(index).encode())) for index in range(3)]
+        await asyncio.sleep(2.2)
+        with state_lock:
+            assert started == 1
+        assert submitted == 1
+        release.set()
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        assert isinstance(results[0], local_ocr.LocalOCRError)
+        assert results[1:] == ["finished", "finished"]
+
+    asyncio.run(run_three())
+
+
 def test_rejects_non_image_bytes_before_loading_engine(monkeypatch) -> None:
     from plugins import local_ocr
 
