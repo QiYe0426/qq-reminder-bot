@@ -27,3 +27,10 @@ def test_admin_console_registers_game_management_routes() -> None:
     assert "check_token(token=token, authorization=authorization)" in source
     assert 'post(f"{ROUTE_PREFIX}/api/games")' not in source
     assert 'control_game' not in source
+
+
+def test_keyword_reply_editor_preserves_type_and_enabled_fields() -> None:
+    app = (STATIC / "react-app.js").read_text(encoding="utf-8")
+    assert "reply_type:r.reply_type" in app
+    assert "enabled:r.enabled!==false" in app
+    assert "updateReply" in app
