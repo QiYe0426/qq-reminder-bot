@@ -6,7 +6,7 @@
 
 **Architecture:** A new `plugins.local_ocr` module owns configuration, safe image download, lazy RapidOCR initialization, worker-thread inference, normalization, caching, concurrency, and timeout handling. `media_insights` and `group_reactions` consume that module and contain only flow-specific behavior.
 
-**Tech Stack:** Python 3.10+, asyncio, RapidOCR 3.9.2, ONNX Runtime CPU 1.24.4, existing `plugins.safe_http_fetch`, pytest.
+**Tech Stack:** Python 3.10+, asyncio, RapidOCR 3.9.2, ONNX Runtime CPU 1.23.2, existing `plugins.safe_http_fetch`, pytest.
 
 ## Global Constraints
 
@@ -104,7 +104,7 @@ Add to `[project].dependencies`:
 
 ```toml
 "rapidocr==3.9.2",
-"onnxruntime==1.24.4",
+"onnxruntime==1.23.2",
 ```
 
 Run: `git add plugins/local_ocr.py tests/test_local_ocr.py pyproject.toml && git commit -m "feat(ocr): add shared local RapidOCR service"`
@@ -244,7 +244,7 @@ Run: `git add .env.example README.md plugins/ai_balance.py tests/test_ai_balance
 
 Run: `.venv\Scripts\python -m pip install -e ".[dev]"` if that environment exists; otherwise use the configured workspace Python environment.
 
-Expected: RapidOCR 3.9.2 and ONNX Runtime 1.24.4 install successfully.
+Expected: RapidOCR 3.9.2 and ONNX Runtime 1.23.2 install successfully.
 
 - [ ] **Step 2: Run static and automated verification**
 
