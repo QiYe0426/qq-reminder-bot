@@ -15,10 +15,20 @@ nonebot.init()
 from plugins.ai_balance import (
     BALANCE_COMMANDS,
     DeepSeekBalanceError,
+    QWEN_MODULE_IMAGE_VISION,
+    QWEN_MODULE_KEYWORD_SCAN,
+    QwenProbeConfig,
+    QwenProbeResult,
     balance_command_text,
+    build_ai_api_status_report,
     build_balance_url,
+    build_qwen_probe_url,
+    discover_qwen_probe_configs,
     fetch_deepseek_balance,
+    format_qwen_status,
+    format_deepseek_status,
     format_deepseek_balance,
+    probe_qwen_status,
 )
 
 
@@ -158,6 +168,7 @@ class FakeSession:
         self.init_kwargs = kwargs
         self.request_url = ""
         self.request_headers: dict[str, str] = {}
+        self.request_json: dict[str, Any] = {}
 
     async def __aenter__(self) -> "FakeSession":
         return self
@@ -168,6 +179,20 @@ class FakeSession:
     def get(self, url: str, *, headers: dict[str, str]) -> FakeResponse:
         self.request_url = url
         self.request_headers = headers
+        if self.request_error is not None:
+            raise self.request_error
+        return self.response
+
+    def post(
+        self,
+        url: str,
+        *,
+        headers: dict[str, str],
+        json: dict[str, Any],
+    ) -> FakeResponse:
+        self.request_url = url
+        self.request_headers = headers
+        self.request_json = json
         if self.request_error is not None:
             raise self.request_error
         return self.response
@@ -336,9 +361,17 @@ def test_balance_command_allows_configured_admin_private_message(
     async def fetcher() -> dict[str, Any]:
         return VALID_PAYLOAD
 
-    result = asyncio.run(balance_command_text(private_event(10001), fetcher=fetcher))
+    result = asyncio.run(
+        balance_command_text(
+            private_event(10001),
+            fetcher=fetcher,
+            qwen_configs=[],
+        )
+    )
     assert result is not None
+    assert result.startswith("AI API 状态")
     assert "总余额 ¥12.34" in result
+    assert "负责模块：AI 对话、Agent 工具调度" in result
 
 
 def test_balance_command_denies_non_admin_before_querying(
@@ -352,7 +385,13 @@ def test_balance_command_denies_non_admin_before_querying(
         called = True
         return VALID_PAYLOAD
 
-    result = asyncio.run(balance_command_text(private_event(10002), fetcher=fetcher))
+    result = asyncio.run(
+        balance_command_text(
+            private_event(10002),
+            fetcher=fetcher,
+            qwen_configs=[],
+        )
+    )
     assert result == "这个命令只有管理员可以使用。"
     assert not called
 
@@ -368,7 +407,13 @@ def test_balance_command_silently_ignores_group_messages(
         called = True
         return VALID_PAYLOAD
 
-    result = asyncio.run(balance_command_text(group_event(10001), fetcher=fetcher))
+    result = asyncio.run(
+        balance_command_text(
+            group_event(10001),
+            fetcher=fetcher,
+            qwen_configs=[],
+        )
+    )
     assert result is None
     assert not called
 
@@ -381,8 +426,17 @@ def test_balance_command_returns_safe_service_error(
     async def fetcher() -> dict[str, Any]:
         raise DeepSeekBalanceError("DeepSeek 服务暂时不可用，请稍后重试。")
 
-    result = asyncio.run(balance_command_text(private_event(10001), fetcher=fetcher))
-    assert result == "DeepSeek 服务暂时不可用，请稍后重试。"
+    result = asyncio.run(
+        balance_command_text(
+            private_event(10001),
+            fetcher=fetcher,
+            qwen_configs=[],
+        )
+    )
+    assert result is not None
+    assert "DeepSeek\n" in result
+    assert "状态：查询失败" in result
+    assert "DeepSeek 服务暂时不可用，请稍后重试。" in result
 
 
 def test_balance_commands_and_plugin_are_registered_and_documented() -> None:
@@ -392,3 +446,342 @@ def test_balance_commands_and_plugin_are_registered_and_documented() -> None:
     assert '"plugins.ai_balance"' in pyproject
     assert all(command in readme for command in BALANCE_COMMANDS)
     assert "仅管理员私聊可用" in readme
+
+
+def test_discover_qwen_configs_uses_image_fallbacks() -> None:
+    configs = discover_qwen_probe_configs(
+        {
+            "IMAGE_VISION_API_KEY": "image-key",
+            "IMAGE_VISION_BASE_URL": "https://dashscope.example/compatible-mode/v1",
+            "IMAGE_VISION_MODEL": "qwen-vl-test",
+        }
+    )
+
+    assert configs == [
+        QwenProbeConfig(
+            modules=(QWEN_MODULE_IMAGE_VISION, QWEN_MODULE_KEYWORD_SCAN),
+            api_key="image-key",
+            base_url="https://dashscope.example/compatible-mode/v1",
+            model="qwen-vl-test",
+        )
+    ]
+
+
+def test_discover_qwen_configs_falls_back_to_openai_compatible_settings() -> None:
+    configs = discover_qwen_probe_configs(
+        {
+            "OPENAI_API_KEY": "fallback-key",
+            "OPENAI_BASE_URL": "https://gateway.example/v1",
+        }
+    )
+
+    assert len(configs) == 1
+    assert configs[0].api_key == "fallback-key"
+    assert configs[0].base_url == "https://gateway.example/v1"
+    assert configs[0].model == "qwen3-vl-flash"
+    assert configs[0].modules == (QWEN_MODULE_IMAGE_VISION, QWEN_MODULE_KEYWORD_SCAN)
+
+
+def test_discover_qwen_configs_keeps_distinct_keyword_profile() -> None:
+    configs = discover_qwen_probe_configs(
+        {
+            "IMAGE_VISION_API_KEY": "image-key",
+            "IMAGE_VISION_BASE_URL": "https://image.example/v1",
+            "IMAGE_VISION_MODEL": "qwen-image",
+            "KEYWORD_RETORT_IMAGE_SCAN_API_KEY": "keyword-key",
+            "KEYWORD_RETORT_IMAGE_SCAN_BASE_URL": "https://keyword.example/v1",
+            "KEYWORD_RETORT_IMAGE_SCAN_MODEL": "qwen-keyword",
+        }
+    )
+
+    assert configs == [
+        QwenProbeConfig(
+            modules=(QWEN_MODULE_IMAGE_VISION,),
+            api_key="image-key",
+            base_url="https://image.example/v1",
+            model="qwen-image",
+        ),
+        QwenProbeConfig(
+            modules=(QWEN_MODULE_KEYWORD_SCAN,),
+            api_key="keyword-key",
+            base_url="https://keyword.example/v1",
+            model="qwen-keyword",
+        ),
+    ]
+
+
+def test_discover_qwen_configs_omits_unconfigured_profiles() -> None:
+    assert discover_qwen_probe_configs({}) == []
+
+
+@pytest.mark.parametrize(
+    ("base_url", "expected"),
+    [
+        (
+            "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+        ),
+        ("https://gateway.example/v1/", "https://gateway.example/v1/chat/completions"),
+        (
+            "https://gateway.example/v1/chat/completions",
+            "https://gateway.example/v1/chat/completions",
+        ),
+    ],
+)
+def test_build_qwen_probe_url(base_url: str, expected: str) -> None:
+    assert build_qwen_probe_url(base_url) == expected
+
+
+QWEN_CONFIG = QwenProbeConfig(
+    modules=(QWEN_MODULE_IMAGE_VISION, QWEN_MODULE_KEYWORD_SCAN),
+    api_key="qwen-test-secret",
+    base_url="https://dashscope.example/compatible-mode/v1",
+    model="qwen3-vl-flash",
+)
+
+
+def test_probe_qwen_status_sends_one_token_request() -> None:
+    created: list[FakeSession] = []
+
+    def session_factory(**kwargs: Any) -> FakeSession:
+        session = FakeSession(response=FakeResponse(payload={"choices": []}), **kwargs)
+        created.append(session)
+        return session
+
+    result = asyncio.run(
+        probe_qwen_status(QWEN_CONFIG, session_factory=session_factory)
+    )
+
+    assert result == QwenProbeResult(status="可用", detail="模型调用正常")
+    assert created[0].request_url.endswith("/compatible-mode/v1/chat/completions")
+    assert created[0].request_headers == {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "Authorization": "Bearer qwen-test-secret",
+    }
+    assert created[0].request_json == {
+        "model": "qwen3-vl-flash",
+        "messages": [{"role": "user", "content": "ping"}],
+        "max_tokens": 1,
+        "stream": False,
+    }
+    assert created[0].init_kwargs["timeout"].total == 10
+
+
+@pytest.mark.parametrize(
+    ("status", "payload", "expected"),
+    [
+        (
+            400,
+            {"error": {"code": "Arrearage", "message": "raw-private-arrearage"}},
+            QwenProbeResult(status="欠费", detail="账户欠费，请前往阿里云充值"),
+        ),
+        (
+            401,
+            {"error": {"code": "InvalidApiKey", "message": "raw-private-key"}},
+            QwenProbeResult(status="Key 无效", detail="API Key 无效或已失效"),
+        ),
+        (
+            403,
+            {"error": {"code": "AccessDenied", "message": "raw-private-denied"}},
+            QwenProbeResult(status="Key 无效", detail="API Key 无权限或已失效"),
+        ),
+        (
+            429,
+            {"error": {"code": "Throttling", "message": "raw-private-rate"}},
+            QwenProbeResult(status="限流", detail="请求过于频繁，请稍后重试"),
+        ),
+        (
+            503,
+            {"error": {"code": "InternalError", "message": "raw-private-server"}},
+            QwenProbeResult(status="服务异常", detail="阿里云百炼服务暂时不可用"),
+        ),
+    ],
+)
+def test_probe_qwen_status_classifies_provider_errors_without_leaking(
+    status: int,
+    payload: object,
+    expected: QwenProbeResult,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    def session_factory(**kwargs: Any) -> FakeSession:
+        return FakeSession(response=FakeResponse(status=status, payload=payload), **kwargs)
+
+    with caplog.at_level(logging.WARNING):
+        result = asyncio.run(
+            probe_qwen_status(QWEN_CONFIG, session_factory=session_factory)
+        )
+
+    assert result == expected
+    combined = result.detail + caplog.text
+    assert QWEN_CONFIG.api_key not in combined
+    assert "raw-private" not in combined
+
+
+def test_probe_qwen_status_classifies_arrearage_code_even_with_http_200() -> None:
+    def session_factory(**kwargs: Any) -> FakeSession:
+        return FakeSession(
+            response=FakeResponse(
+                payload={"code": "Arrearage", "message": "raw-private-arrearage"}
+            ),
+            **kwargs,
+        )
+
+    assert asyncio.run(
+        probe_qwen_status(QWEN_CONFIG, session_factory=session_factory)
+    ) == QwenProbeResult(status="欠费", detail="账户欠费，请前往阿里云充值")
+
+
+def test_probe_qwen_status_maps_timeout_without_leaking() -> None:
+    def session_factory(**kwargs: Any) -> FakeSession:
+        return FakeSession(request_error=asyncio.TimeoutError("raw-private-timeout"), **kwargs)
+
+    result = asyncio.run(
+        probe_qwen_status(QWEN_CONFIG, session_factory=session_factory)
+    )
+    assert result == QwenProbeResult(status="服务异常", detail="Qwen 状态查询超时")
+
+
+def test_probe_qwen_status_maps_network_failure_without_leaking() -> None:
+    def session_factory(**kwargs: Any) -> FakeSession:
+        return FakeSession(request_error=OSError("raw-private-network"), **kwargs)
+
+    result = asyncio.run(
+        probe_qwen_status(QWEN_CONFIG, session_factory=session_factory)
+    )
+    assert result == QwenProbeResult(status="服务异常", detail="无法连接阿里云百炼服务")
+
+
+def test_probe_qwen_status_maps_invalid_json_safely(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    def session_factory(**kwargs: Any) -> FakeSession:
+        return FakeSession(
+            response=FakeResponse(json_error=ValueError("raw-private-json")),
+            **kwargs,
+        )
+
+    with caplog.at_level(logging.WARNING):
+        result = asyncio.run(
+            probe_qwen_status(QWEN_CONFIG, session_factory=session_factory)
+        )
+    assert result == QwenProbeResult(status="服务异常", detail="Qwen 返回了异常响应")
+    assert "raw-private-json" not in caplog.text
+
+
+def test_format_qwen_status_includes_modules_model_and_probe_cost() -> None:
+    text = format_qwen_status(
+        QWEN_CONFIG,
+        QwenProbeResult(status="可用", detail="模型调用正常"),
+    )
+
+    assert "Qwen / 阿里云百炼" in text
+    assert "负责模块：媒体图片识别、关键词回怼图片文字检测" in text
+    assert "模型：qwen3-vl-flash" in text
+    assert "状态：可用" in text
+    assert "最多生成 1 token" in text
+
+
+def test_format_deepseek_status_labels_responsible_modules() -> None:
+    text = format_deepseek_status(VALID_PAYLOAD)
+
+    assert text.startswith("DeepSeek\n")
+    assert "负责模块：AI 对话、Agent 工具调度、联网决策、陪伴画像" in text
+    assert "日报总结（回退配置）" in text
+    assert "状态：可用" in text
+    assert "CNY：总余额 ¥12.34" in text
+
+
+def test_build_ai_api_status_report_combines_providers() -> None:
+    async def deepseek_fetcher() -> dict[str, Any]:
+        return VALID_PAYLOAD
+
+    async def qwen_probe(config: QwenProbeConfig) -> QwenProbeResult:
+        assert config == QWEN_CONFIG
+        return QwenProbeResult(status="欠费", detail="账户欠费，请前往阿里云充值")
+
+    report = asyncio.run(
+        build_ai_api_status_report(
+            deepseek_fetcher=deepseek_fetcher,
+            qwen_configs=[QWEN_CONFIG],
+            qwen_probe=qwen_probe,
+        )
+    )
+
+    assert report.startswith("AI API 状态\n\nDeepSeek")
+    assert report.index("DeepSeek") < report.index("Qwen / 阿里云百炼")
+    assert "状态：欠费" in report
+    assert "账户欠费，请前往阿里云充值" in report
+
+
+def test_build_ai_api_status_report_keeps_qwen_when_deepseek_fails() -> None:
+    async def deepseek_fetcher() -> dict[str, Any]:
+        raise DeepSeekBalanceError("DeepSeek 查询失败安全提示")
+
+    async def qwen_probe(config: QwenProbeConfig) -> QwenProbeResult:
+        return QwenProbeResult(status="可用", detail="模型调用正常")
+
+    report = asyncio.run(
+        build_ai_api_status_report(
+            deepseek_fetcher=deepseek_fetcher,
+            qwen_configs=[QWEN_CONFIG],
+            qwen_probe=qwen_probe,
+        )
+    )
+
+    assert "状态：查询失败" in report
+    assert "DeepSeek 查询失败安全提示" in report
+    assert "Qwen / 阿里云百炼" in report
+    assert "状态：可用" in report
+
+
+def test_build_ai_api_status_report_formats_multiple_qwen_profiles() -> None:
+    second = QwenProbeConfig(
+        modules=(QWEN_MODULE_KEYWORD_SCAN,),
+        api_key="second-secret",
+        base_url="https://second.example/v1",
+        model="qwen-second",
+    )
+
+    async def deepseek_fetcher() -> dict[str, Any]:
+        return VALID_PAYLOAD
+
+    async def qwen_probe(config: QwenProbeConfig) -> QwenProbeResult:
+        return QwenProbeResult(status="可用", detail="模型调用正常")
+
+    report = asyncio.run(
+        build_ai_api_status_report(
+            deepseek_fetcher=deepseek_fetcher,
+            qwen_configs=[QWEN_CONFIG, second],
+            qwen_probe=qwen_probe,
+        )
+    )
+
+    assert report.count("Qwen / 阿里云百炼") == 2
+    assert "模型：qwen3-vl-flash" in report
+    assert "模型：qwen-second" in report
+    assert "qwen-test-secret" not in report
+    assert "second-secret" not in report
+
+
+def test_build_ai_api_status_report_marks_qwen_unconfigured() -> None:
+    async def deepseek_fetcher() -> dict[str, Any]:
+        return VALID_PAYLOAD
+
+    report = asyncio.run(
+        build_ai_api_status_report(
+            deepseek_fetcher=deepseek_fetcher,
+            qwen_configs=[],
+        )
+    )
+
+    assert "Qwen / 阿里云百炼" in report
+    assert "状态：未配置" in report
+    assert "未找到图片识别 API Key、服务地址或模型配置" in report
+
+
+def test_readme_describes_qwen_probe_scope_and_cost() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    assert "Qwen 在线状态" in readme
+    assert "最多生成 1 token" in readme
+    assert "不查询阿里云人民币余额" in readme
