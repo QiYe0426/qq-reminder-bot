@@ -956,7 +956,7 @@ function renderKeywordRetortPanel() {
   const scan = state.group?.keyword_retort?.image_scan || {};
   const scanMeta = document.createElement("div");
   scanMeta.className = "muted keyword-retort-scan";
-  scanMeta.textContent = `图片文字识别：${scan.enabled ? "开启" : "关闭"} / ${scan.model || "未配置"}`;
+  scanMeta.textContent = `图片文字识别：${scan.enabled ? "开启" : "关闭"} / ${scan.engine || "本地 OCR 未配置"}`;
 
   const limits = state.group?.limits?.keyword_retort || {};
   const usage = state.group?.usage?.keyword_retort || {};

@@ -12,9 +12,9 @@ import zipfile
 from datetime import datetime
 from html.parser import HTMLParser
 from xml.etree import ElementTree as ET
-from urllib.error import HTTPError, URLError
+from urllib.error import HTTPError
 from urllib.parse import urlparse
-from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 import aiosqlite
 from dotenv import load_dotenv
@@ -23,6 +23,12 @@ from nonebot.adapters.onebot.v11 import Bot, Event, GroupMessageEvent, Message, 
 from nonebot.log import logger
 
 from plugins.access_control import FEATURE_COLLECTOR, admin_denial, is_group_feature_enabled
+from plugins.local_ocr import (
+    LOCAL_OCR_ENABLED_ENV,
+    extract_text_from_url as extract_local_ocr_text,
+    local_ocr_enabled,
+    local_ocr_engine_name,
+)
 from plugins.message_archive import DB_PATH, init_archive_db, render_plain_text
 
 
@@ -31,25 +37,10 @@ load_dotenv(".env.local")
 MEDIA_INSIGHTS_ENABLED_ENV = "MEDIA_INSIGHTS_ENABLED"
 MEDIA_INSIGHTS_AUTO_ENABLED_ENV = "MEDIA_INSIGHTS_AUTO_ENABLED"
 MEDIA_INSIGHTS_BATCH_SIZE_ENV = "MEDIA_INSIGHTS_BATCH_SIZE"
-IMAGE_VISION_MODEL_ENV = "IMAGE_VISION_MODEL"
-IMAGE_VISION_ENABLED_ENV = "IMAGE_VISION_ENABLED"
-IMAGE_VISION_API_KEY_ENV = "IMAGE_VISION_API_KEY"
-IMAGE_VISION_BASE_URL_ENV = "IMAGE_VISION_BASE_URL"
-IMAGE_VISION_TIMEOUT_SECONDS_ENV = "IMAGE_VISION_TIMEOUT_SECONDS"
 LINK_FETCH_TIMEOUT_SECONDS_ENV = "LINK_FETCH_TIMEOUT_SECONDS"
 LINK_FETCH_MAX_BYTES_ENV = "LINK_FETCH_MAX_BYTES"
-DEFAULT_IMAGE_VISION_MODEL = "qwen3-vl-flash"
-DEFAULT_IMAGE_VISION_TIMEOUT_SECONDS = 45
 DEFAULT_LINK_FETCH_TIMEOUT_SECONDS = 15
 DEFAULT_LINK_FETCH_MAX_BYTES = 1_048_576
-IMAGE_ANALYSIS_PROMPT = """请识别这张群聊图片，用中文输出，供群聊日报总结使用。
-
-要求：
-1. 如果是截图，提取能看清的文字、数字、表格、标题、链接、聊天要点。
-2. 如果是照片或表情包，描述画面内容、可能表达的情绪或含义。
-3. 如果涉及待办、结论、争议、时间地点人物，请明确列出。
-4. 不要编造看不清的内容；看不清就写“看不清”。
-5. 输出尽量简洁，但要保留总结需要的关键信息。"""
 
 INSIGHT_IMAGE = "image"
 INSIGHT_EMOJI = "emoji"
@@ -125,31 +116,6 @@ def batch_size() -> int:
     except ValueError:
         return 30
     return min(max(value, 1), 200)
-
-
-def image_vision_model() -> str:
-    return os.getenv(IMAGE_VISION_MODEL_ENV, DEFAULT_IMAGE_VISION_MODEL).strip() or DEFAULT_IMAGE_VISION_MODEL
-
-
-def image_vision_enabled() -> bool:
-    return os.getenv(IMAGE_VISION_ENABLED_ENV, "").strip() in {"1", "true", "True", "yes", "on"}
-
-
-def image_vision_api_key() -> str | None:
-    return os.getenv(IMAGE_VISION_API_KEY_ENV) or os.getenv("OPENAI_API_KEY")
-
-
-def image_vision_base_url() -> str | None:
-    return os.getenv(IMAGE_VISION_BASE_URL_ENV) or os.getenv("OPENAI_BASE_URL")
-
-
-def image_vision_timeout_seconds() -> int:
-    raw_value = os.getenv(IMAGE_VISION_TIMEOUT_SECONDS_ENV, str(DEFAULT_IMAGE_VISION_TIMEOUT_SECONDS))
-    try:
-        value = int(raw_value)
-    except ValueError:
-        return DEFAULT_IMAGE_VISION_TIMEOUT_SECONDS
-    return max(1, value)
 
 
 def link_fetch_timeout_seconds() -> int:
@@ -849,54 +815,10 @@ def extract_segment_payload(raw_result: str | None) -> dict[str, object] | None:
     return value if isinstance(value, dict) else None
 
 
-def check_url_accessible_sync(image_url: str, timeout: int) -> None:
-    headers = {"User-Agent": "Mozilla/5.0"}
-    request = Request(image_url, method="HEAD", headers=headers)
-    try:
-        with urlopen(request, timeout=timeout) as response:
-            if response.status >= 400:
-                raise URLError(f"HTTP {response.status}")
-            return
-    except Exception:
-        request = Request(image_url, headers={**headers, "Range": "bytes=0-0"})
-        with urlopen(request, timeout=timeout) as response:
-            if response.status >= 400:
-                raise URLError(f"HTTP {response.status}")
-            response.read(1)
-
-
-async def check_url_accessible(image_url: str) -> None:
-    await asyncio.to_thread(check_url_accessible_sync, image_url, min(image_vision_timeout_seconds(), 15))
-
-
 async def analyze_image_url(image_url: str) -> str:
-    api_key = image_vision_api_key()
-    if not api_key:
-        raise RuntimeError(f"missing {IMAGE_VISION_API_KEY_ENV} or OPENAI_API_KEY")
-
-    from openai import AsyncOpenAI
-
-    base_url = image_vision_base_url()
-    client = AsyncOpenAI(api_key=api_key, base_url=base_url) if base_url else AsyncOpenAI(api_key=api_key)
-    response = await asyncio.wait_for(
-        client.chat.completions.create(
-            model=image_vision_model(),
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": IMAGE_ANALYSIS_PROMPT},
-                        {"type": "image_url", "image_url": {"url": image_url}},
-                    ],
-                }
-            ],
-        ),
-        timeout=image_vision_timeout_seconds(),
-    )
-    content = response.choices[0].message.content or ""
-    content = content.strip()
+    content = (await extract_local_ocr_text(image_url)).strip()
     if not content:
-        raise RuntimeError("empty image analysis response")
+        raise RuntimeError("no text detected")
     return content
 
 
@@ -1310,7 +1232,7 @@ async def process_pending_images(limit: int | None = None, group_id: str | None 
     skipped_count = 0
     for row in rows:
         visual_label = "表情包" if row["insight_type"] == INSIGHT_EMOJI else "图片"
-        if not image_vision_enabled():
+        if not local_ocr_enabled():
             skipped_count += 1
             continue
 
@@ -1330,12 +1252,7 @@ async def process_pending_images(limit: int | None = None, group_id: str | None 
             failed_count += 1
             continue
 
-        if not image_vision_api_key():
-            skipped_count += 1
-            continue
-
         try:
-            await check_url_accessible(image_url)
             analysis = await analyze_image_url(image_url)
         except Exception as exc:
             logger.exception("Image insight failed")
@@ -1361,7 +1278,7 @@ async def process_pending_images(limit: int | None = None, group_id: str | None 
             insight_key=str(row["insight_key"] or "0"),
             status=STATUS_READY,
             content=analysis,
-            raw_result={"image_url": image_url, "model": image_vision_model()},
+            raw_result={"image_url": image_url, "engine": local_ocr_engine_name()},
         )
         ready_count += 1
 
@@ -1882,9 +1799,8 @@ async def media_insight_status_text() -> str:
         "媒体识别状态",
         f"实验开关：{'开启' if media_insights_enabled() else '关闭'}",
         f"自动识别：{'开启' if auto_media_insights_enabled() else '关闭'}",
-        f"图片调用：{'开启' if image_vision_enabled() else '关闭'}",
-        f"图片模型：{image_vision_model()}",
-        f"图片密钥：{'已配置' if image_vision_api_key() else '未配置'}",
+        f"本地图片 OCR：{'开启' if local_ocr_enabled() else '关闭'}",
+        f"OCR 引擎：{local_ocr_engine_name()}",
         f"语音转写：{'开启' if voice_transcribe_enabled() else '关闭'}",
         f"语音模型：{voice_transcribe_model()}",
         f"识别记录：{int(total_row['count'] or 0) if total_row else 0}",
@@ -1958,5 +1874,5 @@ async def handle_media_insight_scan(bot: Bot, event: Event) -> None:
         f"聊天记录展开：成功{forward_ready}，失败{forward_failed}，跳过{forward_skipped}。",
     ]
     if visual_skipped:
-        lines.append(f"跳过原因通常是未开启 {IMAGE_VISION_ENABLED_ENV}，或未配置 {IMAGE_VISION_API_KEY_ENV} / OPENAI_API_KEY。")
+        lines.append(f"跳过原因通常是未开启 {LOCAL_OCR_ENABLED_ENV}。")
     await media_insight_scan.finish(Message("\n".join(lines)))
