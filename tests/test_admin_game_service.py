@@ -1,65 +1,36 @@
 import asyncio
 
-import pytest
 
-
-def test_admin_game_service_creates_and_controls_session(tmp_path) -> None:
+def test_admin_game_service_lists_runtime_sessions_without_mutating_them(tmp_path) -> None:
+    from game_runtime.identity import DMIdentity
+    from game_runtime.persistence.database import SQLiteGameDatabase
+    from game_runtime.persistence.repositories.session import GameSessionRepository
+    from game_runtime.session import GameSession
     from plugins.admin_game_service import AdminGameService
 
     async def scenario() -> None:
-        service = AdminGameService(tmp_path / "game.db")
-        created = await service.create_session(
+        database = SQLiteGameDatabase(tmp_path / "game.db")
+        await database.initialize()
+        repository = GameSessionRepository(database)
+        session = GameSession(
+            game_id="game-1",
+            session_id="session-1",
             group_id="10001",
-            dm_qq_id="20002",
-            script_id="雾港疑云",
-            players=[{"qq_id": "30003", "character_id": "侦探"}],
+            dm_identity=DMIdentity(participant_id="dm-1", qq_id="20002"),
         )
-        assert created["status"] == "CREATED"
-        assert created["phase"] == "LOBBY"
-        assert created["script_id"] == "雾港疑云"
-        assert created["participants"] == 2
-        assert await service.list_sessions() == [created]
+        await repository.create_session(session)
 
-        running = await service.control(created["game_id"], "start")
-        assert running["status"] == "RUNNING"
-        assert running["phase"] == "INTRODUCTION"
-
-        exploration = await service.control(created["game_id"], "phase", phase="EXPLORATION")
-        assert exploration["phase"] == "EXPLORATION"
-
-        paused = await service.control(created["game_id"], "pause")
-        assert paused["status"] == "PAUSED"
-        sessions = await service.list_sessions()
-        assert sessions == [paused]
-
-    asyncio.run(scenario())
-
-
-def test_admin_game_service_rejects_invalid_action(tmp_path) -> None:
-    from plugins.admin_game_service import AdminGameService
-
-    async def scenario() -> None:
         service = AdminGameService(tmp_path / "game.db")
-        created = await service.create_session(
-            group_id="10001",
-            dm_qq_id="20002",
-            script_id="雾港疑云",
-            players=[{"qq_id": "30003", "character_id": "侦探"}],
-        )
-        with pytest.raises(ValueError, match="unsupported action"):
-            await service.control(created["game_id"], "explode")
-
-    asyncio.run(scenario())
-
-
-def test_admin_game_service_requires_script_and_character_assignments(tmp_path) -> None:
-    from plugins.admin_game_service import AdminGameService
-
-    async def scenario() -> None:
-        service = AdminGameService(tmp_path / "game.db")
-        with pytest.raises(ValueError, match="script_id"):
-            await service.create_session(group_id="10001", dm_qq_id="20002", script_id="", players=[])
-        with pytest.raises(ValueError, match="player"):
-            await service.create_session(group_id="10001", dm_qq_id="20002", script_id="script", players=[])
+        assert await service.list_sessions() == [{
+            "game_id": "game-1",
+            "session_id": "session-1",
+            "group_id": "10001",
+            "dm_qq_id": "20002",
+            "status": "CREATED",
+            "phase": "LOBBY",
+            "state_version": 0,
+            "participants": 0,
+            "updated_at": session.updated_at.isoformat(),
+        }]
 
     asyncio.run(scenario())

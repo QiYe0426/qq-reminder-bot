@@ -24,7 +24,6 @@ def test_admin_console_has_responsive_styles() -> None:
 def test_admin_console_registers_game_management_routes() -> None:
     source = Path("plugins/admin_console/__init__.py").read_text(encoding="utf-8")
     assert 'f"{ROUTE_PREFIX}/api/games"' in source
-    assert 'f"{ROUTE_PREFIX}/api/games/{{game_id}}/control"' in source
     assert "check_token(token=token, authorization=authorization)" in source
-    assert "PersistenceConflict" in source
-    assert "status_code=409" in source
+    assert 'post(f"{ROUTE_PREFIX}/api/games")' not in source
+    assert 'control_game' not in source

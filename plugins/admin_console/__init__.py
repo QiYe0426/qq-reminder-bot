@@ -64,7 +64,6 @@ from plugins.agent_tool_access import (
     save_group_agent_tool_state,
 )
 from plugins.admin_game_service import AdminGameService
-from game_runtime.errors import InvalidPhaseTransition, InvalidSessionTransition, PersistenceConflict
 from plugins.chime_service import (
     CHIME_MODE_HOURLY,
     get_chime_state as get_target_chime_state,
@@ -1190,48 +1189,6 @@ if (
     ) -> JSONResponse:
         check_token(token=token, authorization=authorization)
         return JSONResponse({"sessions": await GAME_ADMIN_SERVICE.list_sessions()})
-
-    @server_app.post(f"{ROUTE_PREFIX}/api/games")
-    async def admin_console_create_game(
-        request: Request,
-        token: str | None = Query(default=None),
-        authorization: str | None = Header(default=None),
-    ) -> JSONResponse:
-        check_token(token=token, authorization=authorization)
-        payload = await request.json()
-        try:
-            session = await GAME_ADMIN_SERVICE.create_session(
-                group_id=str(payload.get("group_id") or ""),
-                dm_qq_id=str(payload.get("dm_qq_id") or ""),
-                script_id=str(payload.get("script_id") or ""),
-                players=payload.get("players") if isinstance(payload.get("players"), list) else [],
-            )
-        except (InvalidSessionTransition, InvalidPhaseTransition, PersistenceConflict) as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        return JSONResponse(session, status_code=201)
-
-    @server_app.post(f"{ROUTE_PREFIX}/api/games/{{game_id}}/control")
-    async def admin_console_control_game(
-        game_id: str,
-        request: Request,
-        token: str | None = Query(default=None),
-        authorization: str | None = Header(default=None),
-    ) -> JSONResponse:
-        check_token(token=token, authorization=authorization)
-        payload = await request.json()
-        try:
-            session = await GAME_ADMIN_SERVICE.control(
-                game_id,
-                str(payload.get("action") or ""),
-                phase=str(payload.get("phase") or "") or None,
-            )
-        except (InvalidSessionTransition, InvalidPhaseTransition, PersistenceConflict) as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        return JSONResponse(session)
 
     @server_app.put(f"{ROUTE_PREFIX}/api/persona")
     async def admin_console_save_persona(
