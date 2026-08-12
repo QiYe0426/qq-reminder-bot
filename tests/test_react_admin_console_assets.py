@@ -26,3 +26,5 @@ def test_admin_console_registers_game_management_routes() -> None:
     assert 'f"{ROUTE_PREFIX}/api/games"' in source
     assert 'f"{ROUTE_PREFIX}/api/games/{{game_id}}/control"' in source
     assert "check_token(token=token, authorization=authorization)" in source
+    assert "PersistenceConflict" in source
+    assert "status_code=409" in source
