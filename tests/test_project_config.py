@@ -49,6 +49,7 @@ def test_local_ocr_configuration_replaces_cloud_vision_configuration() -> None:
         "LOCAL_OCR_CONFIDENCE",
         "LOCAL_OCR_TIMEOUT_SECONDS",
         "LOCAL_OCR_MAX_IMAGE_BYTES",
+        "LOCAL_OCR_MAX_PIXELS",
         "LOCAL_OCR_CACHE_TTL_SECONDS",
         "LOCAL_OCR_CACHE_MAX_ENTRIES",
         "LOCAL_OCR_CONCURRENCY",

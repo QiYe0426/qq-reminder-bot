@@ -43,6 +43,7 @@ cp -a "$backup_dir/.venv" ~/qq-reminder-bot/.venv
 
 ```bash
 cd ~/qq-reminder-bot
+sudo apt-get install -y libgl1  # RapidOCR/OpenCV 本地图片文字识别运行库
 python3 -m venv .venv
 .venv/bin/pip install -U pip
 .venv/bin/pip install -e .
@@ -55,6 +56,7 @@ python3 -m venv .venv
 ```bash
 cd ~/qq-reminder-bot
 git pull --ff-only
+sudo apt-get install -y libgl1  # 首次启用本地 OCR 时执行
 .venv/bin/pip install -e .
 ```
 

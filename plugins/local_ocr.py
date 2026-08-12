@@ -2,14 +2,17 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import io
 import os
 import threading
 import time
 from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any
 
 from nonebot.log import logger
+from PIL import Image, UnidentifiedImageError
 
 from plugins.safe_http_fetch import fetch_public_url
 
@@ -18,6 +21,7 @@ LOCAL_OCR_ENABLED_ENV = "LOCAL_OCR_ENABLED"
 LOCAL_OCR_CONFIDENCE_ENV = "LOCAL_OCR_CONFIDENCE"
 LOCAL_OCR_TIMEOUT_SECONDS_ENV = "LOCAL_OCR_TIMEOUT_SECONDS"
 LOCAL_OCR_MAX_IMAGE_BYTES_ENV = "LOCAL_OCR_MAX_IMAGE_BYTES"
+LOCAL_OCR_MAX_PIXELS_ENV = "LOCAL_OCR_MAX_PIXELS"
 LOCAL_OCR_CACHE_TTL_SECONDS_ENV = "LOCAL_OCR_CACHE_TTL_SECONDS"
 LOCAL_OCR_CACHE_MAX_ENTRIES_ENV = "LOCAL_OCR_CACHE_MAX_ENTRIES"
 LOCAL_OCR_CONCURRENCY_ENV = "LOCAL_OCR_CONCURRENCY"
@@ -25,10 +29,13 @@ LOCAL_OCR_CONCURRENCY_ENV = "LOCAL_OCR_CONCURRENCY"
 DEFAULT_CONFIDENCE = 0.5
 DEFAULT_TIMEOUT_SECONDS = 15
 DEFAULT_MAX_IMAGE_BYTES = 5 * 1024 * 1024
+DEFAULT_MAX_PIXELS = 12_000_000
 DEFAULT_CACHE_TTL_SECONDS = 300
 DEFAULT_CACHE_MAX_ENTRIES = 128
 DEFAULT_CONCURRENCY = 1
 MAX_IMAGE_BYTES_LIMIT = 20 * 1024 * 1024
+MAX_IMAGE_DIMENSION = 8192
+SUPPORTED_IMAGE_FORMATS = frozenset({"BMP", "GIF", "JPEG", "PNG", "TIFF", "WEBP"})
 USER_AGENT = "HunterBot-LocalOCR/1.0"
 
 
@@ -50,6 +57,8 @@ _cache_lock = threading.Lock()
 _semaphore: asyncio.Semaphore | None = None
 _semaphore_loop: asyncio.AbstractEventLoop | None = None
 _semaphore_limit: int | None = None
+_executor: ThreadPoolExecutor | None = None
+_executor_limit: int | None = None
 
 
 def _bool_env(name: str, default: bool) -> bool:
@@ -95,6 +104,10 @@ def max_image_bytes() -> int:
     return _int_env(LOCAL_OCR_MAX_IMAGE_BYTES_ENV, DEFAULT_MAX_IMAGE_BYTES, 1, MAX_IMAGE_BYTES_LIMIT)
 
 
+def max_pixels() -> int:
+    return _int_env(LOCAL_OCR_MAX_PIXELS_ENV, DEFAULT_MAX_PIXELS, 1, 50_000_000)
+
+
 def cache_ttl_seconds() -> int:
     return _int_env(LOCAL_OCR_CACHE_TTL_SECONDS_ENV, DEFAULT_CACHE_TTL_SECONDS, 1, 3600)
 
@@ -133,13 +146,14 @@ def _get_engine() -> Any:
     return _engine
 
 
-def _point_coordinate(box: Any, index: int) -> float:
+def _box_bounds(box: Any) -> tuple[float, float, float, float]:
     try:
         values = list(box)
-        coordinates = [float(list(point)[index]) for point in values]
+        xs = [float(list(point)[0]) for point in values]
+        ys = [float(list(point)[1]) for point in values]
     except (TypeError, ValueError, IndexError):
-        return 0.0
-    return min(coordinates, default=0.0)
+        return 0.0, 0.0, 0.0, 0.0
+    return min(xs, default=0.0), min(ys, default=0.0), max(xs, default=0.0), max(ys, default=0.0)
 
 
 def _result_parts(result: Any) -> tuple[list[Any], list[Any], list[Any]]:
@@ -167,7 +181,7 @@ def _result_parts(result: Any) -> tuple[list[Any], list[Any], list[Any]]:
 
 def _normalize_result(result: Any) -> str:
     boxes, texts, scores = _result_parts(result)
-    lines: list[tuple[float, float, str]] = []
+    lines: list[tuple[float, float, float, str]] = []
     threshold = confidence_threshold()
     for box, raw_text, raw_score in zip(boxes, texts, scores):
         text = " ".join(str(raw_text or "").split()).strip()
@@ -176,17 +190,84 @@ def _normalize_result(result: Any) -> str:
         except (TypeError, ValueError):
             continue
         if text and score >= threshold:
-            lines.append((_point_coordinate(box, 1), _point_coordinate(box, 0), text))
-    lines.sort(key=lambda item: (item[0], item[1]))
-    return "\n".join(text for _, _, text in lines)
+            left, top, _right, bottom = _box_bounds(box)
+            lines.append((top, bottom, left, text))
+    lines.sort(key=lambda item: (item[0], item[2]))
+
+    rows: list[dict[str, Any]] = []
+    for top, bottom, left, text in lines:
+        height = max(bottom - top, 1.0)
+        center = (top + bottom) / 2
+        matching_row: dict[str, Any] | None = None
+        closest_distance = float("inf")
+        for row in rows:
+            row_top = float(row["top"])
+            row_bottom = float(row["bottom"])
+            row_height = max(row_bottom - row_top, 1.0)
+            row_center = (row_top + row_bottom) / 2
+            overlap = min(bottom, row_bottom) - max(top, row_top)
+            distance = abs(center - row_center)
+            if (overlap > 0 or distance <= max(height, row_height) * 0.5) and distance < closest_distance:
+                matching_row = row
+                closest_distance = distance
+        if matching_row is None:
+            rows.append({"top": top, "bottom": bottom, "items": [(left, text)]})
+            continue
+        matching_row["top"] = min(float(matching_row["top"]), top)
+        matching_row["bottom"] = max(float(matching_row["bottom"]), bottom)
+        matching_row["items"].append((left, text))
+
+    rows.sort(key=lambda row: float(row["top"]))
+    normalized_rows: list[str] = []
+    for row in rows:
+        items = sorted(row["items"], key=lambda item: item[0])
+        normalized_rows.append(" ".join(text for _, text in items))
+    return "\n".join(normalized_rows)
+
+
+def _validate_image_bytes(body: bytes) -> None:
+    try:
+        with Image.open(io.BytesIO(body)) as image:
+            image_format = str(image.format or "").upper()
+            width, height = image.size
+            frames = int(getattr(image, "n_frames", 1) or 1)
+            if image_format not in SUPPORTED_IMAGE_FORMATS:
+                raise LocalOCRError("unsupported local OCR image format")
+            if width <= 0 or height <= 0:
+                raise LocalOCRError("invalid image dimensions")
+            if width > MAX_IMAGE_DIMENSION or height > MAX_IMAGE_DIMENSION:
+                raise LocalOCRError("image dimensions exceed local OCR limit")
+            if width * height > max_pixels():
+                raise LocalOCRError("image pixel limit exceeded")
+            if frames != 1:
+                raise LocalOCRError("multi-frame images are not supported")
+            image.verify()
+    except LocalOCRError:
+        raise
+    except (UnidentifiedImageError, OSError, ValueError) as exc:
+        raise LocalOCRError("payload is not a valid image") from exc
 
 
 def _run_inference(body: bytes) -> str:
+    _validate_image_bytes(body)
     return _normalize_result(_get_engine()(body))
 
 
 async def _run_inference_async(body: bytes) -> str:
-    return await asyncio.to_thread(_run_inference, body)
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(_get_executor(), _run_inference, body)
+
+
+def _get_executor() -> ThreadPoolExecutor:
+    global _executor, _executor_limit
+    limit = concurrency_limit()
+    if _executor is None or _executor_limit != limit:
+        previous = _executor
+        _executor = ThreadPoolExecutor(max_workers=limit, thread_name_prefix="local-ocr")
+        _executor_limit = limit
+        if previous is not None:
+            previous.shutdown(wait=False, cancel_futures=True)
+    return _executor
 
 
 def _get_semaphore() -> asyncio.Semaphore:
@@ -267,10 +348,15 @@ async def extract_text_from_url(url: str) -> str:
 
 def reset_local_ocr_state_for_tests() -> None:
     global _engine, _engine_error, _semaphore, _semaphore_loop, _semaphore_limit
+    global _executor, _executor_limit
     _engine = None
     _engine_error = None
     _semaphore = None
     _semaphore_loop = None
     _semaphore_limit = None
+    if _executor is not None:
+        _executor.shutdown(wait=False, cancel_futures=True)
+    _executor = None
+    _executor_limit = None
     with _cache_lock:
         _cache.clear()

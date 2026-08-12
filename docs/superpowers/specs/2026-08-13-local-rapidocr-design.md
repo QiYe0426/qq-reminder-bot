@@ -51,7 +51,7 @@ Add local OCR settings for:
 - enabling or disabling OCR;
 - confidence threshold;
 - inference timeout;
-- maximum accepted image size;
+- maximum accepted compressed image size and decoded pixel count;
 - cache lifetime and cache-size bound.
 
 Defaults will be conservative for the production server. Existing cloud-vision environment variables will no longer be consulted by image recognition or keyword retort. Unrelated text-generation APIs remain unchanged.
