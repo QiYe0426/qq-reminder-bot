@@ -18,6 +18,8 @@ dependencies = [
     "netgraph>=4.13",
     "networkx>=3.0",
     "matplotlib>=3.8",
+    "rapidocr==3.9.2",
+    "onnxruntime==1.23.2",
 ]
 
 [project.optional-dependencies]
@@ -44,6 +46,7 @@ plugins = [
     "plugins.admin_console",
     "plugins.message_archive",
     "plugins.reminder",
+    "plugins.ai_balance",
     "plugins.ai_chat",
     "plugins.group_reactions",
     "plugins.message_collector",

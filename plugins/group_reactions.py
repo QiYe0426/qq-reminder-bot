@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import base64
 import json
 import os
@@ -25,6 +24,11 @@ from plugins.access_control import (
 )
 from plugins.ai_chat import ask_ai
 from plugins.companion_registry import DB_PATH as COMPANION_DB_PATH, init_companion_db
+from plugins.local_ocr import (
+    extract_text_from_url as extract_local_ocr_text,
+    local_ocr_enabled,
+    local_ocr_engine_name,
+)
 from plugins.message_archive import message_segments, render_plain_text
 from plugins.sensitive_logging import log_fingerprint
 
@@ -32,20 +36,6 @@ DEFAULT_RETORT_IMAGE_PATH = "data/assets/constant_retort_158.jpg"
 KEYWORD_RETORT_DB_PATH = Path("data/keyword_retorts.db")
 KEYWORD_RETORT_IMAGE_SCAN_ENABLED_ENV = "KEYWORD_RETORT_IMAGE_SCAN_ENABLED"
 KEYWORD_RETORT_IMAGE_SCAN_MAX_IMAGES_ENV = "KEYWORD_RETORT_IMAGE_SCAN_MAX_IMAGES"
-KEYWORD_RETORT_IMAGE_SCAN_MODEL_ENV = "KEYWORD_RETORT_IMAGE_SCAN_MODEL"
-KEYWORD_RETORT_IMAGE_SCAN_API_KEY_ENV = "KEYWORD_RETORT_IMAGE_SCAN_API_KEY"
-KEYWORD_RETORT_IMAGE_SCAN_BASE_URL_ENV = "KEYWORD_RETORT_IMAGE_SCAN_BASE_URL"
-KEYWORD_RETORT_IMAGE_SCAN_TIMEOUT_ENV = "KEYWORD_RETORT_IMAGE_SCAN_TIMEOUT_SECONDS"
-IMAGE_VISION_MODEL_ENV = "IMAGE_VISION_MODEL"
-IMAGE_VISION_API_KEY_ENV = "IMAGE_VISION_API_KEY"
-IMAGE_VISION_BASE_URL_ENV = "IMAGE_VISION_BASE_URL"
-IMAGE_VISION_TIMEOUT_SECONDS_ENV = "IMAGE_VISION_TIMEOUT_SECONDS"
-DEFAULT_IMAGE_VISION_MODEL = "qwen3-vl-flash"
-DEFAULT_IMAGE_SCAN_TIMEOUT_SECONDS = 12
-IMAGE_TEXT_SCAN_PROMPT = (
-    "Extract only the visible text in this image. Do not infer from the URL, file name, metadata, "
-    "message context, or image description. Return plain text only. If no text is visible, return EMPTY."
-)
 URL_PATTERN = re.compile(
     r"(?i)\b[a-z][a-z0-9+.-]{1,20}://[^\s<>'\"，。！？、；（）\[\]{}]+"
     r"|\bwww\.[^\s<>'\"，。！？、；（）\[\]{}]+"
@@ -199,31 +189,6 @@ def image_scan_max_images() -> int:
     return int_env(KEYWORD_RETORT_IMAGE_SCAN_MAX_IMAGES_ENV, 2, minimum=1, maximum=5)
 
 
-def image_scan_timeout_seconds() -> int:
-    return int_env(
-        KEYWORD_RETORT_IMAGE_SCAN_TIMEOUT_ENV,
-        min(int_env(IMAGE_VISION_TIMEOUT_SECONDS_ENV, DEFAULT_IMAGE_SCAN_TIMEOUT_SECONDS), DEFAULT_IMAGE_SCAN_TIMEOUT_SECONDS),
-        minimum=3,
-        maximum=30,
-    )
-
-
-def keyword_retort_image_model() -> str:
-    return (
-        os.getenv(KEYWORD_RETORT_IMAGE_SCAN_MODEL_ENV)
-        or os.getenv(IMAGE_VISION_MODEL_ENV)
-        or DEFAULT_IMAGE_VISION_MODEL
-    ).strip() or DEFAULT_IMAGE_VISION_MODEL
-
-
-def keyword_retort_image_api_key() -> str | None:
-    return os.getenv(KEYWORD_RETORT_IMAGE_SCAN_API_KEY_ENV) or os.getenv(IMAGE_VISION_API_KEY_ENV) or os.getenv("OPENAI_API_KEY")
-
-
-def keyword_retort_image_base_url() -> str | None:
-    return os.getenv(KEYWORD_RETORT_IMAGE_SCAN_BASE_URL_ENV) or os.getenv(IMAGE_VISION_BASE_URL_ENV) or os.getenv("OPENAI_BASE_URL")
-
-
 def image_urls_from_event(event: MessageEvent) -> list[str]:
     urls: list[str] = []
     for segment in message_segments(event):
@@ -241,37 +206,9 @@ def image_urls_from_event(event: MessageEvent) -> list[str]:
 
 
 async def extract_image_text(image_url: str) -> str:
-    api_key = keyword_retort_image_api_key()
-    if not api_key:
-        logger.info("Keyword retort image OCR skipped: missing image vision api key")
+    if not local_ocr_enabled():
         return ""
-
-    from openai import AsyncOpenAI
-
-    base_url = keyword_retort_image_base_url()
-    client = AsyncOpenAI(api_key=api_key, base_url=base_url) if base_url else AsyncOpenAI(api_key=api_key)
-    response = await asyncio.wait_for(
-        client.chat.completions.create(
-            model=keyword_retort_image_model(),
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": IMAGE_TEXT_SCAN_PROMPT,
-                        },
-                        {"type": "image_url", "image_url": {"url": image_url}},
-                    ],
-                }
-            ],
-            temperature=0,
-            max_tokens=256,
-        ),
-        timeout=image_scan_timeout_seconds(),
-    )
-    text = normalize_text(strip_urls(response.choices[0].message.content or ""))
-    return "" if text.upper() == "EMPTY" else text
+    return normalize_text(strip_urls(await extract_local_ocr_text(image_url)))
 
 
 async def keyword_retort_enabled(event: MessageEvent) -> bool:
@@ -589,7 +526,7 @@ async def keyword_retort_state(group_id: str) -> dict[str, object]:
         "rules": await list_keyword_retort_rules(group_id),
         "image_scan": {
             "enabled": keyword_retort_image_scan_enabled(),
-            "model": keyword_retort_image_model(),
+            "engine": local_ocr_engine_name(),
             "max_images": image_scan_max_images(),
         },
     }

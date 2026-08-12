@@ -40,3 +40,27 @@ def test_required_admin_console_assets_exist() -> None:
     assert (static_dir / "index.html").is_file()
     assert (static_dir / "app.js").is_file()
     assert (static_dir / "style.css").is_file()
+
+
+def test_local_ocr_configuration_replaces_cloud_vision_configuration() -> None:
+    env_example = (ROOT / ".env.example").read_text(encoding="utf-8")
+    for name in (
+        "LOCAL_OCR_ENABLED",
+        "LOCAL_OCR_CONFIDENCE",
+        "LOCAL_OCR_TIMEOUT_SECONDS",
+        "LOCAL_OCR_MAX_IMAGE_BYTES",
+        "LOCAL_OCR_MAX_PIXELS",
+        "LOCAL_OCR_CACHE_TTL_SECONDS",
+        "LOCAL_OCR_CACHE_MAX_ENTRIES",
+        "LOCAL_OCR_CONCURRENCY",
+    ):
+        assert f"{name}=" in env_example
+    for name in (
+        "IMAGE_VISION_MODEL",
+        "IMAGE_VISION_API_KEY",
+        "IMAGE_VISION_BASE_URL",
+        "KEYWORD_RETORT_IMAGE_SCAN_MODEL",
+        "KEYWORD_RETORT_IMAGE_SCAN_API_KEY",
+        "KEYWORD_RETORT_IMAGE_SCAN_BASE_URL",
+    ):
+        assert f"{name}=" not in env_example
