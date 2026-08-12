@@ -448,7 +448,7 @@ def test_balance_commands_and_plugin_are_registered_and_documented() -> None:
     assert "仅管理员私聊可用" in readme
 
 
-def test_discover_qwen_configs_uses_image_fallbacks() -> None:
+def test_discover_qwen_configs_ignores_legacy_image_profile() -> None:
     configs = discover_qwen_probe_configs(
         {
             "IMAGE_VISION_API_KEY": "image-key",
@@ -457,17 +457,10 @@ def test_discover_qwen_configs_uses_image_fallbacks() -> None:
         }
     )
 
-    assert configs == [
-        QwenProbeConfig(
-            modules=(QWEN_MODULE_IMAGE_VISION, QWEN_MODULE_KEYWORD_SCAN),
-            api_key="image-key",
-            base_url="https://dashscope.example/compatible-mode/v1",
-            model="qwen-vl-test",
-        )
-    ]
+    assert configs == []
 
 
-def test_discover_qwen_configs_falls_back_to_openai_compatible_settings() -> None:
+def test_discover_qwen_configs_does_not_treat_generic_openai_as_vision() -> None:
     configs = discover_qwen_probe_configs(
         {
             "OPENAI_API_KEY": "fallback-key",
@@ -475,14 +468,10 @@ def test_discover_qwen_configs_falls_back_to_openai_compatible_settings() -> Non
         }
     )
 
-    assert len(configs) == 1
-    assert configs[0].api_key == "fallback-key"
-    assert configs[0].base_url == "https://gateway.example/v1"
-    assert configs[0].model == "qwen3-vl-flash"
-    assert configs[0].modules == (QWEN_MODULE_IMAGE_VISION, QWEN_MODULE_KEYWORD_SCAN)
+    assert configs == []
 
 
-def test_discover_qwen_configs_keeps_distinct_keyword_profile() -> None:
+def test_discover_qwen_configs_ignores_all_legacy_cloud_vision_profiles() -> None:
     configs = discover_qwen_probe_configs(
         {
             "IMAGE_VISION_API_KEY": "image-key",
@@ -494,20 +483,7 @@ def test_discover_qwen_configs_keeps_distinct_keyword_profile() -> None:
         }
     )
 
-    assert configs == [
-        QwenProbeConfig(
-            modules=(QWEN_MODULE_IMAGE_VISION,),
-            api_key="image-key",
-            base_url="https://image.example/v1",
-            model="qwen-image",
-        ),
-        QwenProbeConfig(
-            modules=(QWEN_MODULE_KEYWORD_SCAN,),
-            api_key="keyword-key",
-            base_url="https://keyword.example/v1",
-            model="qwen-keyword",
-        ),
-    ]
+    assert configs == []
 
 
 def test_discover_qwen_configs_omits_unconfigured_profiles() -> None:
@@ -676,7 +652,7 @@ def test_format_qwen_status_includes_modules_model_and_probe_cost() -> None:
     )
 
     assert "Qwen / 阿里云百炼" in text
-    assert "负责模块：媒体图片识别、关键词回怼图片文字检测" in text
+    assert "负责模块：图片识别、关键词回怼图片文字识别" in text
     assert "模型：qwen3-vl-flash" in text
     assert "状态：可用" in text
     assert "最多生成 1 token" in text
@@ -764,7 +740,7 @@ def test_build_ai_api_status_report_formats_multiple_qwen_profiles() -> None:
     assert "second-secret" not in report
 
 
-def test_build_ai_api_status_report_marks_qwen_unconfigured() -> None:
+def test_build_ai_api_status_report_marks_local_ocr_enabled() -> None:
     async def deepseek_fetcher() -> dict[str, Any]:
         return VALID_PAYLOAD
 
@@ -775,13 +751,45 @@ def test_build_ai_api_status_report_marks_qwen_unconfigured() -> None:
         )
     )
 
-    assert "Qwen / 阿里云百炼" in report
-    assert "状态：未配置" in report
-    assert "未找到图片识别 API Key、服务地址或模型配置" in report
+    assert "RapidOCR（本地）" in report
+    assert "状态：已启用" in report
+    assert "无需 API Key 或余额" in report
 
 
-def test_readme_describes_qwen_probe_scope_and_cost() -> None:
+def test_readme_describes_local_ocr_scope_and_cost() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    assert "Qwen 在线状态" in readme
-    assert "最多生成 1 token" in readme
-    assert "不查询阿里云人民币余额" in readme
+    assert "本地 RapidOCR" in readme
+    assert "不需要 API Key" in readme
+    assert "不会产生模型调用费用" in readme
+
+
+def test_default_status_uses_local_ocr_without_qwen_probe() -> None:
+    async def deepseek_fetcher() -> dict[str, Any]:
+        return VALID_PAYLOAD
+
+    async def qwen_probe(_config: QwenProbeConfig) -> QwenProbeResult:
+        raise AssertionError("unused local OCR must not trigger a Qwen probe")
+
+    report = asyncio.run(
+        build_ai_api_status_report(
+            deepseek_fetcher=deepseek_fetcher,
+            qwen_configs=[],
+            qwen_probe=qwen_probe,
+        )
+    )
+
+    assert "RapidOCR（本地）" in report
+    assert "负责模块：图片识别、关键词回怼图片文字识别" in report
+    assert "无需 API Key 或余额" in report
+    assert "Qwen / 阿里云百炼" not in report
+
+
+def test_legacy_image_cloud_settings_are_not_discovered_for_qwen() -> None:
+    assert discover_qwen_probe_configs(
+        {
+            "IMAGE_VISION_API_KEY": "legacy-key",
+            "IMAGE_VISION_BASE_URL": "https://legacy.example/v1",
+            "IMAGE_VISION_MODEL": "qwen-vl-legacy",
+            "KEYWORD_RETORT_IMAGE_SCAN_API_KEY": "legacy-key",
+        }
+    ) == []

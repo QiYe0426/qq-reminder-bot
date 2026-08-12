@@ -13,14 +13,15 @@ from nonebot import on_fullmatch
 from nonebot.adapters.onebot.v11 import Event, Message, PrivateMessageEvent
 
 from plugins.access_control import admin_denial
+from plugins.local_ocr import local_ocr_enabled
 
 
 DEFAULT_DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 REQUEST_TIMEOUT_SECONDS = 10
 BALANCE_COMMANDS = ("查询 AI 余额", "查询余额", "AI余额")
 DEFAULT_QWEN_MODEL = "qwen3-vl-flash"
-QWEN_MODULE_IMAGE_VISION = "媒体图片识别"
-QWEN_MODULE_KEYWORD_SCAN = "关键词回怼图片文字检测"
+QWEN_MODULE_IMAGE_VISION = "图片识别"
+QWEN_MODULE_KEYWORD_SCAN = "关键词回怼图片文字识别"
 DEEPSEEK_MODULES = (
     "AI 对话、Agent 工具调度、联网决策、陪伴画像、"
     "日报总结（回退配置）"
@@ -65,59 +66,9 @@ def build_qwen_probe_url(base_url: str) -> str:
 def discover_qwen_probe_configs(
     environ: Mapping[str, str] = os.environ,
 ) -> list[QwenProbeConfig]:
-    image_key = environ.get("IMAGE_VISION_API_KEY") or environ.get("OPENAI_API_KEY") or ""
-    image_url = environ.get("IMAGE_VISION_BASE_URL") or environ.get("OPENAI_BASE_URL") or ""
-    image_model = environ.get("IMAGE_VISION_MODEL") or DEFAULT_QWEN_MODEL
-
-    keyword_key = (
-        environ.get("KEYWORD_RETORT_IMAGE_SCAN_API_KEY") or image_key
-    )
-    keyword_url = (
-        environ.get("KEYWORD_RETORT_IMAGE_SCAN_BASE_URL") or image_url
-    )
-    keyword_model = (
-        environ.get("KEYWORD_RETORT_IMAGE_SCAN_MODEL") or image_model
-    )
-
-    discovered: list[tuple[str, str, str, str]] = []
-    if image_key.strip() and image_url.strip() and image_model.strip():
-        discovered.append(
-            (QWEN_MODULE_IMAGE_VISION, image_key.strip(), image_url.strip(), image_model.strip())
-        )
-    if keyword_key.strip() and keyword_url.strip() and keyword_model.strip():
-        discovered.append(
-            (
-                QWEN_MODULE_KEYWORD_SCAN,
-                keyword_key.strip(),
-                keyword_url.strip(),
-                keyword_model.strip(),
-            )
-        )
-
-    configs: list[QwenProbeConfig] = []
-    positions: dict[tuple[str, str, str], int] = {}
-    for module, api_key, base_url, model in discovered:
-        identity = (api_key, base_url.rstrip("/"), model)
-        existing_position = positions.get(identity)
-        if existing_position is None:
-            positions[identity] = len(configs)
-            configs.append(
-                QwenProbeConfig(
-                    modules=(module,),
-                    api_key=api_key,
-                    base_url=base_url,
-                    model=model,
-                )
-            )
-            continue
-        existing = configs[existing_position]
-        configs[existing_position] = QwenProbeConfig(
-            modules=(*existing.modules, module),
-            api_key=existing.api_key,
-            base_url=existing.base_url,
-            model=existing.model,
-        )
-    return configs
+    # Image features are local-only. Legacy cloud-vision variables must never
+    # cause a paid probe or imply that Qwen still owns either image module.
+    return []
 
 
 def _qwen_error_code(payload: object) -> str:
@@ -238,13 +189,14 @@ def _format_deepseek_failure(detail: str) -> str:
     )
 
 
-def _format_qwen_unconfigured() -> str:
+def _format_local_ocr_status() -> str:
     return "\n".join(
         (
-            "Qwen / 阿里云百炼",
+            "RapidOCR（本地）",
             f"负责模块：{QWEN_MODULE_IMAGE_VISION}、{QWEN_MODULE_KEYWORD_SCAN}",
-            "状态：未配置",
-            "说明：未找到图片识别 API Key、服务地址或模型配置",
+            f"状态：{'已启用' if local_ocr_enabled() else '已关闭'}",
+            "引擎：RapidOCR/ONNXRuntime CPU",
+            "说明：离线识别中英文文字，无需 API Key 或余额",
         )
     )
 
@@ -280,8 +232,7 @@ async def build_ai_api_status_report(
         except DeepSeekBalanceError as exc:
             sections = [_format_deepseek_failure(str(exc))]
 
-    if not effective_configs:
-        sections.append(_format_qwen_unconfigured())
+    sections.append(_format_local_ocr_status())
     for config, result in zip(effective_configs, results[1:]):
         if isinstance(result, BaseException):
             logger.warning(

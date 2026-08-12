@@ -127,7 +127,7 @@ canonical `ToolResult.data` schema，并增加 fail-closed drift guard。Invento
 
 ### AI 对话、人设和知识库
 
-- `查询 AI 余额` / `查询余额` / `AI余额`：查询 DeepSeek 余额与负责模块，并主动探测 Qwen 在线状态、欠费、鉴权和限流情况；仅管理员私聊可用，群聊中静默忽略。Qwen 探测最多生成 1 token，会产生极低调用费用，不查询阿里云人民币余额。
+- `查询 AI 余额` / `查询余额` / `AI余额`：查询 DeepSeek 余额与负责模块，并显示本地 RapidOCR 负责的图片识别模块及启用状态；仅管理员私聊可用，群聊中静默忽略。本地 OCR 不需要 API Key，也不会产生模型调用费用。
 - 群聊 `@bot 问题`：触发 AI 对话。
 - 群聊 `猎宝，问题`：触发 AI 对话。
 - 私聊 `猎宝，问题` / `猎宝 问题`：触发 AI 对话。
@@ -232,7 +232,7 @@ AI 对话会先判断当前问题是否需要联网搜索：像最新消息、�
 - `Bot 人设`：编辑 bot 人设，保存后写入 `data/bot_persona_prompt.txt`，后续 AI 回复实时读取。
 - `知识库`：现在只维护 `STS2`（杀戮尖塔 2）知识。事实资料按 `card`、`character`、`relic`、`potion`、`enemy`、`elite`、`boss`、`event`、`mechanic`、`keyword`、`power`、`enchantment` 分类；`guide` 只放自建攻略库内容，避免把作者建议和官方/数据事实混在一起。
 - `群管理`：显示 `AI 对话`、`消息采集`、`日报`、`智能陪伴` 和 `🎒常数报时`。`消息采集` 是基础数据层；`日报` 和 `智能陪伴` 需要先开启消息采集。`日报` 卡片下方有 `自动发送日报` 开关，只有开启 `日报` 后才能操作，用于控制该群是否参加定时自动发送。
-- `关键词回怼`：群管理页可单独开启，管理员可增删关键词、为每个关键词维护多条文字或图片回复；同一关键词命中后会从该回复库随机选择一条发送。每条关键词独立计数，但使用同一组群内每分钟、每小时、每天上限。图片命中只走 `KEYWORD_RETORT_IMAGE_SCAN_*` 配置的 Qwen 视觉模型提取可见文字，再用 OCR 文本匹配关键词；链接地址、URL、文件名都不作为关键词来源。
+- `关键词回怼`：群管理页可单独开启，管理员可增删关键词、为每个关键词维护多条文字或图片回复；同一关键词命中后会从该回复库随机选择一条发送。每条关键词独立计数，但使用同一组群内每分钟、每小时、每天上限。图片命中使用本地 RapidOCR 提取可见的中英文文字，再用 OCR 文本匹配关键词；链接地址、URL、文件名都不作为关键词来源。
 - `智能陪伴附加功能`：某群开启 `智能陪伴` 后，会出现 `调戏其他bot` 开关，并可配置每分钟、每小时、每天触发上限。限制输入框下方会显示当前已使用次数：本分钟、每小时、每天三列和上方输入框居中对齐。
 - `群画像`：某群开启 `智能陪伴` 后，可编辑群性质和回复参考，默认不超过 100 字，字数上限可在控制台调整。
 - `群列表头像`：控制台会按群号读取 QQ 群头像，并临时缓存到服务器 `data/admin_console/group_avatars/`，默认 7 天刷新一次；头像拉取失败时只影响头像显示，不影响群管理。
@@ -357,18 +357,18 @@ STS2_GUIDE_TEX_PATHS=
 CONSTANT_RETORT_IMAGE_PATH=data/assets/constant_retort_158.jpg
 KEYWORD_RETORT_IMAGE_SCAN_ENABLED=1
 KEYWORD_RETORT_IMAGE_SCAN_MAX_IMAGES=2
-KEYWORD_RETORT_IMAGE_SCAN_MODEL=qwen3-vl-flash
-KEYWORD_RETORT_IMAGE_SCAN_API_KEY=
-KEYWORD_RETORT_IMAGE_SCAN_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-KEYWORD_RETORT_IMAGE_SCAN_TIMEOUT_SECONDS=12
+
+# 图片识别与关键词回怼共用的本地离线 OCR；不需要账号或 API Key。
+LOCAL_OCR_ENABLED=1
+LOCAL_OCR_CONFIDENCE=0.5
+LOCAL_OCR_TIMEOUT_SECONDS=15
+LOCAL_OCR_MAX_IMAGE_BYTES=5242880
+LOCAL_OCR_CACHE_TTL_SECONDS=300
+LOCAL_OCR_CACHE_MAX_ENTRIES=128
+LOCAL_OCR_CONCURRENCY=1
 MEDIA_INSIGHTS_ENABLED=0
 MEDIA_INSIGHTS_AUTO_ENABLED=1
 MEDIA_INSIGHTS_BATCH_SIZE=30
-IMAGE_VISION_ENABLED=0
-IMAGE_VISION_MODEL=qwen3-vl-flash
-IMAGE_VISION_API_KEY=
-IMAGE_VISION_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-IMAGE_VISION_TIMEOUT_SECONDS=45
 LINK_FETCH_TIMEOUT_SECONDS=15
 LINK_FETCH_MAX_BYTES=1048576
 VOICE_TRANSCRIBE_ENABLED=0
