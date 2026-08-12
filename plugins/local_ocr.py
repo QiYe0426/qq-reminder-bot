@@ -324,7 +324,10 @@ async def extract_text_from_bytes(body: bytes) -> str:
         return cached
 
     semaphore = _get_semaphore()
-    await semaphore.acquire()
+    try:
+        await asyncio.wait_for(semaphore.acquire(), timeout=timeout_seconds())
+    except asyncio.TimeoutError as exc:
+        raise LocalOCRError("local OCR admission timeout") from exc
     inference_task: asyncio.Task[str] | None = None
     defer_release = False
     try:

@@ -194,7 +194,7 @@ def test_timed_out_inference_cannot_exceed_worker_limit(monkeypatch) -> None:
     assert max_active == 1
 
 
-def test_timed_out_inference_keeps_later_images_out_of_executor_queue(monkeypatch) -> None:
+def test_timed_out_inference_rejects_later_images_before_executor_queue(monkeypatch) -> None:
     from plugins import local_ocr
 
     monkeypatch.setenv("LOCAL_OCR_ENABLED", "1")
@@ -231,8 +231,8 @@ def test_timed_out_inference_keeps_later_images_out_of_executor_queue(monkeypatc
         assert submitted == 1
         release.set()
         results = await asyncio.gather(*tasks, return_exceptions=True)
-        assert isinstance(results[0], local_ocr.LocalOCRError)
-        assert results[1:] == ["finished", "finished"]
+        assert all(isinstance(result, local_ocr.LocalOCRError) for result in results)
+        assert all("timeout" in str(result) for result in results)
 
     asyncio.run(run_three())
 
