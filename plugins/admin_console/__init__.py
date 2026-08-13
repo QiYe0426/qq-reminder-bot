@@ -464,6 +464,27 @@ async def live_group_member_detail(group_id: str, user_id: str) -> dict[str, obj
     return normalize_member_payload(group_id, payload) if isinstance(payload, dict) else None
 
 
+async def live_groups() -> list[dict[str, str]]:
+    """Return every group currently reported by the connected OneBot account."""
+    try:
+        bot = get_bot()
+        payload = await bot.call_api("get_group_list", no_cache=False)
+    except Exception:
+        return []
+    groups: list[dict[str, str]] = []
+    for item in group_rows_from_payload(payload):
+        group_id = str(item.get("group_id") or "").strip()
+        if not group_id:
+            continue
+        groups.append(
+            {
+                "group_id": group_id,
+                "group_name": group_name_from_payload(item),
+            }
+        )
+    return groups
+
+
 async def resolve_group_names(group_ids: list[str]) -> dict[str, str]:
     resolved: dict[str, str] = {}
     if not group_ids:
@@ -537,8 +558,21 @@ async def list_groups() -> list[dict[str, object]]:
     archived = {str(item.get("group_id")): item for item in await archived_groups() if item.get("group_id")}
     for group_id in await configured_group_ids():
         archived.setdefault(group_id, {"group_id": group_id, "message_count": 0, "last_message_at": ""})
+    live_names: dict[str, str] = {}
+    for item in await live_groups():
+        group_id = str(item.get("group_id") or "").strip()
+        if not group_id:
+            continue
+        archived.setdefault(
+            group_id,
+            {"group_id": group_id, "message_count": 0, "last_message_at": ""},
+        )
+        group_name = str(item.get("group_name") or "").strip()
+        if group_name:
+            live_names[group_id] = group_name
     group_ids = [str(item.get("group_id") or "").strip() for item in archived.values() if str(item.get("group_id") or "").strip()]
-    live_names = await resolve_group_names(group_ids)
+    missing_names = [group_id for group_id in group_ids if group_id not in live_names]
+    live_names.update(await resolve_group_names(missing_names))
     groups = list(archived.values())
     groups.sort(key=lambda item: (str(item.get("last_message_at") or ""), str(item.get("group_id") or "")), reverse=True)
     result: list[dict[str, object]] = []
