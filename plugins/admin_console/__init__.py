@@ -64,6 +64,12 @@ from plugins.agent_tool_access import (
     save_group_agent_tool_state,
 )
 from plugins.admin_game_service import AdminGameService
+from plugins.agent_runtime import (
+    get_run as get_agent_run,
+    init_runtime_db,
+    list_runs as list_agent_runs,
+    runtime_stats as agent_runtime_stats,
+)
 from plugins.chime_service import (
     CHIME_MODE_HOURLY,
     get_chime_state as get_target_chime_state,
@@ -278,6 +284,7 @@ async def ensure_console_databases() -> None:
     await init_companion_memory_db()
     await init_chime_db()
     await init_keyword_retort_db()
+    await init_runtime_db()
 
 
 def group_label(row: aiosqlite.Row | dict[str, object]) -> str:
@@ -1223,6 +1230,37 @@ if (
     ) -> JSONResponse:
         check_token(token=token, authorization=authorization)
         return JSONResponse({"sessions": await GAME_ADMIN_SERVICE.list_sessions()})
+    @server_app.get(f"{ROUTE_PREFIX}/api/runs")
+    async def admin_console_runs(
+        limit: int = Query(default=50, ge=1, le=200),
+        chat_key: str | None = Query(default=None),
+        status: str | None = Query(default=None),
+        before: int | None = Query(default=None),
+        token: str | None = Query(default=None),
+        authorization: str | None = Header(default=None),
+    ) -> JSONResponse:
+        """run trace 列表：控制台「会话」页用。只读。"""
+        check_token(token=token, authorization=authorization)
+        runs = await list_agent_runs(
+            chat_key=chat_key or None,
+            status=status or None,
+            limit=limit,
+            before=before,
+        )
+        return JSONResponse({"runs": runs, "stats": await agent_runtime_stats()})
+
+    @server_app.get(f"{ROUTE_PREFIX}/api/runs/{{run_id}}")
+    async def admin_console_run_detail(
+        run_id: str,
+        token: str | None = Query(default=None),
+        authorization: str | None = Header(default=None),
+    ) -> JSONResponse:
+        """单次 run 的完整 trace：系统提示 / 输入 / 思考 / 工具调用 / 发送 / 用量。"""
+        check_token(token=token, authorization=authorization)
+        run = await get_agent_run(run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="run not found")
+        return JSONResponse(run)
 
     @server_app.put(f"{ROUTE_PREFIX}/api/persona")
     async def admin_console_save_persona(

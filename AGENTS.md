@@ -112,6 +112,7 @@ NapCat (QQ) ←→ OneBot v11 WebSocket → NoneBot → plugins/*
 - **AI agent 流程**：`ai_chat.py` 把用户消息路由给 tool-calling agent。工具在 `agent_tools/registry.py` 注册，每个工具带分类、功能依赖、是否需要管理员权限等元信息。
 - **工具注册**：见 `plugins/agent_tools/__init__.py`，它负责导入各工具族并调用 `register_tools()` 注册。每个工具有名称、OpenAI 格式的 definition、handler、`requires_feature`（需要某个群功能开启）和 `requires_admin` 标记。
 - **消息流水线**：`message_archive.py` 写入原始消息 → `message_collector.py` / `media_insights.py` 从归档消费 → `daily_report.py` 和 `semantic_graph.py` 读取采集数据。
+- **Agent run trace**：`plugins/agent_runtime/` 为每次 AI 对话生成一条 run 记录（系统提示、本次输入、思考、工具调用与耗时、实际发送、token 用量），写入独立的 `data/agent_runs.db`；控制台通过 `GET /api/runs`、`GET /api/runs/{run_id}` 只读查询。该层只观测、不改变行为：记录器内部吞掉所有异常，`AGENT_RUN_TRACE_ENABLED=0` 可整体关闭。
 - **猎宝控制台**：内建 Web UI，地址 `/hunterbot/admin-console`。需要配置 `COMPANION_ADMIN_TOKEN`。由 `plugins/admin_console/` 插件提供，随 bot 进程启动（不需要单独部署前端）。服务器上通过 Nginx 反代提供 HTTPS。
 
 ## 核心插件与数据流
@@ -119,6 +120,7 @@ NapCat (QQ) ←→ OneBot v11 WebSocket → NoneBot → plugins/*
 | 文件 | 职责 |
 |---|---|
 | `plugins/ai_chat.py` | AI agent 调度 —— 判断用户问题是否需要调用工具，调用 agent |
+| `plugins/agent_runtime/` | run trace：`store.py`（`data/agent_runs.db` 表结构与查询）、`recorder.py`（记录器，永不抛异常） |
 | `plugins/agent_tools/registry.py` | 注册/执行所有 AI 可调用的工具 |
 | `plugins/agent_tool_access.py` | 按管理员身份、群功能和控制台配置过滤 Agent 工具 |
 | `plugins/access_control.py` | 分群功能开关、管理员身份校验 |
@@ -146,6 +148,7 @@ NapCat (QQ) ←→ OneBot v11 WebSocket → NoneBot → plugins/*
 |---|---|
 | `plugins/` | NoneBot 插件及可复用业务服务 |
 | `plugins/agent_tools/` | Agent 工具定义、注册和执行 |
+| `plugins/agent_runtime/` | run trace 存储与记录器（独立 SQLite，只读观测） |
 | `plugins/admin_console/` | 控制台后端、静态前端和局部设计规范 |
 | `tests/` | pytest 单元及集成边界测试 |
 | `config/` | 可提交的默认配置资源，如初始 Bot 人设 |

@@ -33,7 +33,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 py-modules = ["bot"]
-packages = ["plugins", "plugins.admin_console", "plugins.agent_tools"]
+packages = ["plugins", "plugins.admin_console", "plugins.agent_tools", "plugins.agent_runtime"]
 
 [tool.setuptools.package-data]
 "plugins.admin_console" = ["static/*.html", "static/*.css", "static/*.js"]
