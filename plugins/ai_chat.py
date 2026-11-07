@@ -43,6 +43,7 @@ from plugins.agent_tools.contracts import (
 )
 from plugins.agent_tools.confirmation import confirm_pending_confirmation
 from plugins.agent_tool_access import filter_allowed_agent_tool_definitions, is_agent_tool_allowed
+from plugins.agent_runtime import RunRecorder, chat_key_for, start_run
 from plugins.chime_service import (
     get_chime_state,
 )
@@ -2284,14 +2285,69 @@ async def try_direct_reminder_reply(question: str, event: MessageEvent, bot: Bot
 
 
 async def ask_ai_with_agent(question: str, *, extra_context: str = "", event: MessageEvent) -> str:
+    """AI 对话入口。
+
+    外层只做 run trace（观测），内层 ``_run_agent_loop`` 保持原有行为不变。
+    记录器内部的异常全部被吞掉，追踪层不可能影响对话结果。
+    """
+    recorder = await _start_run_recorder(event=event, question=question)
+    try:
+        answer = await _run_agent_loop(
+            question,
+            extra_context=extra_context,
+            event=event,
+            recorder=recorder,
+        )
+    except Exception as exc:
+        await recorder.finish(status="error", error=repr(exc))
+        raise
+    if recorder.sent_count == 0:
+        await recorder.record_sent(answer, meta={"source": "caller"})
+    await recorder.finish(status="ok", finish_reason="answered")
+    return answer
+
+
+async def _start_run_recorder(*, event: MessageEvent, question: str) -> RunRecorder:
+    if isinstance(event, GroupMessageEvent):
+        kind = "group"
+        target_id = str(event.group_id)
+        group_id: str | None = str(event.group_id)
+    else:
+        kind = "private"
+        target_id = str(event.user_id)
+        group_id = None
+    return await start_run(
+        chat_key=chat_key_for(kind, target_id),
+        group_id=group_id,
+        kind=kind,
+        engine="legacy",
+        trigger_summary=question,
+        trigger={
+            "user_id": str(event.user_id),
+            "message_id": str(getattr(event, "message_id", "") or ""),
+            "raw": question,
+        },
+        model=agent_model_name(),
+    )
+
+
+async def _run_agent_loop(
+    question: str,
+    *,
+    extra_context: str = "",
+    event: MessageEvent,
+    recorder: RunRecorder,
+) -> str:
     max_reply_length = get_int_env("AI_MAX_REPLY_LENGTH", DEFAULT_MAX_REPLY_LENGTH)
     max_tool_calls = get_int_env("AI_AGENT_MAX_TOOL_CALLS", DEFAULT_AGENT_MAX_TOOL_CALLS)
     timeout_seconds = get_int_env("AI_AGENT_TIMEOUT_SECONDS", DEFAULT_AGENT_TIMEOUT_SECONDS)
 
+    system_prompt = await build_agent_system_prompt(extra_context)
     messages: list[dict[str, object]] = [
-        {"role": "system", "content": await build_agent_system_prompt(extra_context)},
+        {"role": "system", "content": system_prompt},
         {"role": "user", "content": question},
     ]
+    await recorder.set_prompts(system_prompt=system_prompt, user_prompt=question, model=agent_model_name())
     tool_context = current_tool_context(event)
     available_tools = await filter_allowed_agent_tool_definitions(AGENT_TOOLS, tool_context)
 
@@ -2308,10 +2364,13 @@ async def ask_ai_with_agent(question: str, *, extra_context: str = "", event: Me
         message = response.choices[0].message
         tool_calls = getattr(message, "tool_calls", None) or []
         content = getattr(message, "content", None) or ""
+        await recorder.record_llm_turn(usage=getattr(response, "usage", None), content=content)
 
         if not tool_calls:
             if content.strip():
-                return shorten_text(content.strip(), max_reply_length)
+                final_answer = shorten_text(content.strip(), max_reply_length)
+                await recorder.record_sent(final_answer, meta={"via": "content"})
+                return final_answer
             break
 
         messages.append(
@@ -2338,6 +2397,12 @@ async def ask_ai_with_agent(question: str, *, extra_context: str = "", event: Me
 
             if tool_result is not None:
                 logger.info(f"AI agent tool call {tool_call_count}/{max_tool_calls}: {name} invalid arguments")
+                await recorder.record_tool(
+                    tool_name=name,
+                    args=args,
+                    result=tool_result,
+                    ok=False,
+                )
                 messages.append(
                     {
                         "role": "tool",
@@ -2393,9 +2458,25 @@ async def ask_ai_with_agent(question: str, *, extra_context: str = "", event: Me
                         "source_count": len(sources) if isinstance(sources, list) else 0,
                     },
                 )
-                return shorten_text(message_text + format_sources_for_reply(args.get("sources")), max_reply_length)
+                final_answer = shorten_text(message_text + format_sources_for_reply(args.get("sources")), max_reply_length)
+                await recorder.record_sent(
+                    final_answer,
+                    meta={
+                        "via": "respond",
+                        "source_count": len(sources) if isinstance(sources, list) else 0,
+                    },
+                )
+                return final_answer
 
+            tool_started_at = time.monotonic()
             tool_result = await run_agent_tool(name, args, call_context)
+            await recorder.record_tool(
+                tool_name=name,
+                args=args,
+                result=tool_result,
+                ok=not (isinstance(tool_result, dict) and tool_result.get("error")),
+                duration_ms=int((time.monotonic() - tool_started_at) * 1000),
+            )
             if not has_agent_tool(name):
                 tool_result = normalize_tool_result(tool_result)
             if tool_result.get("error") == "confirmation_required":
