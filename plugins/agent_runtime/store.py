@@ -127,7 +127,10 @@ async def init_runtime_db(path: Path | None = None) -> None:
     key = str(db_path)
     if key in _initialized_paths:
         return
-    db_path.parent.mkdir(parents=True, exist_ok=True)
+    # trace 里含 prompt 与用户原文，按项目约定在 POSIX 上收紧权限（0700/0600）。
+    from plugins.agent_tools.sensitive_storage import prepare_sensitive_sqlite_path
+
+    prepare_sensitive_sqlite_path(db_path)
     async with aiosqlite.connect(db_path) as db:
         await db.execute(_CREATE_RUNS_SQL)
         await db.execute(_CREATE_STEPS_SQL)
