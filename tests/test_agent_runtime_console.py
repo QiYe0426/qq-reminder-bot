@@ -26,6 +26,14 @@ def test_qqa_static_assets_exist() -> None:
     for name in ("index.html", "app.js", "extra.css", "style.css"):
         assert (qqa_dir / name).is_file(), f"缺少前端资源 {name}"
 
+    page = (qqa_dir / "index.html").read_text(encoding="utf-8")
+    for tab in ("会话", "存档", "群管理", "画像", "知识库", "用量", "设置", "连接"):
+        assert tab in page, f"页面缺少页签 {tab}"
+
+    script = (qqa_dir / "app.js").read_text(encoding="utf-8")
+    for endpoint in ("/api/groups", "/api/knowledge", "companions", "/archive"):
+        assert endpoint in script, f"前端没有接上旧接口 {endpoint}"
+
 
 def test_qqa_overview_shape() -> None:
     from plugins import admin_console

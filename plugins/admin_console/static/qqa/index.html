@@ -39,6 +39,10 @@
 
   <nav id="tabs">
     <button class="tab active" data-tab="runs">会话</button>
+    <button class="tab" data-tab="archive">存档</button>
+    <button class="tab" data-tab="groups">群管理</button>
+    <button class="tab" data-tab="memory">画像</button>
+    <button class="tab" data-tab="knowledge">知识库</button>
     <button class="tab" data-tab="usage">用量</button>
     <button class="tab" data-tab="settings">设置</button>
     <button class="tab" data-tab="connection">连接</button>
@@ -52,6 +56,40 @@
       </aside>
       <div id="run-detail" class="detail-pane">
         <div class="empty-hint">← 选择左侧会话查看完整过程</div>
+      </div>
+    </section>
+
+    <section id="view-archive" class="view">
+      <aside id="archive-list" class="list-pane">
+        <div class="list-head muted">消息存档</div>
+        <div id="archive-items"></div>
+      </aside>
+      <div id="archive-detail" class="detail-pane">
+        <div class="empty-hint">← 选择左侧群查看消息存档</div>
+      </div>
+    </section>
+
+    <section id="view-groups" class="view">
+      <div id="groups-page" class="usage-pane"></div>
+    </section>
+
+    <section id="view-memory" class="view">
+      <aside id="member-list" class="list-pane">
+        <div class="list-head muted">群友画像</div>
+        <div id="member-items"></div>
+      </aside>
+      <div id="member-detail" class="detail-pane">
+        <div class="empty-hint">← 选择左侧群友查看画像</div>
+      </div>
+    </section>
+
+    <section id="view-knowledge" class="view">
+      <aside id="knowledge-list" class="list-pane">
+        <div class="list-head muted">知识库</div>
+        <div id="knowledge-items"></div>
+      </aside>
+      <div id="knowledge-detail" class="detail-pane">
+        <div class="empty-hint">← 选择左侧条目查看/编辑</div>
       </div>
     </section>
 
