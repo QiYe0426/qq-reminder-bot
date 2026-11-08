@@ -133,22 +133,49 @@ class RunRecorder:
 
     # ── 步骤 ────────────────────────────────────────────────────
 
-    async def record_llm_turn(self, *, usage: Any = None, content: str | None = None) -> None:
-        """记录一次模型调用：累计 token，内容非空时写一条「思考」步骤。"""
+    async def record_llm_turn(
+        self,
+        *,
+        usage: Any = None,
+        content: str | None = None,
+        reasoning: str | None = None,
+        meta: dict[str, Any] | None = None,
+    ) -> None:
+        """记录一次模型调用：累计 token，并分别落「推理」与「输出」两类步骤。
+
+        - ``reasoning``：模型的思维链（reasoning_content），只展示不发送；
+        - ``content``：模型本轮文本输出（可能是中间文本或计划 JSON）。
+        """
         self._llm_turns += 1
+        reasoning_tokens = 0
         if usage is not None:
             self._prompt_tokens += _usage_value(usage, "prompt_tokens")
             self._completion_tokens += _usage_value(usage, "completion_tokens")
             self._cached_tokens += _usage_cached(usage)
+            reasoning_tokens = _usage_reasoning(usage)
         if not self._usable():
             return
         try:
+            if reasoning_tokens:
+                await store.append_step(
+                    self.run_id,
+                    kind="reasoning",
+                    result="",
+                    meta={"llm_turn": self._llm_turns, "reasoning_tokens": reasoning_tokens},
+                )
+            if reasoning and reasoning.strip():
+                await store.append_step(
+                    self.run_id,
+                    kind="reasoning",
+                    result=reasoning,
+                    meta={"llm_turn": self._llm_turns},
+                )
             if content and content.strip():
                 await store.append_step(
                     self.run_id,
                     kind="think",
                     result=content,
-                    meta={"llm_turn": self._llm_turns},
+                    meta={"llm_turn": self._llm_turns, **(meta or {})},
                 )
             await store.update_run(
                 self.run_id,
@@ -261,6 +288,21 @@ def _usage_value(usage: Any, name: str) -> int:
         value = getattr(usage, name, None)
         if value is None and isinstance(usage, dict):
             value = usage.get(name)
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _usage_reasoning(usage: Any) -> int:
+    try:
+        details = getattr(usage, "completion_tokens_details", None)
+        if details is None and isinstance(usage, dict):
+            details = usage.get("completion_tokens_details")
+        if details is None:
+            return 0
+        value = getattr(details, "reasoning_tokens", None)
+        if value is None and isinstance(details, dict):
+            value = details.get("reasoning_tokens")
         return int(value or 0)
     except (TypeError, ValueError):
         return 0

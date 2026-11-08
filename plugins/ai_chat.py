@@ -2373,7 +2373,11 @@ async def _run_agent_loop(
         message = response.choices[0].message
         tool_calls = getattr(message, "tool_calls", None) or []
         content = getattr(message, "content", None) or ""
-        await recorder.record_llm_turn(usage=getattr(response, "usage", None), content=content)
+        await recorder.record_llm_turn(
+            usage=getattr(response, "usage", None),
+            content=content,
+            reasoning=getattr(message, "reasoning_content", None),
+        )
 
         if not tool_calls:
             if content.strip():

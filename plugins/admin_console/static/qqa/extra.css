@@ -118,3 +118,7 @@
 .tier-note.ok { color: var(--ok); }
 .tier-note.warn { color: var(--warn); }
 .tree-node { margin: 1px 0; }
+
+/* 思维链卡片 */
+.reasoning-flow summary { color: var(--tx3); }
+.reasoning-body { color: var(--tx2); font-style: italic; white-space: pre-wrap; }

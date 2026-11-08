@@ -23,13 +23,14 @@ def isolate_runtime_db(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("AI_V3_GROUP_IDS", "")
 
 
-def _response(content: str, prompt_tokens: int = 10, completion_tokens: int = 5):
+def _response(content: str, prompt_tokens: int = 10, completion_tokens: int = 5, reasoning: str = ""):
     return SimpleNamespace(
-        choices=[SimpleNamespace(message=SimpleNamespace(content=content))],
+        choices=[SimpleNamespace(message=SimpleNamespace(content=content, reasoning_content=reasoning))],
         usage=SimpleNamespace(
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             prompt_tokens_details=None,
+            completion_tokens_details=None,
         ),
     )
 
@@ -120,6 +121,32 @@ def test_answer_v3_retrieval_then_second_call(monkeypatch) -> None:
     kinds = [step["kind"] for step in detail["steps"]]
     assert "retrieval" in kinds
     assert "sent" in kinds
+
+
+def test_answer_v3_records_reasoning_separately(monkeypatch) -> None:
+    async def fake_persona() -> str:
+        return ""
+
+    async def fake_chat(messages, temperature=None):
+        return _response(
+            '{"reply": "在的", "need": "none", "queries": []}',
+            reasoning="用户只是打招呼，回一句就行。",
+        )
+
+    monkeypatch.setattr(chat_module, "_persona", fake_persona)
+    monkeypatch.setattr(chat_module, "_chat", fake_chat)
+
+    answer = asyncio.run(chat_module.answer_v3("在吗", event=_event()))
+
+    assert answer == "在的"
+    runs = asyncio.run(store.list_runs())
+    detail = asyncio.run(store.get_run(runs[0]["run_id"]))
+    kinds = [step["kind"] for step in detail["steps"]]
+    assert "reasoning" in kinds
+    reasoning_step = next(step for step in detail["steps"] if step["kind"] == "reasoning")
+    assert "打招呼" in reasoning_step["result"]
+    sent_step = next(step for step in detail["steps"] if step["kind"] == "sent")
+    assert sent_step["result"] == "在的"
 
 
 def test_answer_v3_marks_error(monkeypatch) -> None:

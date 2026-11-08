@@ -168,6 +168,23 @@ def test_runtime_stats() -> None:
     asyncio.run(scenario())
 
 
+def test_recorder_keeps_reasoning_and_content_apart() -> None:
+    async def scenario() -> None:
+        recorder = await recorder_module.start_run(chat_key="group_1", engine="v3", route="R1")
+        await recorder.record_llm_turn(
+            usage={"prompt_tokens": 5, "completion_tokens": 3},
+            content="",
+            reasoning="先判断用户在打招呼。",
+        )
+        await recorder.record_llm_turn(usage=None, content="你好呀", meta={"plan": True})
+        await recorder.finish(status="ok")
+        detail = await store.get_run(recorder.run_id)
+        assert detail is not None
+        assert [step["kind"] for step in detail["steps"]] == ["reasoning", "think"]
+
+    asyncio.run(scenario())
+
+
 def test_ask_ai_with_agent_records_run(monkeypatch) -> None:
     async def fake_loop(question, *, extra_context="", event, recorder):
         await recorder.record_llm_turn(

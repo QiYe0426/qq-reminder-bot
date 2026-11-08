@@ -131,6 +131,62 @@ def _content(response: Any) -> str:
         return ""
 
 
+def _reasoning(response: Any) -> str:
+    """思维链字段（DeepSeek 系模型可能返回 reasoning_content）。"""
+    try:
+        message = response.choices[0].message
+        return str(getattr(message, "reasoning_content", "") or "")
+    except (AttributeError, IndexError):
+        return ""
+
+
+def _context_budget() -> int:
+    try:
+        return max(0, int(os.getenv("AGENT_V3_CONTEXT_MAX_CHARS", "2600")))
+    except (TypeError, ValueError):
+        return 2600
+
+
+async def build_context_block(event: Any, question: str) -> str:
+    """批 2：给 v3 注入最小上下文——相关群友画像优先，其次最近群聊。
+
+    只读、失败即降级为空；总长度受 AGENT_V3_CONTEXT_MAX_CHARS 约束。
+    """
+    if _context_budget() <= 0:
+        return ""
+    group_id = getattr(event, "group_id", None)
+    user_id = getattr(event, "user_id", None)
+    parts: list[str] = []
+    if group_id is not None and user_id is not None:
+        try:
+            from plugins.companion_memory import companion_reply_context
+
+            profile_context = await companion_reply_context(str(group_id), str(user_id), question)
+            if profile_context:
+                parts.append("【当前发言者的画像与记忆】\n" + profile_context)
+        except Exception:
+            pass
+    if group_id is not None:
+        try:
+            from plugins.access_control import FEATURE_COLLECTOR, is_group_feature_enabled
+            from plugins.group_context_service import group_context_result
+
+            collector_enabled = await is_group_feature_enabled(str(group_id), FEATURE_COLLECTOR)
+            result = await group_context_result(
+                group_id=str(group_id),
+                collector_enabled=collector_enabled,
+                limit=12,
+            )
+            context_text = str(result.get("context") or "")
+            if context_text:
+                parts.append("【最近的群聊】\n" + context_text)
+        except Exception:
+            pass
+    text = "\n\n".join(parts).strip()
+    budget = _context_budget()
+    return text[:budget] if budget else ""
+
+
 async def _retrieve(need: str, queries: list[str], question: str) -> tuple[str, int]:
     """返回 (上下文, 命中条数估算)。失败时返回空上下文，不影响回复。"""
     if need == "kb":
@@ -182,7 +238,10 @@ async def answer_v3(question: str, *, event: Any) -> str:
     route = "R1"
     try:
         persona = await _persona()
+        context_block = await build_context_block(event, question)
         system_prompt = V3_SYSTEM + (f"\n【你的人设】\n{persona}" if persona else "")
+        if context_block:
+            system_prompt += "\n\n【群聊背景】\n" + context_block
         messages: list[dict[str, Any]] = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": question},
@@ -191,7 +250,12 @@ async def answer_v3(question: str, *, event: Any) -> str:
 
         response = await _chat(messages)
         content = _content(response)
-        await recorder.record_llm_turn(usage=_usage(response), content=content)
+        await recorder.record_llm_turn(
+            usage=_usage(response),
+            content=content,
+            reasoning=_reasoning(response),
+            meta={"plan": True},
+        )
 
         plan = extract_plan(content)
         answer = plan["reply"] or content
@@ -216,7 +280,12 @@ async def answer_v3(question: str, *, event: Any) -> str:
                 )
                 second = await _chat(second_messages, temperature=0.3)
                 second_content = _content(second).strip()
-                await recorder.record_llm_turn(usage=_usage(second), content="")
+                await recorder.record_llm_turn(
+                    usage=_usage(second),
+                    content="",
+                    reasoning=_reasoning(second),
+                    meta={"phase": "after_retrieval"},
+                )
                 if second_content:
                     answer = second_content
 

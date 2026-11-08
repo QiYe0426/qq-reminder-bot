@@ -249,9 +249,16 @@ function renderRunList() {
 }
 
 function stepCard(step) {
+  if (step.kind === 'reasoning') {
+    const tokens = (step.meta && step.meta.reasoning_tokens) || 0;
+    return `<details class="collapsible tool-flow reasoning-flow" open>
+      <summary><span class="tool-ico">🧠</span><span class="tool-name-flow">思考</span>
+        <span class="tool-label">不发送${tokens ? ' · ' + tokens + ' tok' : ''}</span></summary>
+      <div class="coll-body reasoning-body">${esc(step.result || '（模型只返回了推理 token，没有正文）')}</div></details>`;
+  }
   if (step.kind === 'think') {
     return `<details class="collapsible tool-flow think-flow" open>
-      <summary><span class="tool-ico">💭</span><span class="tool-name-flow">思考</span><span class="tool-label">不发送</span></summary>
+      <summary><span class="tool-ico">💭</span><span class="tool-name-flow">模型输出</span><span class="tool-label">中间文本 · 不直接发送</span></summary>
       <div class="coll-body">${esc(step.result || '')}</div></details>`;
   }
   if (step.kind === 'tool_call') {
