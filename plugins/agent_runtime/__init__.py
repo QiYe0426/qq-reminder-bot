@@ -19,6 +19,7 @@ from .store import (
     list_runs,
     prune_runs,
     runtime_stats,
+    today_totals,
     update_run,
 )
 
@@ -36,5 +37,6 @@ __all__ = [
     "prune_runs",
     "runtime_stats",
     "start_run",
+    "today_totals",
     "update_run",
 ]

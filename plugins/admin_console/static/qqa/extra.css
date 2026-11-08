@@ -1,0 +1,147 @@
+/* 猎宝调试台 · 在 QQ Agent 控制台样式之上的少量补充 */
+
+.brand-sub {
+  margin-left: 8px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--tx3);
+  letter-spacing: 1px;
+}
+
+#topbar .top-status a.btn {
+  text-decoration: none;
+  color: var(--tx);
+}
+
+.icon-btn {
+  background: transparent;
+  border: 1px solid var(--bd);
+  border-radius: var(--r-sm);
+  color: var(--tx2);
+  cursor: pointer;
+  padding: 4px 8px;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.icon-btn:hover {
+  border-color: var(--bd2);
+  color: var(--tx);
+}
+
+#run-list {
+  min-width: 260px;
+}
+
+#run-items .session-item {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--bd);
+  cursor: pointer;
+}
+
+#run-items .session-item:hover {
+  background: var(--hover);
+}
+
+#run-items .session-item.active {
+  background: var(--ac-soft);
+  box-shadow: inset 2px 0 0 var(--ac);
+}
+
+.session-title {
+  font-size: 13px;
+  color: var(--tx);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-bottom: 4px;
+}
+
+#run-items .session-meta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 11px;
+  color: var(--tx3);
+}
+
+.msg-flow {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.detail-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--bd);
+}
+
+.detail-title {
+  font-size: 15px;
+  color: var(--tx);
+  margin-bottom: 6px;
+}
+
+.detail-stat {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--ac);
+  white-space: nowrap;
+}
+
+.badge.ok {
+  color: var(--ok);
+  border-color: var(--ok-line);
+  background: var(--ok-soft);
+}
+
+.badge.err {
+  color: var(--err);
+  border-color: var(--err-line);
+  background: var(--err-soft);
+}
+
+.badge.warn {
+  color: var(--warn);
+  border-color: var(--warn-line);
+  background: var(--warn-soft);
+}
+
+.tool-result.is-error {
+  color: var(--err);
+}
+
+.tool-args {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--tx2);
+  white-space: pre-wrap;
+  word-break: break-all;
+  padding: 6px 8px;
+  background: var(--bg0);
+  border-radius: var(--r-xs);
+  margin-bottom: 6px;
+}
+
+.sent-body {
+  color: var(--tx);
+  white-space: pre-wrap;
+}
+
+.usage-table th,
+.usage-table td {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--bd);
+  font-size: 12px;
+}
+
+.usage-table th {
+  color: var(--tx3);
+  font-weight: 500;
+}

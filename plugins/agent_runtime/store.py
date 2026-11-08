@@ -367,3 +367,31 @@ async def runtime_stats(*, path: Path | None = None) -> dict[str, Any]:
         "errors": int(row["errors"] or 0) if row else 0,
         "today": int(row["today"] or 0) if row else 0,
     }
+
+
+async def today_totals(*, path: Path | None = None) -> dict[str, Any]:
+    """今日概览：运行数、tokens、错误数。控制台状态栏与用量页用。"""
+    db_path = path or DB_PATH
+    await init_runtime_db(db_path)
+    today_start = int(time.time()) - int(time.time()) % 86400
+    async with aiosqlite.connect(db_path) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            """
+            SELECT
+                COUNT(*) AS runs,
+                COALESCE(SUM(usage_prompt_tokens), 0) AS prompt_tokens,
+                COALESCE(SUM(usage_completion_tokens), 0) AS completion_tokens,
+                SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) AS errors
+            FROM agent_runs
+            WHERE started_at >= ?
+            """,
+            (today_start,),
+        )
+        row = await cursor.fetchone()
+    return {
+        "runs": int(row["runs"] or 0) if row else 0,
+        "prompt_tokens": int(row["prompt_tokens"] or 0) if row else 0,
+        "completion_tokens": int(row["completion_tokens"] or 0) if row else 0,
+        "errors": int(row["errors"] or 0) if row else 0,
+    }

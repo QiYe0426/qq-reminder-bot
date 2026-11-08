@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>猎宝 · 调试台</title>
+  <link rel="stylesheet" href="/hunterbot/admin-console/qqa/static/style.css" />
+  <link rel="stylesheet" href="/hunterbot/admin-console/qqa/static/extra.css" />
+  <script>
+    (function () {
+      try {
+        var saved = localStorage.getItem('qqa-theme') || '';
+        document.documentElement.setAttribute('data-theme', saved === 'light' ? 'light' : 'dark');
+      } catch (e) {
+        document.documentElement.setAttribute('data-theme', 'dark');
+      }
+    })();
+  </script>
+</head>
+<body>
+  <header id="topbar">
+    <div class="brand">猎宝 <span class="brand-sub">调试台</span></div>
+    <div class="top-status">
+      <div class="top-chips">
+        <span id="onebot-dot" class="dot dot-off" title="OneBot 连接状态"></span>
+        <span id="onebot-label" class="muted">OneBot 未连接</span>
+        <span class="sep"></span>
+        <span id="model-label" class="muted">模型：-</span>
+        <span class="sep"></span>
+        <span id="usage-label" class="muted">今日：-</span>
+        <span class="sep"></span>
+        <span id="error-label" class="muted">失败：-</span>
+      </div>
+      <span class="sep"></span>
+      <a class="btn btn-small" href="/hunterbot/admin-console">旧控制台</a>
+      <button id="theme-btn" class="icon-btn" title="切换主题（暗 ↔ 亮）">🌓</button>
+    </div>
+  </header>
+
+  <nav id="tabs">
+    <button class="tab active" data-tab="runs">会话</button>
+    <button class="tab" data-tab="usage">用量</button>
+    <button class="tab" data-tab="settings">设置</button>
+    <button class="tab" data-tab="connection">连接</button>
+  </nav>
+
+  <main id="layout">
+    <section id="view-runs" class="view active">
+      <aside id="run-list" class="list-pane">
+        <div class="list-head muted"><span id="run-count">会话</span></div>
+        <div id="run-items"></div>
+      </aside>
+      <div id="run-detail" class="detail-pane">
+        <div class="empty-hint">← 选择左侧会话查看完整过程</div>
+      </div>
+    </section>
+
+    <section id="view-usage" class="view">
+      <div id="usage-page" class="usage-pane"></div>
+    </section>
+
+    <section id="view-settings" class="view">
+      <div id="settings-page" class="usage-pane"></div>
+    </section>
+
+    <section id="view-connection" class="view">
+      <div id="connection-page" class="usage-pane"></div>
+    </section>
+  </main>
+
+  <script defer src="/hunterbot/admin-console/qqa/static/app.js"></script>
+</body>
+</html>

@@ -37,7 +37,7 @@ from urllib.parse import unquote
 
 import aiosqlite
 from dotenv import load_dotenv
-from nonebot import get_bot, get_driver
+from nonebot import get_bot, get_bots, get_driver
 
 from plugins.access_control import (
     DB_PATH as ACCESS_DB_PATH,
@@ -68,6 +68,7 @@ from plugins.agent_runtime import (
     init_runtime_db,
     list_runs as list_agent_runs,
     runtime_stats as agent_runtime_stats,
+    today_totals as agent_runtime_today,
 )
 from plugins.chime_service import (
     CHIME_MODE_HOURLY,
@@ -132,7 +133,13 @@ FEATURE_CHIME = "hourly_chime"
 
 try:
     from fastapi import Header, HTTPException, Query, Request
-    from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
+    from fastapi.responses import (
+        FileResponse,
+        HTMLResponse,
+        JSONResponse,
+        RedirectResponse,
+        StreamingResponse,
+    )
 except Exception:  # pragma: no cover
     Header = None
     HTTPException = None
@@ -142,6 +149,7 @@ except Exception:  # pragma: no cover
     HTMLResponse = None
     JSONResponse = None
     RedirectResponse = None
+    StreamingResponse = None
 
 
 def admin_token() -> str:
@@ -179,6 +187,38 @@ def cookie_from_scope(scope: dict[str, object], name: str) -> str:
         return ""
     morsel = parsed.get(name)
     return morsel.value if morsel else ""
+
+
+def qqa_models() -> dict[str, str]:
+    return {
+        "chat": str(os.getenv("AI_MODEL") or ""),
+        "agent": str(os.getenv("AI_AGENT_MODEL") or os.getenv("AI_MODEL") or ""),
+        "summary": str(os.getenv("SUMMARY_MODEL") or ""),
+    }
+
+
+async def qqa_overview() -> dict[str, object]:
+    connected = False
+    self_id = ""
+    try:
+        bots = get_bots()
+        if bots:
+            connected = True
+            self_id = str(next(iter(bots.values())).self_id)
+    except Exception:
+        connected = False
+    stats = await agent_runtime_stats()
+    today = await agent_runtime_today()
+    return {
+        "version": app_version(),
+        "prefix": ROUTE_PREFIX,
+        "qqa_prefix": f"{ROUTE_PREFIX}/qqa",
+        "server_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "bot": {"connected": connected, "self_id": self_id},
+        "models": qqa_models(),
+        "stats": stats,
+        "today": today,
+    }
 
 
 def app_version() -> str:
@@ -1252,6 +1292,74 @@ if (
         if run is None:
             raise HTTPException(status_code=404, detail="run not found")
         return JSONResponse(run)
+
+    @server_app.get(f"{ROUTE_PREFIX}/qqa", response_class=HTMLResponse)
+    async def admin_console_qqa_page(
+        request: Request,
+        token: str | None = Query(default=None),
+        authorization: str | None = Header(default=None),
+    ):
+        check_token(token=token, authorization=authorization)
+        if token:
+            response = RedirectResponse(f"{ROUTE_PREFIX}/qqa", status_code=303)
+            forwarded_proto = request.headers.get("x-forwarded-proto", request.url.scheme)
+            response.set_cookie(
+                ADMIN_SESSION_COOKIE,
+                admin_session_value(),
+                max_age=ADMIN_SESSION_MAX_AGE_SECONDS,
+                httponly=True,
+                secure=forwarded_proto.lower() == "https",
+                samesite="strict",
+                path=ROUTE_PREFIX,
+            )
+            return response
+        qqa_page = STATIC_DIR / "qqa" / "index.html"
+        return HTMLResponse(qqa_page.read_text(encoding="utf-8"))
+
+    @server_app.get(f"{ROUTE_PREFIX}/qqa/static/{{asset_name}}")
+    async def admin_console_qqa_static(asset_name: str):
+        qqa_dir = (STATIC_DIR / "qqa").resolve()
+        asset = (qqa_dir / unquote(asset_name)).resolve()
+        if not str(asset).startswith(str(qqa_dir)) or not asset.is_file():
+            raise HTTPException(status_code=404, detail="asset not found")
+        media_type = "text/css" if asset.suffix == ".css" else "application/javascript"
+        return FileResponse(asset, media_type=media_type, headers={"Cache-Control": "no-cache"})
+
+    @server_app.get(f"{ROUTE_PREFIX}/qqa/api/overview")
+    async def admin_console_qqa_overview(
+        token: str | None = Query(default=None),
+        authorization: str | None = Header(default=None),
+    ) -> JSONResponse:
+        check_token(token=token, authorization=authorization)
+        return JSONResponse(await qqa_overview())
+
+    @server_app.get(f"{ROUTE_PREFIX}/qqa/api/events")
+    async def admin_console_qqa_events(
+        request: Request,
+        token: str | None = Query(default=None),
+        authorization: str | None = Header(default=None),
+    ):
+        check_token(token=token, authorization=authorization)
+
+        async def event_stream():
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    payload = {
+                        "overview": await qqa_overview(),
+                        "runs": await list_agent_runs(limit=30),
+                    }
+                except Exception:
+                    payload = {"overview": None, "runs": [], "error": "overview_failed"}
+                yield "data: " + json.dumps(payload, ensure_ascii=False, default=str) + "\n\n"
+                await asyncio.sleep(3)
+
+        return StreamingResponse(
+            event_stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     @server_app.put(f"{ROUTE_PREFIX}/api/persona")
     async def admin_console_save_persona(
