@@ -116,6 +116,7 @@ NapCat (QQ) ←→ OneBot v11 WebSocket → NoneBot → plugins/*
 - **调试台（qqa）**：`/hunterbot/admin-console/qqa` 是 QQ Agent 风格的控制台（会话 trace / 用量 / 设置 / 连接），与旧控制台并存；数据来自 `agent_runtime`。
 - **对话引擎开关**：`AI_CHAT_ENGINE=legacy|v3`（默认 legacy）。v3 是无状态路由（R1 单次闲聊；R2 先判定 need 再检索、二次调用），只在 `AI_V3_GROUP_IDS` 白名单群生效；v3 抛错会自动回退 legacy。代码在 `plugins/agent_runtime/chat.py`。
 - **统一路由（批 1）**：`AGENT_RUNTIME_ROUTING=1` + `AGENT_RUNTIME_GROUP_IDS` 时，群消息先跑确定性回怼（固定/关键词/调戏 bot，命中不进 LLM，旧 matcher 自动跳过），再按触发档位（`plugins/agent_runtime/tier.py`，默认关闭）决定是否进入对话。控制台「群管理」提供分层开关与档位配置。
+- **回怼规则（AI 生成内容）**：关键词匹配仍是确定性规则；命中的规则如果配置了 `prompt`，则由 AI 按该提示词生成这一条回怼（`engine=rule-ai`、`route=R0`，可回退预设回复）。提示词与规则在控制台「群管理 → 回怼规则」编辑；旧数据 `prompt` 为空，行为与以前一致。
 - **上下文层（批 2）**：v3 的 system prompt 会按 `AGENT_V3_CONTEXT_MAX_CHARS` 预算注入「相关群友画像 + 最近群聊」，失败降级为空。
 - **猎宝控制台**：内建 Web UI，地址 `/hunterbot/admin-console`。需要配置 `COMPANION_ADMIN_TOKEN`。由 `plugins/admin_console/` 插件提供，随 bot 进程启动（不需要单独部署前端）。服务器上通过 Nginx 反代提供 HTTPS。
 

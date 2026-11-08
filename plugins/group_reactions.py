@@ -258,11 +258,19 @@ async def init_keyword_retort_db() -> None:
                 keyword TEXT NOT NULL,
                 enabled INTEGER NOT NULL DEFAULT 1,
                 image_match_enabled INTEGER NOT NULL DEFAULT 1,
+                prompt TEXT NOT NULL DEFAULT '',
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             )
             """
         )
+        # 旧库迁移：补 prompt 列（AI 生成回怼内容用）
+        cursor = await db.execute("PRAGMA table_info(keyword_retort_rules)")
+        columns = {row[1] for row in await cursor.fetchall()}
+        if "prompt" not in columns:
+            await db.execute(
+                "ALTER TABLE keyword_retort_rules ADD COLUMN prompt TEXT NOT NULL DEFAULT ''"
+            )
         await db.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_keyword_retort_rules_group
@@ -360,6 +368,7 @@ def normalize_keyword_retort_rule(value: object) -> dict[str, object] | None:
         "keyword": keyword,
         "enabled": bool(value.get("enabled", True)),
         "image_match_enabled": bool(value.get("image_match_enabled", True)),
+        "prompt": str(value.get("prompt") or "").strip()[:2000],
         "replies": normalized_replies,
     }
 
@@ -469,7 +478,7 @@ async def list_keyword_retort_rules(group_id: str, *, include_usage: bool = True
         db.row_factory = aiosqlite.Row
         cursor = await db.execute(
             """
-            SELECT id, group_id, keyword, enabled, image_match_enabled, created_at, updated_at
+            SELECT id, group_id, keyword, enabled, image_match_enabled, prompt, created_at, updated_at
             FROM keyword_retort_rules
             WHERE group_id = ?
             ORDER BY id ASC
@@ -511,6 +520,7 @@ async def list_keyword_retort_rules(group_id: str, *, include_usage: bool = True
             "keyword": str(row["keyword"] or ""),
             "enabled": bool(row["enabled"]),
             "image_match_enabled": bool(row["image_match_enabled"]),
+            "prompt": str(row["prompt"] or ""),
             "replies": replies_by_rule_id.get(rule_id, []),
             "created_at": str(row["created_at"] or ""),
             "updated_at": str(row["updated_at"] or ""),
@@ -568,6 +578,7 @@ async def save_keyword_retort_rules(group_id: str, raw_rules: object) -> dict[st
                     SET keyword = ?,
                         enabled = ?,
                         image_match_enabled = ?,
+                        prompt = ?,
                         updated_at = ?
                     WHERE id = ? AND group_id = ?
                     """,
@@ -575,6 +586,7 @@ async def save_keyword_retort_rules(group_id: str, raw_rules: object) -> dict[st
                         rule["keyword"],
                         1 if rule["enabled"] else 0,
                         1 if rule["image_match_enabled"] else 0,
+                        rule.get("prompt") or "",
                         timestamp,
                         rule_id,
                         group_id,
@@ -584,15 +596,16 @@ async def save_keyword_retort_rules(group_id: str, raw_rules: object) -> dict[st
                 cursor = await db.execute(
                     """
                     INSERT INTO keyword_retort_rules (
-                        group_id, keyword, enabled, image_match_enabled, created_at, updated_at
+                        group_id, keyword, enabled, image_match_enabled, prompt, created_at, updated_at
                     )
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         group_id,
                         rule["keyword"],
                         1 if rule["enabled"] else 0,
                         1 if rule["image_match_enabled"] else 0,
+                        rule.get("prompt") or "",
                         timestamp,
                         timestamp,
                     ),
@@ -788,8 +801,71 @@ async def send_keyword_retort(bot: Bot, event: MessageEvent, rule: dict[str, obj
     return False
 
 
+async def generate_ai_retort(prompt_text: str, event: MessageEvent, rule: dict[str, object]) -> str:
+    """按规则里可编辑的提示词，让 AI 生成这一条回怼内容。
+
+    触发条件仍然是确定性关键词匹配；只有“内容”交给模型。
+    生成失败或无内容时返回空串，调用方回退到预设回复。
+    """
+    group_id = str(getattr(event, "group_id", ""))
+    text = normalize_text(event.get_plaintext())
+    try:
+        from plugins import ai_chat
+        from plugins.agent_runtime import chat_key_for, start_run
+    except Exception:
+        return ""
+    recorder = await start_run(
+        chat_key=chat_key_for("group", group_id),
+        group_id=group_id,
+        kind="group",
+        engine="rule-ai",
+        route="R0",
+        trigger_summary=text,
+        trigger={"keyword": rule.get("keyword"), "raw": text},
+        model=os.getenv("AI_MODEL", ""),
+    )
+    try:
+        messages = [
+            {"role": "system", "content": prompt_text},
+            {
+                "role": "user",
+                "content": f"群友刚才说：{text}\n\n请按上面的规则，用一句自然的话回应，不要解释。",
+            },
+        ]
+        await recorder.set_prompts(
+            system_prompt=prompt_text,
+            user_prompt=text,
+            model=os.getenv("AI_MODEL") or "",
+        )
+        response = await ai_chat.create_chat_response(
+            messages,
+            model=os.getenv("AI_MODEL") or None,
+            timeout_seconds=int_env("AI_TIMEOUT_SECONDS", 60, 5, 300),
+            temperature=0.8,
+        )
+        message = response.choices[0].message
+        content = str(getattr(message, "content", "") or "").strip()
+        await recorder.record_llm_turn(
+            usage=getattr(response, "usage", None),
+            content="",
+            reasoning=getattr(message, "reasoning_content", None),
+        )
+        if not content:
+            await recorder.finish(status="ok", finish_reason="empty")
+            return ""
+        max_len = int_env("AI_MAX_REPLY_LENGTH", 200, 10, 400)
+        content = ai_chat.shorten_text(content, max_len)
+        await recorder.record_sent(content, meta={"via": "rule_ai", "keyword": rule.get("keyword")})
+        await recorder.finish(status="ok", finish_reason="rule_ai")
+        return content
+    except Exception:
+        logger.exception("AI keyword retort generation failed")
+        await recorder.finish(status="error", error="rule_ai_failed")
+        return ""
+
+
 async def maybe_keyword_retort(bot: Bot, event: MessageEvent) -> bool:
-    if not isinstance(event, GroupMessageEvent):
+    if getattr(event, "group_id", None) is None:
         return False
     if str(getattr(event, "user_id", "")) == str(bot.self_id):
         return False
@@ -810,6 +886,16 @@ async def maybe_keyword_retort(bot: Bot, event: MessageEvent) -> bool:
             f"scope_fingerprint={log_fingerprint('group_id', group_id)}, rule_id={rule_id}"
         )
         return False
+    prompt_text = str(rule.get("prompt") or "").strip()
+    if prompt_text:
+        generated = await generate_ai_retort(prompt_text, event, rule)
+        if generated:
+            await bot.send(event, Message(generated))
+            logger.info(
+                f"AI keyword retort sent: scope_fingerprint={log_fingerprint('group_id', group_id)}, "
+                f"rule_id={rule_id}"
+            )
+            return True
     if not await send_keyword_retort(bot, event, rule):
         return False
     logger.info(

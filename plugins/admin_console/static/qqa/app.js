@@ -450,6 +450,24 @@ function renderGroupsPage() {
   }
 }
 
+function ruleEditorHtml(rules) {
+  const list = rules || [];
+  const rows = list.map((rule) => `<div class="rule-card" data-rule-id="${esc(rule.id || '')}">
+    <div class="rule-head">
+      <label class="field-inline">关键词
+        <input class="text-input" data-rule-field="keyword" value="${esc(rule.keyword || '')}" /></label>
+      <label class="switch-mini ${rule.enabled ? 'on' : ''}" title="启用这条规则">
+        <input type="checkbox" data-rule-field="enabled" ${rule.enabled ? 'checked' : ''} /><span></span></label>
+      <button class="btn btn-small btn-danger" data-rule-delete="1">删除</button>
+    </div>
+    <label class="field"><span>AI 提示词（命中关键词后，用这段提示词让 AI 生成回怼内容）</span>
+      <textarea class="text-area" data-rule-field="prompt" placeholder="例如：你是群里的毒舌猎手，用一句 20 字以内的俏皮话吐槽对方，不要解释。">${esc(rule.prompt || '')}</textarea></label>
+    <div class="rule-desc">预设回复备用 ${(rule.replies || []).length} 条${(rule.replies || []).length ? '：' + esc((rule.replies || []).slice(0, 3).map((r) => r.content).join(' / ').slice(0, 80)) : '（提示词为空时才会使用预设回复）'}</div>
+  </div>`).join('');
+  return `<div class="rule-list">${rows || '<div class="empty-hint" style="padding:10px">还没有规则，点下面新增一条。</div>'}</div>
+    <div class="btn-row"><button class="btn btn-small" id="rule-add">新增规则</button></div>`;
+}
+
 function renderGroupBody() {
   const body = $('#group-body');
   const d = state.groupDetail;
@@ -498,8 +516,26 @@ function renderGroupBody() {
             <option value="twice_daily" ${chime.mode === 'twice_daily' ? 'selected' : ''}>每天 1:58 / 13:58</option>
           </select></label></div>`)}
     ${card('AI 工具权限', '决定该群里 AI 能调用哪些工具。灰掉的工具由代码强制（依赖未开启的功能或权限）。', `<div class="tool-list">${toolHtml}</div>`)}
+    ${card('回怼规则', '关键词匹配是确定性的；命中后优先用“AI 提示词”生成这条回怼内容（不进闲聊流程）。提示词留空时使用预设回复。', ruleEditorHtml(((d.keyword_retort || {}).rules) || []))}
     ${card('群画像', '这段文字会作为该群的背景资料注入 AI 上下文，用来约束回复风格。', `<textarea id="group-profile" class="text-area" placeholder="例如：这是一个技术交流群，氛围轻松，喜欢用梗。">${esc((d.group_profile || {}).summary || '')}</textarea>`)}
   `;
+  const addBtn = $('#rule-add');
+  if (addBtn) addBtn.addEventListener('click', () => {
+    const rules = (((state.groupDetail || {}).keyword_retort || {}).rules) || [];
+    rules.push({ id: 0, keyword: '', enabled: true, prompt: '', replies: [] });
+    state.groupDetail.keyword_retort = { ...(state.groupDetail.keyword_retort || {}), rules };
+    renderGroupBody();
+  });
+  $$('[data-rule-delete]').forEach((btn) => btn.addEventListener('click', () => {
+    const card = btn.closest('.rule-card');
+    const ruleId = Number(card.dataset.ruleId || 0);
+    const rules = (((state.groupDetail || {}).keyword_retort || {}).rules) || [];
+    state.groupDetail.keyword_retort = {
+      ...(state.groupDetail.keyword_retort || {}),
+      rules: rules.filter((rule) => Number(rule.id || 0) !== ruleId),
+    };
+    renderGroupBody();
+  }));
 }
 
 async function saveGroupSettings() {
@@ -532,6 +568,24 @@ async function saveGroupSettings() {
       body: JSON.stringify(payload),
     });
     state.groupDetail = data;
+    const ruleCards = $$('.rule-card');
+    const existingRules = (((state.groupDetail || {}).keyword_retort || {}).rules) || [];
+    const rulesPayload = ruleCards.map((card) => {
+      const ruleId = Number(card.dataset.ruleId || 0);
+      const existing = existingRules.find((rule) => Number(rule.id || 0) === ruleId);
+      const keyword = (card.querySelector('[data-rule-field="keyword"]') || {}).value || '';
+      const prompt = (card.querySelector('[data-rule-field="prompt"]') || {}).value || '';
+      const enabledInput = card.querySelector('[data-rule-field="enabled"]');
+      return {
+        id: ruleId,
+        keyword,
+        prompt,
+        enabled: enabledInput ? enabledInput.checked : true,
+        image_match_enabled: existing ? existing.image_match_enabled !== false : true,
+        replies: existing ? existing.replies || [] : [],
+      };
+    }).filter((rule) => String(rule.keyword).trim());
+    payload.keyword_retort = { rules: rulesPayload };
     const tierToggle = $('[data-tier="enabled"]');
     const tierPayload = {
       enabled: tierToggle ? tierToggle.checked : !!(state.tierConfig || {}).enabled,

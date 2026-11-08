@@ -122,3 +122,10 @@
 /* 思维链卡片 */
 .reasoning-flow summary { color: var(--tx3); }
 .reasoning-body { color: var(--tx2); font-style: italic; white-space: pre-wrap; }
+
+/* 回怼规则编辑 */
+.rule-list { display: flex; flex-direction: column; gap: 10px; }
+.rule-card { border: 1px solid var(--bd); border-radius: var(--r-sm); padding: 10px; background: var(--bg0); }
+.rule-head { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
+.rule-head .text-input { width: 180px; }
+.rule-desc { font-size: 11px; color: var(--tx3); margin-top: 4px; line-height: 1.6; }
