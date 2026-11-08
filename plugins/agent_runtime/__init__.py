@@ -8,6 +8,7 @@
 - 通过 ``AGENT_RUN_TRACE_ENABLED=0`` 可整体关闭。
 """
 
+from .chat import answer_v3, engine_name, should_use_v3
 from .recorder import RunRecorder, chat_key_for, current_recorder, start_run
 from .store import (
     DB_PATH,
@@ -28,14 +29,17 @@ __all__ = [
     "RETENTION_DAYS",
     "RunRecorder",
     "append_step",
+    "answer_v3",
     "chat_key_for",
     "current_recorder",
+    "engine_name",
     "get_run",
     "init_runtime_db",
     "insert_run",
     "list_runs",
     "prune_runs",
     "runtime_stats",
+    "should_use_v3",
     "start_run",
     "today_totals",
     "update_run",

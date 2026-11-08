@@ -113,6 +113,8 @@ NapCat (QQ) ←→ OneBot v11 WebSocket → NoneBot → plugins/*
 - **工具注册**：见 `plugins/agent_tools/__init__.py`，它负责导入各工具族并调用 `register_tools()` 注册。每个工具有名称、OpenAI 格式的 definition、handler、`requires_feature`（需要某个群功能开启）和 `requires_admin` 标记。
 - **消息流水线**：`message_archive.py` 写入原始消息 → `message_collector.py` / `media_insights.py` 从归档消费 → `daily_report.py` 和 `semantic_graph.py` 读取采集数据。
 - **Agent run trace**：`plugins/agent_runtime/` 为每次 AI 对话生成一条 run 记录（系统提示、本次输入、思考、工具调用与耗时、实际发送、token 用量），写入独立的 `data/agent_runs.db`；控制台通过 `GET /api/runs`、`GET /api/runs/{run_id}` 只读查询。该层只观测、不改变行为：记录器内部吞掉所有异常，`AGENT_RUN_TRACE_ENABLED=0` 可整体关闭。
+- **调试台（qqa）**：`/hunterbot/admin-console/qqa` 是 QQ Agent 风格的控制台（会话 trace / 用量 / 设置 / 连接），与旧控制台并存；数据来自 `agent_runtime`。
+- **对话引擎开关**：`AI_CHAT_ENGINE=legacy|v3`（默认 legacy）。v3 是无状态路由（R1 单次闲聊；R2 先判定 need 再检索、二次调用），只在 `AI_V3_GROUP_IDS` 白名单群生效；v3 抛错会自动回退 legacy。代码在 `plugins/agent_runtime/chat.py`。
 - **猎宝控制台**：内建 Web UI，地址 `/hunterbot/admin-console`。需要配置 `COMPANION_ADMIN_TOKEN`。由 `plugins/admin_console/` 插件提供，随 bot 进程启动（不需要单独部署前端）。服务器上通过 Nginx 反代提供 HTTPS。
 
 ## 核心插件与数据流

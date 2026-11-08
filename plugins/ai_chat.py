@@ -43,7 +43,7 @@ from plugins.agent_tools.contracts import (
 )
 from plugins.agent_tools.confirmation import confirm_pending_confirmation
 from plugins.agent_tool_access import filter_allowed_agent_tool_definitions, is_agent_tool_allowed
-from plugins.agent_runtime import RunRecorder, chat_key_for, start_run
+from plugins.agent_runtime import RunRecorder, answer_v3, chat_key_for, should_use_v3, start_run
 from plugins.chime_service import (
     get_chime_state,
 )
@@ -2979,8 +2979,20 @@ async def handle_ai_chat(bot: Bot, event: MessageEvent) -> None:
             )
             answer = PROMPT_INJECTION_REPLY
         else:
+            local_context = ""
             if direct_reminder_reply := await try_direct_reminder_reply(question, event, bot):
                 answer = direct_reminder_reply
+            elif should_use_v3(event):
+                try:
+                    answer = await answer_v3(question, event=event)
+                except Exception:
+                    logger.exception("v3 chat failed, falling back to legacy agent")
+                    local_context = await build_local_context(question, event)
+                    try:
+                        answer = await ask_ai_with_agent(question, extra_context=local_context, event=event)
+                    except Exception:
+                        logger.exception("AI agent request failed, falling back to legacy chat")
+                        answer = ""
             elif agent_enabled():
                 local_context = await build_local_context(question, event)
                 try:
