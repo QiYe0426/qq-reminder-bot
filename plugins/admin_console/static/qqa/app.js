@@ -911,7 +911,20 @@ function connectEvents() {
   es.onerror = () => { state.sseOk = false; es.close(); setTimeout(connectEvents, 5000); };
 }
 
+// 开关/单选：点击后立即同步视觉状态（CSS 之外再兜一层，兼容老浏览器）
+function bindToggleFeedback() {
+  document.addEventListener('change', (event) => {
+    const input = event.target;
+    if (!input || input.tagName !== 'INPUT') return;
+    const row = input.closest('.switch-row');
+    if (row) row.classList.toggle('on', !!input.checked);
+    const mini = input.closest('.switch-mini');
+    if (mini) mini.classList.toggle('on', !!input.checked);
+  });
+}
+
 function init() {
+  bindToggleFeedback();
   applyTheme(localStorage.getItem('qqa-theme') || 'dark');
   $$('#tabs .tab').forEach((btn) => btn.addEventListener('click', () => switchTab(btn.dataset.tab)));
   $('#theme-btn').addEventListener('click', () => {
