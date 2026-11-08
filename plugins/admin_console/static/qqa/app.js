@@ -25,7 +25,13 @@ const FEATURE_TREE = [
       { key: 'companion', label: '陪伴画像', desc: '为该群群友记录长期画像' },
     ],
   },
-  { key: 'hourly_chime', label: '🎒 常数报时', desc: '每小时 58 分报时' },
+  {
+    key: 'hourly_chime', label: '🎒 常数报时', desc: '整点播报；开启后在下方选择模式，群里管理员也可用命令开关',
+    modes: [
+      ['hourly', '每小时 58 分'],
+      ['twice_daily', '每天 1:58 与 13:58 两次'],
+    ],
+  },
 ];
 
 // 等级 → 缩进样式
@@ -47,8 +53,15 @@ function featureTreeHtml(nodes, features, depth, parentOn) {
       <input type="checkbox" ${on ? 'checked' : ''} ${disabled ? 'disabled' : ''} data-feature="${node.key}" />
       <span class="switch-track"><span class="switch-thumb"></span></span>
     </label>`;
+    const modeRows = node.modes && on
+      ? `<div class="mode-list" style="${treeIndent(depth + 1)}">${node.modes.map(([value, label]) => {
+          const checked = ((state.groupDetail || {}).chime || {}).mode === value;
+          return `<label class="mode-row"><input type="radio" name="chime-mode" value="${value}" ${checked ? 'checked' : ''} />
+            <span>${esc(label)}</span></label>`;
+        }).join('')}</div>`
+      : '';
     const children = node.children && on ? featureTreeHtml(node.children, features, depth + 1, true) : '';
-    return row + children;
+    return row + modeRows + children;
   }).join('');
 }
 
@@ -508,13 +521,6 @@ function renderGroupBody() {
     </div>
     ${card('功能开关（分层）', '上层关闭时下层自动失效。回怼类为确定性规则，命中后不会进入 LLM；触发档位默认关闭。', `<div class="switch-list">${featureHtml}</div>`)}
     ${card('发言限流', '只对三类“主动/被动反应”生效，防止刷屏；0 表示不限制。', `<div class="limit-list">${limitHtml}</div>`)}
-    ${card('常数报时', '整点播报，管理员在群里用命令也能开关。', `<div class="form-row">
-        ${switchRow('启用报时', '', !!chime.enabled, 'data-chime="enabled"')}
-        <label class="field-inline">模式
-          <select class="select-input" id="chime-mode">
-            <option value="hourly" ${chime.mode === 'hourly' ? 'selected' : ''}>每小时 58 分</option>
-            <option value="twice_daily" ${chime.mode === 'twice_daily' ? 'selected' : ''}>每天 1:58 / 13:58</option>
-          </select></label></div>`)}
     ${card('AI 工具权限', '决定该群里 AI 能调用哪些工具。灰掉的工具由代码强制（依赖未开启的功能或权限）。', `<div class="tool-list">${toolHtml}</div>`)}
     ${card('回怼规则', '关键词匹配是确定性的；命中后优先用“AI 提示词”生成这条回怼内容（不进闲聊流程）。提示词留空时使用预设回复。', ruleEditorHtml(((d.keyword_retort || {}).rules) || []))}
     ${card('群画像', '这段文字会作为该群的背景资料注入 AI 上下文，用来约束回复风格。', `<textarea id="group-profile" class="text-area" placeholder="例如：这是一个技术交流群，氛围轻松，喜欢用梗。">${esc((d.group_profile || {}).summary || '')}</textarea>`)}
@@ -542,8 +548,7 @@ async function saveGroupSettings() {
   if (!state.groupId) return;
   const features = {};
   $$('[data-feature]').forEach((el) => { features[el.dataset.feature] = el.checked; });
-  const chimeEnabled = $('[data-chime="enabled"]');
-  if (chimeEnabled) features.hourly_chime = chimeEnabled.checked;
+  const chimeModeInput = $('input[name="chime-mode"]:checked');
   const limits = {};
   $$('[data-limit]').forEach((el) => {
     const [feature, field] = el.dataset.limit.split(':');
@@ -552,7 +557,7 @@ async function saveGroupSettings() {
   });
   const agentTools = {};
   $$('[data-tool]').forEach((el) => { if (!el.disabled) agentTools[el.dataset.tool] = el.checked; });
-  const chimeMode = ($('#chime-mode') || {}).value || 'hourly';
+  const chimeMode = chimeModeInput ? chimeModeInput.value : (((state.groupDetail || {}).chime || {}).mode || 'hourly');
   const groupProfile = ($('#group-profile') || {}).value || '';
   try {
     const payload = {

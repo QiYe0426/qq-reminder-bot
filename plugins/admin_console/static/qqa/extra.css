@@ -129,3 +129,8 @@
 .rule-head { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
 .rule-head .text-input { width: 180px; }
 .rule-desc { font-size: 11px; color: var(--tx3); margin-top: 4px; line-height: 1.6; }
+
+/* 报时模式子项 */
+.mode-list { display: flex; flex-direction: column; gap: 2px; margin: 2px 0 6px 0; }
+.mode-row { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; color: var(--tx2); padding: 3px 0; }
+.mode-row input { accent-color: var(--ac); }
