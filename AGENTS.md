@@ -75,7 +75,7 @@ Reducer 开发必须遵守：
 cd ~/qq-reminder-bot
 git pull --ff-only
 .venv/bin/pip install -e .
-.venv/bin/python -m py_compile bot.py plugins/*.py scripts/codex_remote_approval_hook.py
+.venv/bin/python -m py_compile bot.py plugins/*.py
 sudo systemctl restart qq-reminder-bot
 journalctl -u qq-reminder-bot -n 80 --no-pager
 ```
@@ -137,7 +137,6 @@ NapCat (QQ) ←→ OneBot v11 WebSocket → NoneBot → plugins/*
 | `plugins/companion_memory.py` | 按用户的长期画像和记忆，自动总结循环 |
 | `plugins/knowledge_service.py` | STS2 知识条目检索 |
 | `plugins/group_context_service.py` | 持久化或进程内群上下文读取 |
-| `plugins/remote_approval.py` | Codex 权限请求的 QQ 私聊远程审批桥接 |
 | `plugins/storage_cleanup.py` | 未跟踪的清理插件草稿；当前不在 `pyproject.toml` 插件列表中，不会自动加载 |
 | `plugins/storage_status.py` | 存储用量查询（`存储状态` / `硬盘状态` / `空间状态`） |
 | `plugins/admin_console/` | 内建 Web 管理页：人设、STS2 知识库、群管理、群友画像 |

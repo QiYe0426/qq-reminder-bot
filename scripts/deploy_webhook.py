@@ -123,8 +123,7 @@ def deploy():
     py_result = subprocess.run(
         [sys.executable, "-m", "py_compile", "bot.py"]
         + [f"plugins/{f}" for f in os.listdir(os.path.join(REPO_DIR, "plugins"))
-           if f.endswith(".py")]
-        + ["scripts/codex_remote_approval_hook.py"],
+           if f.endswith(".py")],
         cwd=REPO_DIR,
         capture_output=True,
         text=True,

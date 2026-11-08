@@ -14,7 +14,6 @@ def test_configured_plugins_have_source_files() -> None:
         config = tomllib.load(handle)
 
     plugins = config["tool"]["nonebot"]["plugins"]
-    assert "plugins.remote_approval" in plugins
 
     missing = []
     for plugin in plugins:

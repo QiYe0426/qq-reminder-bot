@@ -55,5 +55,4 @@ plugins = [
     "plugins.daily_report",
     "plugins.semantic_graph",
     "plugins.semantic_graph_visual",
-    "plugins.remote_approval",
 ]
