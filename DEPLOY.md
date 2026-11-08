@@ -141,9 +141,7 @@ cd ~/qq-reminder-bot
   plugins/message_collector.py \
   plugins/storage_status.py \
   plugins/media_insights.py \
-  plugins/daily_report.py \
-  plugins/remote_approval.py \
-  scripts/codex_remote_approval_hook.py
+  plugins/daily_report.py
 ```
 
 ## 6. 重启服务

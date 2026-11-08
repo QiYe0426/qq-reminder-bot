@@ -20,7 +20,6 @@ load_dotenv(".env.local")
 # ── retention config (days) ──────────────────────────────────────────
 RETENTION_MESSAGES = int(os.getenv("CLEANUP_MESSAGE_RETENTION_DAYS", "30"))
 RETENTION_REMINDERS = int(os.getenv("CLEANUP_REMINDER_RETENTION_DAYS", "30"))
-RETENTION_REMOTE_APPROVAL = int(os.getenv("CLEANUP_REMOTE_APPROVAL_RETENTION_DAYS", "7"))
 RETENTION_MEDIA = int(os.getenv("CLEANUP_MEDIA_RETENTION_DAYS", "7"))
 RETENTION_EXPORTS = int(os.getenv("CLEANUP_EXPORT_RETENTION_DAYS", "7"))
 RETENTION_SEMANTIC_GRAPHS = int(os.getenv("CLEANUP_SEMANTIC_GRAPH_RETENTION_DAYS", "7"))
@@ -34,7 +33,6 @@ RETENTION_SEMANTIC_GRAPH_RECORDS = int(os.getenv("CLEANUP_SEMANTIC_GRAPH_RECORDS
 DATA_DIR = Path("data")
 MESSAGE_ARCHIVE_DB = DATA_DIR / "message_archive.db"
 REMINDERS_DB = DATA_DIR / "reminders.db"
-REMOTE_APPROVAL_DB = DATA_DIR / "remote_approvals.db"
 BOT_SETTINGS_DB = DATA_DIR / "bot_settings.db"
 KEYWORD_RETORT_DB = DATA_DIR / "keyword_retorts.db"
 COMPANION_MEMORY_DB = DATA_DIR / "companion_memory.db"
@@ -119,23 +117,6 @@ async def _clean_reminders() -> tuple[str, int]:
             await db.execute("VACUUM")
     return (f"提醒库：清除了 {deleted} 条已完成的旧提醒", deleted)
 
-
-async def _clean_remote_approvals() -> tuple[str, int]:
-    """Delete non-pending remote approval requests older than retention."""
-    if not REMOTE_APPROVAL_DB.exists():
-        return ("远程审批库不存在", 0)
-    cutoff = _cutoff(RETENTION_REMOTE_APPROVAL)
-    async with aiosqlite.connect(REMOTE_APPROVAL_DB) as db:
-        cursor = await db.execute(
-            "DELETE FROM remote_approval_requests "
-            "WHERE status != 'pending' AND created_at < ?",
-            (cutoff,),
-        )
-        deleted = cursor.rowcount
-        await db.commit()
-        if deleted:
-            await db.execute("VACUUM")
-    return (f"远程审批：清除了 {deleted} 条旧记录", deleted)
 
 
 async def _clean_keyword_usage() -> tuple[str, int]:
@@ -227,7 +208,6 @@ async def run_cleanup() -> str:
     for coro in (
         _clean_collected_messages,
         _clean_reminders,
-        _clean_remote_approvals,
         _clean_keyword_usage,
         _clean_daily_report_runs,
         _clean_semantic_graph_records,

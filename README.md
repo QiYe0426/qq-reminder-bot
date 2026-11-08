@@ -71,7 +71,6 @@ canonical `ToolResult.data` schema，并增加 fail-closed drift guard。Invento
   - `plugins/reminder.py`
   - `plugins/group_reactions.py`
   - `plugins/storage_status.py`
-  - `plugins/remote_approval.py`
   - `plugins/admin_console/`
 - 当前数据流：
   - NoneBot 从 `pyproject.toml` 加载插件，OneBot v11/NapCat 负责 QQ 收发。
@@ -336,9 +335,6 @@ AI_AGENT_FETCH_MAX_CHARS=7000
 AI_AGENT_TEMPERATURE=0.35
 BOT_PERSONA_PATH=data/bot_persona_prompt.txt
 COMPANION_ADMIN_TOKEN=
-REMOTE_APPROVAL_ENABLED=1
-REMOTE_APPROVAL_USER_ID=
-REMOTE_APPROVAL_API_TOKEN=
 COMPANION_MEMORY_AUTO_ENABLED=1
 COMPANION_MEMORY_INTERVAL_SECONDS=300
 COMPANION_MEMORY_BATCH_USERS=3
@@ -413,58 +409,6 @@ python -c "import secrets; print(secrets.token_hex(32))"
 
 服务器建议执行 `chmod 600 .env.local`。新创建的敏感数据目录和 Agent Tool Audit/Confirmation/Idempotency SQLite 文件会在 POSIX 下分别使用 `0700` 和 `0600`；已存在且过宽的权限只告警，不会在启动时静默修改。
 
-## Codex QQ 远程审批
-
-`plugins/remote_approval.py` 提供 Codex 审批请求的 QQ 私聊桥接。它只接收 Codex hook 发来的脱敏摘要，不保存完整命令、密钥、token 或环境变量。每次审批都会生成一次性审批码；审批码被批准、拒绝或退出后立即失效。
-
-服务器 `.env.local` 需要配置：
-
-```text
-REMOTE_APPROVAL_ENABLED=1
-REMOTE_APPROVAL_USER_ID=你的QQ号
-REMOTE_APPROVAL_API_TOKEN=一段足够长的随机令牌
-```
-
-本机 Codex 侧使用 `scripts/codex_remote_approval_hook.py` 作为 `PermissionRequest` hook。推荐先复用现有 SSH 隧道，让本机 `127.0.0.1:8090` 转发到服务器 `127.0.0.1:8080`；也可以把 `CODEX_REMOTE_APPROVAL_URL` 改成公网反代地址。Codex 配置示例：
-
-```toml
-approval_policy = "on-request"
-
-[hooks]
-PermissionRequest = [
-  {
-    matcher = "*",
-    hooks = [
-      {
-        type = "command",
-        command = "py -3 \"D:\\猎bot\\qq-reminder-bot\\scripts\\codex_remote_approval_hook.py\"",
-        statusMessage = "等待 QQ 远程审批"
-      }
-    ]
-  }
-]
-```
-
-本机还需要让 hook 能读到令牌和地址，可以写进本机环境变量，或写进本机仓库的 `.env.local`：
-
-```text
-CODEX_REMOTE_APPROVAL_URL=http://127.0.0.1:8090/hunterbot/remote-approval/api
-CODEX_REMOTE_APPROVAL_TOKEN=与服务器 REMOTE_APPROVAL_API_TOKEN 相同
-```
-
-如果不使用 SSH 隧道，也可以把地址改成服务器 HTTPS 地址：
-
-```text
-CODEX_REMOTE_APPROVAL_URL=https://62.234.188.16/hunterbot/remote-approval/api
-```
-
-QQ 私聊命令：
-
-- `批准 审批码`：允许这次 Codex 审批。
-- `拒绝 审批码`：拒绝这次 Codex 审批。
-- `退出审批 审批码`：退出本次远程审批，Codex 会收到取消结果。
-- `审批状态`：查看当前等待中的审批。
-
 ## 猎宝控制台
 
 管理员可以在服务器上配置 `COMPANION_ADMIN_TOKEN` 后，通过浏览器管理 bot 人设、知识库、群功能开关和控制台已选择记录的群友画像。新控制台地址：
@@ -527,7 +471,7 @@ ssh ubuntu@62.234.188.16
 cd ~/qq-reminder-bot
 git pull --ff-only
 .venv/bin/pip install -e .
-.venv/bin/python -m py_compile bot.py plugins/access_control.py plugins/companion_registry.py plugins/companion_memory.py plugins/admin_console/__init__.py plugins/message_archive.py plugins/reminder.py plugins/reminder_service.py plugins/chime_service.py plugins/ai_chat.py plugins/group_reactions.py plugins/message_collector.py plugins/storage_status.py plugins/media_insights.py plugins/daily_report.py plugins/semantic_graph.py plugins/semantic_graph_visual.py plugins/remote_approval.py scripts/codex_remote_approval_hook.py
+.venv/bin/python -m py_compile bot.py plugins/access_control.py plugins/companion_registry.py plugins/companion_memory.py plugins/admin_console/__init__.py plugins/message_archive.py plugins/reminder.py plugins/reminder_service.py plugins/chime_service.py plugins/ai_chat.py plugins/group_reactions.py plugins/message_collector.py plugins/storage_status.py plugins/media_insights.py plugins/daily_report.py plugins/semantic_graph.py plugins/semantic_graph_visual.py
 sudo systemctl restart qq-reminder-bot
 journalctl -u qq-reminder-bot -n 80 --no-pager
 ```
@@ -570,8 +514,7 @@ plugins/daily_report_visual.py 日报 PNG 长图和 PDF 渲染
 plugins/daily_report_fallback.py AI 总结失败或超时时的日报兜底内容
 plugins/semantic_graph.py 语义图抽取、落库和摘要服务
 plugins/semantic_graph_visual.py 语义图 PNG 可视化渲染服务
-plugins/remote_approval.py Codex 审批请求的 QQ 私聊远程批准插件
-tests/                提醒、报时、审批脱敏和插件配置的最小自动化测试
+tests/                提醒、报时、插件配置的最小自动化测试
 .github/workflows/ci.yml GitHub Actions：安装、编译并运行测试
 deploy/nginx/         HTTP 跳转、HTTPS 和反向代理配置
 deploy/certbot/       证书续期后安全重载 Nginx 的 hook
