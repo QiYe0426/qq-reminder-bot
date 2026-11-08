@@ -63,7 +63,6 @@ from plugins.agent_tool_access import (
     init_agent_tool_access_db,
     save_group_agent_tool_state,
 )
-from plugins.admin_game_service import AdminGameService
 from plugins.agent_runtime import (
     get_run as get_agent_run,
     init_runtime_db,
@@ -130,7 +129,6 @@ KIND_ORDER = (
 )
 TREE_ORDER = ("STS2",)
 FEATURE_CHIME = "hourly_chime"
-GAME_ADMIN_SERVICE = AdminGameService()
 
 try:
     from fastapi import Header, HTTPException, Query, Request
@@ -1223,13 +1221,6 @@ if (
         check_token(token=token, authorization=authorization)
         return JSONResponse(await console_state())
 
-    @server_app.get(f"{ROUTE_PREFIX}/api/games")
-    async def admin_console_games(
-        token: str | None = Query(default=None),
-        authorization: str | None = Header(default=None),
-    ) -> JSONResponse:
-        check_token(token=token, authorization=authorization)
-        return JSONResponse({"sessions": await GAME_ADMIN_SERVICE.list_sessions()})
     @server_app.get(f"{ROUTE_PREFIX}/api/runs")
     async def admin_console_runs(
         limit: int = Query(default=50, ge=1, le=200),
