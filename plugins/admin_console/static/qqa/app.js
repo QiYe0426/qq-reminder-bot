@@ -7,17 +7,79 @@ const LEGACY = '/hunterbot/admin-console';
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 
-const FEATURES = [
-  ['ai_chat', 'AI 对话', '群友 @ 或叫名字时允许 AI 回复'],
-  ['collector', '消息采集', '把群消息写入归档；日报与画像的基础'],
-  ['daily_report', '日报', '允许生成这个群的日报（需先开消息采集）'],
-  ['daily_report_auto', '自动日报', '每天 04:00 自动发送（需日报开启）'],
-  ['companion', '陪伴画像', '为该群群友记录长期画像（需消息采集）'],
-  ['hourly_chime', '🎒 常数报时', '每小时 58 分报时'],
-  ['bot_tease', '调戏其他 bot', '其他 bot 发言后的限流短回复'],
-  ['constant_retort', '固定回怼', '命中关键词时发送固定内容'],
-  ['keyword_retort', '关键词回怼', '按控制台维护的关键词规则回复'],
+const FEATURE_TREE = [
+  {
+    key: 'ai_chat', label: 'AI 对话', desc: '群友 @ 或叫名字时允许 AI 回复',
+    children: [{ tier: true }],
+  },
+  { key: 'constant_retort', label: '固定回怼', desc: '命中关键词时发送固定内容（确定性，不进 LLM）' },
+  { key: 'keyword_retort', label: '关键词回怼', desc: '按控制台维护的关键词规则回复（确定性，不进 LLM）' },
+  { key: 'bot_tease', label: '调戏其他 bot', desc: '其他 bot 发言后的限流短回复' },
+  {
+    key: 'collector', label: '消息采集', desc: '把群消息写入归档；日报与画像的基础',
+    children: [
+      {
+        key: 'daily_report', label: '日报', desc: '允许生成这个群的日报',
+        children: [{ key: 'daily_report_auto', label: '自动日报', desc: '每天 04:00 自动发送' }],
+      },
+      { key: 'companion', label: '陪伴画像', desc: '为该群群友记录长期画像' },
+    ],
+  },
+  { key: 'hourly_chime', label: '🎒 常数报时', desc: '每小时 58 分报时' },
 ];
+
+// 等级 → 缩进样式
+function treeIndent(depth) {
+  return `padding-left:${12 + depth * 22}px`;
+}
+
+function featureTreeHtml(nodes, features, depth, parentOn) {
+  return nodes.map((node) => {
+    if (node.tier) {
+      return tierBlockHtml(depth + 1, parentOn);
+    }
+    const on = !!features[node.key];
+    const disabled = depth > 0 && !parentOn;
+    const hint = disabled ? '<span class="tag plain">需先开启上一级</span>' : '';
+    const row = `<label class="switch-row tree-node ${on ? 'on' : ''}" style="${treeIndent(depth)}">
+      <span class="switch-text"><span class="switch-label">${esc(node.label)} ${hint}</span>
+        <span class="switch-desc">${esc(node.desc)}</span></span>
+      <input type="checkbox" ${on ? 'checked' : ''} ${disabled ? 'disabled' : ''} data-feature="${node.key}" />
+      <span class="switch-track"><span class="switch-thumb"></span></span>
+    </label>`;
+    const children = node.children && on ? featureTreeHtml(node.children, features, depth + 1, true) : '';
+    return row + children;
+  }).join('');
+}
+
+function tierBlockHtml(depth, parentOn) {
+  const cfg = state.tierConfig || {};
+  const runtime = (state.overview || {}).runtime || {};
+  const active = !!(runtime.enabled && (runtime.groups || []).map(String).includes(String(state.groupId)));
+  const note = active
+    ? '已生效：未 @ 时按下方规则决定是否接话。'
+    : '未生效：需要在服务器 .env.local 打开 AGENT_RUNTIME_ROUTING=1 并把本群加入 AGENT_RUNTIME_GROUP_IDS。';
+  return `<div class="tier-block" style="${treeIndent(depth)}">
+    <label class="switch-row tree-node ${cfg.enabled ? 'on' : ''}" style="padding-left:0">
+      <span class="switch-text"><span class="switch-label">触发档位（关键词 / 概率插话）</span>
+        <span class="switch-desc">@ 和叫名字永远触发；这里控制“没被叫到时”是否可能接话。默认关闭。</span></span>
+      <input type="checkbox" ${cfg.enabled ? 'checked' : ''} ${parentOn ? '' : 'disabled'} data-tier="enabled" />
+      <span class="switch-track"><span class="switch-thumb"></span></span>
+    </label>
+    <div class="tier-grid">
+      <label class="field"><span>关键词（逗号分隔）</span>
+        <input class="text-input" id="tier-keywords" value="${esc(cfg.keywords || '')}" placeholder="例如：猎宝,小鲸鱼" ${parentOn ? '' : 'disabled'} /></label>
+      <label class="field"><span>概率插话（%）</span>
+        <input class="num-input" type="number" min="0" max="100" step="1" id="tier-probability" value="${esc(cfg.probability ?? 5)}" ${parentOn ? '' : 'disabled'} /></label>
+      <label class="field"><span>冷却（分钟）</span>
+        <input class="num-input" type="number" min="0" id="tier-cooldown" value="${esc(cfg.cooldown_minutes ?? 10)}" ${parentOn ? '' : 'disabled'} /></label>
+      <label class="field"><span>每日上限（次）</span>
+        <input class="num-input" type="number" min="0" id="tier-daily" value="${esc(cfg.daily_limit ?? 60)}" ${parentOn ? '' : 'disabled'} /></label>
+    </div>
+    <div class="tier-note ${active ? 'ok' : 'warn'}">${esc(note)}</div>
+    <div class="tier-note">参考成本：按 3,500 条/天、5% 概率约 175 次/天；缓存友好时约 ¥2.5–5/周，日上限会兜底。</div>
+  </div>`;
+}
 
 const LIMIT_FEATURES = [
   ['bot_tease', '调戏其他 bot'],
@@ -45,6 +107,7 @@ const state = {
   knowledgeKinds: [],
   knowledgeQuery: '',
   knowledgeSelected: null,
+  tierConfig: null,
 };
 
 // ── 基础工具 ─────────────────────────────────────────
@@ -330,8 +393,21 @@ function renderArchiveDetail() {
 // ── 群管理页 ─────────────────────────────────────────
 async function loadGroupDetail() {
   if (!state.groupId) return null;
-  state.groupDetail = await apiLegacy('/api/groups/' + encodeURIComponent(state.groupId));
+  const [detail, tier] = await Promise.all([
+    apiLegacy('/api/groups/' + encodeURIComponent(state.groupId)),
+    apiQqa('/api/groups/' + encodeURIComponent(state.groupId) + '/tier').catch(() => null),
+  ]);
+  state.groupDetail = detail;
+  state.tierConfig = tier;
   return state.groupDetail;
+}
+
+function runtimeBanner() {
+  const runtime = (state.overview || {}).runtime || {};
+  if (runtime.enabled) {
+    return `<div class="tier-note ok">统一路由已开启；接管群：${(runtime.groups || []).join(' / ') || '（未配置）'}；回怼由 runtime 执行：${runtime.reactions_routed ? '是' : '否'}</div>`;
+  }
+  return `<div class="tier-note warn">统一路由未启用：回怼仍走旧逻辑，触发档位配置会保存但暂不生效。</div>`;
 }
 
 function renderGroupsPage() {
@@ -348,6 +424,7 @@ function renderGroupsPage() {
         <button class="btn btn-primary" id="group-save">保存本群设置</button>
       </div>
       <div class="page-desc">只影响所选群。改动立即写入数据库，AI 对话的权限与工具开关下一次消息生效。</div>
+      ${runtimeBanner()}
     </div>
     <div id="group-body"><div class="empty-hint">加载中…</div></div>
   </div>`;
@@ -374,8 +451,7 @@ function renderGroupBody() {
   const features = d.features || {};
   const limits = d.limits || {};
   const tools = ((d.agent_tools || {}).tools) || [];
-  const featureHtml = FEATURES.map(([key, label, desc]) =>
-    switchRow(label, desc, !!features[key], `data-feature="${key}"`)).join('');
+  const featureHtml = featureTreeHtml(FEATURE_TREE, features, 0, true);
   const limitHtml = LIMIT_FEATURES.map(([key, label]) => {
     const l = limits[key] || { per_minute: 0, per_hour: 0, per_day: 0 };
     return `<div class="limit-row">
@@ -405,7 +481,7 @@ function renderGroupBody() {
       <span>${esc((g && (g.display_name || g.group_name)) || '')}</span>
       <span>归档 ${fmtNum((g && g.message_count) || 0)} 条</span>
     </div>
-    ${card('功能开关', '开关会互相约束：日报依赖消息采集；自动日报依赖日报；画像依赖消息采集。', `<div class="switch-list">${featureHtml}</div>`)}
+    ${card('功能开关（分层）', '上层关闭时下层自动失效。回怼类为确定性规则，命中后不会进入 LLM；触发档位默认关闭。', `<div class="switch-list">${featureHtml}</div>`)}
     ${card('发言限流', '只对三类“主动/被动反应”生效，防止刷屏；0 表示不限制。', `<div class="limit-list">${limitHtml}</div>`)}
     ${card('常数报时', '整点播报，管理员在群里用命令也能开关。', `<div class="form-row">
         ${switchRow('启用报时', '', !!chime.enabled, 'data-chime="enabled"')}
@@ -449,6 +525,19 @@ async function saveGroupSettings() {
       body: JSON.stringify(payload),
     });
     state.groupDetail = data;
+    const tierToggle = $('[data-tier="enabled"]');
+    const tierPayload = {
+      enabled: tierToggle ? tierToggle.checked : !!(state.tierConfig || {}).enabled,
+      keywords: (($('#tier-keywords') || {}).value || ''),
+      probability: Number((($('#tier-probability') || {}).value || 0)),
+      cooldown_minutes: Number((($('#tier-cooldown') || {}).value || 0)),
+      daily_limit: Number((($('#tier-daily') || {}).value || 0)),
+    };
+    state.tierConfig = await apiQqa('/api/groups/' + encodeURIComponent(state.groupId) + '/tier', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(tierPayload),
+    });
     renderGroupBody();
     toast('已保存');
   } catch (e) {

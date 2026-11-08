@@ -9,6 +9,16 @@
 """
 
 from .chat import answer_v3, engine_name, should_use_v3
+from .router import (
+    reactions_routed_for,
+    run_deterministic_reactions,
+    runtime_active_for,
+    runtime_enabled,
+    runtime_group_ids,
+    runtime_state,
+    tier_allows_chat,
+)
+from .tier import decide_trigger, get_tier_config, init_tier_db, save_tier_config
 from .recorder import RunRecorder, chat_key_for, current_recorder, start_run
 from .store import (
     DB_PATH,
@@ -32,15 +42,26 @@ __all__ = [
     "answer_v3",
     "chat_key_for",
     "current_recorder",
+    "decide_trigger",
     "engine_name",
     "get_run",
+    "get_tier_config",
     "init_runtime_db",
+    "init_tier_db",
     "insert_run",
     "list_runs",
     "prune_runs",
+    "reactions_routed_for",
+    "run_deterministic_reactions",
+    "runtime_active_for",
+    "runtime_enabled",
+    "runtime_group_ids",
+    "runtime_state",
     "runtime_stats",
+    "save_tier_config",
     "should_use_v3",
     "start_run",
+    "tier_allows_chat",
     "today_totals",
     "update_run",
 ]

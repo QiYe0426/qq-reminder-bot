@@ -843,6 +843,11 @@ async def maybe_bot_tease(bot: Bot, event: GroupMessageEvent) -> bool:
 
 @group_reactions.handle()
 async def handle_group_reactions(bot: Bot, event: MessageEvent) -> None:
+    # 统一路由接管时，确定性回怼由 runtime 执行，避免同一条消息被回两次。
+    from plugins.agent_runtime.router import reactions_routed_for
+
+    if reactions_routed_for(event):
+        return
     try:
         if await maybe_keyword_retort(bot, event):
             return

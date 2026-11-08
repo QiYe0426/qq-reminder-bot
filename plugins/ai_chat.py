@@ -43,7 +43,16 @@ from plugins.agent_tools.contracts import (
 )
 from plugins.agent_tools.confirmation import confirm_pending_confirmation
 from plugins.agent_tool_access import filter_allowed_agent_tool_definitions, is_agent_tool_allowed
-from plugins.agent_runtime import RunRecorder, answer_v3, chat_key_for, should_use_v3, start_run
+from plugins.agent_runtime import (
+    RunRecorder,
+    answer_v3,
+    chat_key_for,
+    run_deterministic_reactions,
+    runtime_active_for,
+    should_use_v3,
+    start_run,
+    tier_allows_chat,
+)
 from plugins.chime_service import (
     get_chime_state,
 )
@@ -2943,11 +2952,18 @@ async def handle_ai_chat(bot: Bot, event: MessageEvent) -> None:
             await ai_chat.finish(Message(pending_setup_reply))
         if pending_reply := await handle_pending_reminder_confirmation(bot, event):
             await ai_chat.finish(Message(pending_reply))
+        if runtime_active_for(event) and await run_deterministic_reactions(bot, event):
+            return
         if not group_mentions_bot(event, bot):
             triggered_question = strip_ai_prefix(question)
             if triggered_question is None:
-                return
-            question = triggered_question
+                if not runtime_active_for(event):
+                    return
+                if not await tier_allows_chat(event, question):
+                    return
+                question = question or event.get_plaintext()
+            else:
+                question = triggered_question
     else:
         if confirmation_reply := await handle_tool_confirmation_reply(event):
             await ai_chat.finish(Message(confirmation_reply))

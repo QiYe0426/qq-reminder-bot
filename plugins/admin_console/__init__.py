@@ -68,8 +68,10 @@ from plugins.agent_runtime import (
     init_runtime_db,
     list_runs as list_agent_runs,
     runtime_stats as agent_runtime_stats,
+    runtime_state as agent_runtime_state,
     today_totals as agent_runtime_today,
 )
+from plugins.agent_runtime.tier import get_tier_config, save_tier_config
 from plugins.chime_service import (
     CHIME_MODE_HOURLY,
     get_chime_state as get_target_chime_state,
@@ -218,6 +220,7 @@ async def qqa_overview() -> dict[str, object]:
         "models": qqa_models(),
         "stats": stats,
         "today": today,
+        "runtime": agent_runtime_state(),
     }
 
 
@@ -1362,6 +1365,25 @@ if (
         if run is None:
             raise HTTPException(status_code=404, detail="run not found")
         return JSONResponse(run)
+
+    @server_app.get(f"{ROUTE_PREFIX}/qqa/api/groups/{{group_id}}/tier")
+    async def admin_console_qqa_get_tier(
+        group_id: str,
+        token: str | None = Query(default=None),
+        authorization: str | None = Header(default=None),
+    ) -> JSONResponse:
+        check_token(token=token, authorization=authorization)
+        return JSONResponse(await get_tier_config(group_id))
+
+    @server_app.put(f"{ROUTE_PREFIX}/qqa/api/groups/{{group_id}}/tier")
+    async def admin_console_qqa_save_tier(
+        group_id: str,
+        request: Request,
+        token: str | None = Query(default=None),
+        authorization: str | None = Header(default=None),
+    ) -> JSONResponse:
+        check_token(token=token, authorization=authorization)
+        return JSONResponse(await save_tier_config(group_id, await request.json()))
 
     @server_app.get(f"{ROUTE_PREFIX}/qqa/api/events")
     async def admin_console_qqa_events(

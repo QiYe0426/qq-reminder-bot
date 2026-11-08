@@ -395,3 +395,30 @@ async def today_totals(*, path: Path | None = None) -> dict[str, Any]:
         "completion_tokens": int(row["completion_tokens"] or 0) if row else 0,
         "errors": int(row["errors"] or 0) if row else 0,
     }
+
+
+async def chat_run_stats(chat_key: str, *, path: Path | None = None) -> dict[str, Any]:
+    """某个会话的运行统计：今日次数与最近一次开始时间（R0 档位用）。"""
+    db_path = path or DB_PATH
+    await init_runtime_db(db_path)
+    today_start = int(time.time()) - int(time.time()) % 86400
+    async with aiosqlite.connect(db_path) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            """
+            SELECT COUNT(*) AS runs, MAX(started_at) AS last_started
+            FROM agent_runs
+            WHERE chat_key = ? AND started_at >= ?
+            """,
+            (chat_key, today_start),
+        )
+        row = await cursor.fetchone()
+        cursor = await db.execute(
+            "SELECT MAX(started_at) AS last_started FROM agent_runs WHERE chat_key = ?",
+            (chat_key,),
+        )
+        last_row = await cursor.fetchone()
+    return {
+        "runs_today": int(row["runs"] or 0) if row else 0,
+        "last_started": int(last_row["last_started"] or 0) if last_row else 0,
+    }
