@@ -112,9 +112,11 @@ NapCat (QQ) ←→ OneBot v11 WebSocket → NoneBot → plugins/*
 - **AI agent 流程**：`ai_chat.py` 把用户消息路由给 tool-calling agent。工具在 `agent_tools/registry.py` 注册，每个工具带分类、功能依赖、是否需要管理员权限等元信息。
 - **工具注册**：见 `plugins/agent_tools/__init__.py`，它负责导入各工具族并调用 `register_tools()` 注册。每个工具有名称、OpenAI 格式的 definition、handler、`requires_feature`（需要某个群功能开启）和 `requires_admin` 标记。
 - **消息流水线**：`message_archive.py` 写入原始消息 → `message_collector.py` / `media_insights.py` 从归档消费 → `daily_report.py` 和 `semantic_graph.py` 读取采集数据。
-- **Agent run trace**：`plugins/agent_runtime/` 为每次 AI 对话生成一条 run 记录（系统提示、本次输入、思考、工具调用与耗时、实际发送、token 用量），写入独立的 `data/agent_runs.db`；控制台通过 `GET /api/runs`、`GET /api/runs/{run_id}` 只读查询。该层只观测、不改变行为：记录器内部吞掉所有异常，`AGENT_RUN_TRACE_ENABLED=0` 可整体关闭。
+- **Agent run trace**：`plugins/agent_runtime/` 为每次 AI 对话生成一条 run 记录（系统提示、本次输入、**思考/推理、模型输出、工具调用与耗时、实际发送、token 用量**），写入独立的 `data/agent_runs.db`；控制台通过 `GET /api/runs`、`GET /api/runs/{run_id}` 只读查询。模型的 `reasoning_content` 记为 `kind=reasoning`（只展示不发送），与 `kind=think`（中间文本/计划）和 `kind=sent`（实际发送）分开。该层只观测、不改变行为：记录器内部吞掉所有异常，`AGENT_RUN_TRACE_ENABLED=0` 可整体关闭。
 - **调试台（qqa）**：`/hunterbot/admin-console/qqa` 是 QQ Agent 风格的控制台（会话 trace / 用量 / 设置 / 连接），与旧控制台并存；数据来自 `agent_runtime`。
 - **对话引擎开关**：`AI_CHAT_ENGINE=legacy|v3`（默认 legacy）。v3 是无状态路由（R1 单次闲聊；R2 先判定 need 再检索、二次调用），只在 `AI_V3_GROUP_IDS` 白名单群生效；v3 抛错会自动回退 legacy。代码在 `plugins/agent_runtime/chat.py`。
+- **统一路由（批 1）**：`AGENT_RUNTIME_ROUTING=1` + `AGENT_RUNTIME_GROUP_IDS` 时，群消息先跑确定性回怼（固定/关键词/调戏 bot，命中不进 LLM，旧 matcher 自动跳过），再按触发档位（`plugins/agent_runtime/tier.py`，默认关闭）决定是否进入对话。控制台「群管理」提供分层开关与档位配置。
+- **上下文层（批 2）**：v3 的 system prompt 会按 `AGENT_V3_CONTEXT_MAX_CHARS` 预算注入「相关群友画像 + 最近群聊」，失败降级为空。
 - **猎宝控制台**：内建 Web UI，地址 `/hunterbot/admin-console`。需要配置 `COMPANION_ADMIN_TOKEN`。由 `plugins/admin_console/` 插件提供，随 bot 进程启动（不需要单独部署前端）。服务器上通过 Nginx 反代提供 HTTPS。
 
 ## 核心插件与数据流
