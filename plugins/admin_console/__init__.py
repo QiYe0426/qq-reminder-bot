@@ -1333,6 +1333,36 @@ if (
         check_token(token=token, authorization=authorization)
         return JSONResponse(await qqa_overview())
 
+    @server_app.get(f"{ROUTE_PREFIX}/qqa/api/runs")
+    async def admin_console_qqa_runs(
+        limit: int = Query(default=50, ge=1, le=200),
+        chat_key: str | None = Query(default=None),
+        status: str | None = Query(default=None),
+        before: int | None = Query(default=None),
+        token: str | None = Query(default=None),
+        authorization: str | None = Header(default=None),
+    ) -> JSONResponse:
+        check_token(token=token, authorization=authorization)
+        runs = await list_agent_runs(
+            chat_key=chat_key or None,
+            status=status or None,
+            limit=limit,
+            before=before,
+        )
+        return JSONResponse({"runs": runs, "stats": await agent_runtime_stats()})
+
+    @server_app.get(f"{ROUTE_PREFIX}/qqa/api/runs/{{run_id}}")
+    async def admin_console_qqa_run_detail(
+        run_id: str,
+        token: str | None = Query(default=None),
+        authorization: str | None = Header(default=None),
+    ) -> JSONResponse:
+        check_token(token=token, authorization=authorization)
+        run = await get_agent_run(run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="run not found")
+        return JSONResponse(run)
+
     @server_app.get(f"{ROUTE_PREFIX}/qqa/api/events")
     async def admin_console_qqa_events(
         request: Request,
