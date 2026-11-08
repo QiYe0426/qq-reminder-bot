@@ -397,6 +397,31 @@ async def today_totals(*, path: Path | None = None) -> dict[str, Any]:
     }
 
 
+async def recent_sent_texts(
+    chat_key: str,
+    *,
+    limit: int = 3,
+    path: Path | None = None,
+) -> list[str]:
+    """该会话最近实际发出的文本，用于避免 v3 无状态重复同样的梗。"""
+    db_path = path or DB_PATH
+    await init_runtime_db(db_path)
+    async with aiosqlite.connect(db_path) as db:
+        cursor = await db.execute(
+            """
+            SELECT step.result
+            FROM agent_run_steps AS step
+            JOIN agent_runs AS run ON run.run_id = step.run_id
+            WHERE run.chat_key = ? AND step.kind = 'sent' AND step.result IS NOT NULL AND step.result != ''
+            ORDER BY step.at DESC, step.seq DESC
+            LIMIT ?
+            """,
+            (chat_key, max(1, min(int(limit), 10))),
+        )
+        rows = await cursor.fetchall()
+    return [str(row[0]) for row in rows if row and row[0]]
+
+
 async def chat_run_stats(chat_key: str, *, path: Path | None = None) -> dict[str, Any]:
     """某个会话的运行统计：今日次数与最近一次开始时间（R0 档位用）。"""
     db_path = path or DB_PATH

@@ -51,6 +51,34 @@ def test_should_use_v3_env_matrix(monkeypatch) -> None:
     assert chat_module.should_use_v3(_event(group_id=999)) is False
 
 
+def test_v3_system_prompt_has_anti_repetition_rules() -> None:
+    assert "反重复要求" in chat_module.V3_SYSTEM
+    assert "潜行" in chat_module.V3_SYSTEM
+    assert "你最近说过的话" in chat_module.V3_SYSTEM
+
+
+def test_build_context_block_includes_recent_sent(monkeypatch) -> None:
+    async def fake_profile(*args, **kwargs) -> str:
+        return ""
+
+    async def fake_group_context(**kwargs) -> dict[str, object]:
+        return {}
+
+    async def fake_recent(chat_key, limit=3) -> list[str]:
+        return ["哼哼，被我逮到了吧"]
+
+    monkeypatch.setattr(chat_module, "_context_budget", lambda: 2600)
+    monkeypatch.setattr(chat_module.store, "recent_sent_texts", fake_recent)
+
+    class FakeEvent:
+        group_id = 700021408
+        user_id = 42
+
+    block = asyncio.run(chat_module.build_context_block(FakeEvent(), "158"))
+    assert "你最近在这个群说过的话" in block
+    assert "被我逮到了吧" in block
+
+
 def test_extract_plan_variants() -> None:
     plan = chat_module.extract_plan('{"reply": "嗯", "need": "web", "queries": ["新闻"]}')
     assert plan == {"reply": "嗯", "need": "web", "queries": ["新闻"]}

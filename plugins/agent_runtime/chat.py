@@ -21,6 +21,7 @@ import re
 import time
 from typing import Any
 
+from . import store
 from .recorder import chat_key_for, start_run
 
 ENGINE_ENV = "AI_CHAT_ENGINE"
@@ -35,7 +36,11 @@ V3_SYSTEM = (
     "- 闲聊、情绪、吐槽、接梗：need 填 none，queries 为空数组；\n"
     "- 需要查本地资料（游戏/攻略/设定）：need 填 kb；\n"
     "- 需要最新信息（新闻、价格、赛事、版本、官网）：need 填 web，并给出 1~2 个检索词；\n"
-    "- 不确定时用 none，不要为了检索而检索。\n"
+    "- 不确定时用 none，不要为了检索而检索。\n\n"
+    "反重复要求（重要）：\n"
+    "- 人设只是背景调味，不要每句都提潜行/用毒/猎手/尖塔；对方没在聊游戏就别扯这些。\n"
+    "- 不要连续使用同一个口头禅、比喻或句式；如果【你最近说过的话】里出现过，就换一种说法。\n"
+    "- 先接住对方这句话的内容和情绪，再考虑要不要加人设味道。\n"
 )
 
 _RETRIEVE_HINT = (
@@ -182,6 +187,15 @@ async def build_context_block(event: Any, question: str) -> str:
                 parts.append("【最近的群聊】\n" + context_text)
         except Exception:
             pass
+    try:
+        kind = "group" if group_id is not None else "private"
+        target = str(group_id) if group_id is not None else str(user_id or "")
+        recent = await store.recent_sent_texts(chat_key_for(kind, target), limit=3)
+        if recent:
+            lines = "\n".join(f"- {item}" for item in recent)
+            parts.append("【你最近在这个群说过的话（不要重复同样的梗和句式）】\n" + lines)
+    except Exception:
+        pass
     text = "\n\n".join(parts).strip()
     budget = _context_budget()
     return text[:budget] if budget else ""

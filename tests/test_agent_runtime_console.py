@@ -35,6 +35,16 @@ def test_qqa_static_assets_exist() -> None:
         assert endpoint in script, f"前端没有接上旧接口 {endpoint}"
 
 
+def test_persona_file_has_anti_overfit_rules() -> None:
+    from pathlib import Path
+
+    persona = (Path(__file__).resolve().parents[1] / "config" / "bot_persona_prompt.txt").read_text(
+        encoding="utf-8"
+    )
+    assert "不是口头禅" in persona
+    assert "不要主动提" in persona
+
+
 def test_qqa_overview_shape() -> None:
     from plugins import admin_console
     from plugins.agent_runtime import store
